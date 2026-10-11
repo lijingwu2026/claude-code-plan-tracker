@@ -926,12 +926,15 @@ describe('the plan line under the plan name', () => {
     expect(planLineOf({ ...open, started }, Date.parse('2026-10-12T05:40:00Z'), WIDE)).toStartWith('started Oct 11 23:30 · 1h 10m so far')
   })
 
-  test('not every task measured: " (n of m tasks)" ends the line, after the cost', () => {
-    expect(planLineOf({ ...open, usage_totals: { ...TOTALS, measured: 3, total: 12 } }, NOW, WIDE)).toBe('started 20:08 today · 56m so far · 38.2M tokens · ~$9.30 (3 of 12 tasks)')
+  test('not every task measured: the line never says "of" + "tasks" (the header already shows n/m)', () => {
+    const partial = { ...open, usage_totals: { ...TOTALS, measured: 3, total: 12 } }
+
+    expect(planLineOf(partial, NOW, WIDE)).toBe('started 20:08 today · 56m so far · 38.2M tokens · ~$9.30')
+    expect(planLineOf(partial, NOW, WIDE)).not.toMatch(/\bof\b.*\btasks\b/)
   })
 
-  test('the suffix follows the tokens when there is no price; all measured has none', () => {
-    expect(planLineOf({ ...open, usage_totals: { ...TOTALS, cost: null, measured: 2, total: 4 } }, NOW, WIDE)).toBe('started 20:08 today · 56m so far · 38.2M tokens (2 of 4 tasks)')
+  test('no price and not every task measured: the line ends at the tokens', () => {
+    expect(planLineOf({ ...open, usage_totals: { ...TOTALS, cost: null, measured: 2, total: 4 } }, NOW, WIDE)).toBe('started 20:08 today · 56m so far · 38.2M tokens')
     expect(planLineOf({ ...open, usage_totals: { ...TOTALS, cost: null } }, NOW, WIDE)).not.toContain('tasks')
   })
 
@@ -967,11 +970,11 @@ describe('the plan line under the plan name', () => {
     }
   })
 
-  test('the partial suffix stays with the last figure when the front of the line is dropped', () => {
+  test('a partly measured plan on a narrow pane drops the front of the line like any other, with no suffix', () => {
     const partial = { ...open, usage_totals: { ...TOTALS, measured: 3, total: 12 } }
 
-    expect(planLineOf(partial, NOW, 48)).toBe('38.2M tokens · ~$9.30 (3 of 12 tasks)')
-    expect(planLineOf(partial, NOW, 30)).toBe('~$9.30 (3 of 12 tasks)')
+    expect(planLineOf(partial, NOW, 33)).toBe('38.2M tokens · ~$9.30')
+    expect(planLineOf(partial, NOW, 20)).toBe('~$9.30')
   })
 
   test('the line never starts with a state word, open or closed', () => {
@@ -1005,7 +1008,7 @@ describe('the plan line under the plan name', () => {
       const line = await pane.find({ key: 'plan-line' })
 
       expect(strip).toEqual(['menu', 'plan-line', 'divider'])
-      expect(textOf(line)).toMatch(/^started (20:08 today|Oct 11 20:08) · took 56m · 38\.2M tokens · ~\$9\.30 \(3 of 12 tasks\)$/)
+      expect(textOf(line)).toMatch(/^started (20:08 today|Oct 11 20:08) · took 56m · 38\.2M tokens · ~\$9\.30$/)
       expect(kids(line)[0]?.props.dimColor).toBe(true)
       expect(await pane.find({ key: 'summary' })).toBeUndefined()
       expect(textOf(await pane.find({ key: 'menu' }))).toBe('● Alpha plan  Done  5/8Plan file ›')

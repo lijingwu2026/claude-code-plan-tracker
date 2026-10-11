@@ -1066,7 +1066,7 @@ function startedText(iso: string, now: number): string | undefined {
  * The dim line under the plan name: `started 20:08 today · 56m so far · 38.2M tokens · ~$9.30` (the state word is the header's).
  * A closed plan (the tracker gives `finished`) reads `started … · took 56m · …`; a plan no row has started reads `Not started yet`;
  * a plan from a board file (no times) with work under way has nothing to say and reads ''. Tokens
- * are in + out (in already holds the cached); `(n of m tasks)` ends the line when only n of the m measurable tasks have usage;
+ * are in + out (in already holds the cached);
  * the tokens and the cost are left out when none is measured, the cost alone when it has no price. Wider than `width`:
  * "started …" goes first, then the elapsed time, then the tokens; the cost stays, and a line still too wide is cut with …
  */
@@ -1083,7 +1083,6 @@ export function planLineOf(plan: PlanEntry, now: number, width: number): string 
   const span = Number.isNaN(begin) || Number.isNaN(end) ? undefined : spanText(end - begin)
   const started = plan.started === undefined ? undefined : startedText(plan.started, now)
   const measured = totals !== undefined && totals.measured > 0
-  const part = totals !== undefined && totals.measured < totals.total ? ` (${totals.measured} of ${totals.total} tasks)` : ''
   const tokens = measured ? `${compactCount(totals.tokens_in + totals.tokens_out)} tokens` : undefined
   const cost = measured && totals.cost !== null ? `~$${totals.cost.toFixed(2)}` : undefined
 
@@ -1092,7 +1091,7 @@ export function planLineOf(plan: PlanEntry, now: number, width: number): string 
     const shown = [
       ...(keep.started && started !== undefined ? [`started ${started}`] : []),
       ...(keep.elapsed && span !== undefined ? [isClosed ? `took ${span}` : `${span} so far`] : []),
-      ...money.map((one, at) => (at === money.length - 1 ? `${one}${part}` : one)),
+      ...money,
     ]
 
     return shown.join(' · ')
