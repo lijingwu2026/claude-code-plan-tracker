@@ -76,9 +76,9 @@ describe('plan-tracker pane: the header', () => {
       expect(textOf(await ui.drawn())).not.toContain('Summary')
       const strip = kids(await ui.find({ key: 'strip' })).map(node => String(node.props?.key))
 
-      expect(strip).toEqual(['menu', 'plan-line', 'divider'])
-      expect(textOf(await ui.find({ key: 'plan-line' }))).toBe('Not started yet')
-      expect(kids(await ui.find({ key: 'plan-line' }))[0]?.props.dimColor).toBe(true)
+      expect(strip).toEqual(['menu', 'plan-stats', 'divider'])
+      expect(textOf(await ui.find({ key: 'plan-stats' }))).toBe('Not started yet')
+      expect(kids(await ui.find({ key: 'plan-stats' }))[0]?.props.dimColor).toBe(true)
       await ui.unmount()
     })
 
@@ -543,7 +543,7 @@ describe('plan-tracker pane: the cards', () => {
 })
 
 describe('plan-tracker pane: deliverables', () => {
-  test('the section shows the paths that rows recorded, each once, in the link colour', async ($, on) => {
+  test('the section shows the paths that rows recorded, each once, in a link colour that reads on a dark and a light theme (not `remember`, a dark blue on a dark theme)', async ($, on) => {
     world(on)
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal')
@@ -557,7 +557,8 @@ describe('plan-tracker pane: deliverables', () => {
     expect(textOf(section)).toContain('automation/plans/alpha-plan.md  —')
     expect(await pane.findAll({ type: 'Link' })).toEqual([])
     expect(textOf(section).split('automation/plans/alpha-plan.md')).toHaveLength(2)
-    expect(JSON.stringify(section)).toContain('"color":"remember"')
+    expect(JSON.stringify(section)).toContain('"color":"suggestion"')
+    expect(JSON.stringify(section)).not.toContain('"color":"remember"')
     await pane.unmount()
   })
 
@@ -747,7 +748,7 @@ describe('plan-tracker pane: the task page', () => {
     const { pane } = await open($, 't3')
 
     expect(await pane.find({ key: 'strip' })).toBeUndefined()
-    expect(await pane.find({ key: 'plan-line' })).toBeUndefined()
+    expect(await pane.find({ key: 'plan-stats' })).toBeUndefined()
     expect(await pane.find({ key: 'deliverables' })).toBeUndefined()
     await pane.unmount()
   })
@@ -809,7 +810,7 @@ describe('plan-tracker pane: v4 review changes', () => {
 
     expect(link?.props.label).toBe('docs/report-2026-09-20.md')
     expect(String(link?.props.href)).toEndWith('/docs/report-2026-09-20.md')
-    expect(JSON.stringify(await pane.find({ key: 'field:note' }))).toContain('"color":"remember"')
+    expect(JSON.stringify(await pane.find({ key: 'field:note' }))).toContain('"color":"suggestion"')
     expect(JSON.stringify(await pane.find({ key: 'field:status' }))).toContain('"color":"error","bold":true')
     await pane.unmount()
   })
@@ -861,9 +862,9 @@ describe('plan-tracker pane: v4 review changes', () => {
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal')
 
-    expect(JSON.stringify(await pane.find({ key: 'deliverables' }))).toContain('"color":"remember"')
+    expect(JSON.stringify(await pane.find({ key: 'deliverables' }))).toContain('"color":"suggestion"')
     await openCard(pane, indexOfTask('d4'))
-    expect(JSON.stringify(await pane.find({ key: 'field:deliverable' }))).toContain('"color":"remember"')
+    expect(JSON.stringify(await pane.find({ key: 'field:deliverable' }))).toContain('"color":"suggestion"')
     await pane.unmount()
   })
 

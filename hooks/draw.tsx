@@ -38,11 +38,16 @@ import {
   STATE_STYLE,
   deliverableGroups,
   deliverableHref,
-  planLineOf,
+  planStatsOf,
+  notStartedText,
   planStateOf,
   progressOf,
   statusWords,
-  usageLineOf,
+  usageStatsOf,
+  fitStats,
+  statLines,
+  STAT_GAP,
+  DELIVERABLES_SHOWN,
   whoLineOf,
   chipCols,
   displayWidth,
@@ -69,7 +74,7 @@ import {
   worstStatus,
 } from './board'
 import type { CardRow } from './card'
-import type { Card, Chip, Deliverable, DeliverableGroup, Lane, LaneKey, Pose, Progress } from './board'
+import type { Card, Chip, Deliverable, DeliverableGroup, Lane, LaneKey, Pose, Progress, Stat } from './board'
 
 /** The elements both drawings use; every surface's table has them. */
 export type Kit = {
@@ -148,6 +153,55 @@ type BandArgs = {
   onBoard: () => void
 }
 
+type PlanListArgs = {
+  plans: readonly PlanEntry[]
+  /** The open plan: its row is marked ▶ and drawn inverse. */
+  plan: PlanEntry
+  /** The columns the list may take, its one margin column included. */
+  columns: number
+  /** The list Box's key. */
+  listKey: string
+  /** What a row's Button key starts with; the anchor follows. */
+  pickKey: string
+  onPick: (anchor: string) => void
+}
+
+/**
+ * The plan list both the board's dropdown and the band's open: one row per plan (`▶` for the open one, the name, its state word
+ * in the state's color, n/m), the open row inverse and bold. The name is cut first (to 1 column at the least); if even then the
+ * state word has no room, it is dropped whole.
+ */
+function drawPlanList(kit: Kit, { plans, plan, columns, listKey, pickKey, onPick }: PlanListArgs): RenderElement {
+  const { Box, Text, Button } = kit
+  const room = columns - 1
+  const countCols = Math.max(0, ...plans.map(one => displayWidth(countText(one))))
+  const nameRoom = (hasState: boolean) => room - 2 - 1 - countCols - (hasState ? STATE_COLUMNS + 2 : 0)
+  const hasState = nameRoom(true) >= 4
+  const names = plans.map(one => truncate(one.name, Math.max(1, nameRoom(hasState))))
+  const nameCols = Math.max(0, ...names.map(displayWidth))
+
+  const option = (one: PlanEntry, at: number) => {
+    const isOn = one.anchor === plan.anchor
+    const text = `${isOn ? '▶' : ' '} ${padTo(names[at] ?? '', nameCols)}`
+
+    return (
+      <Box flexDirection="row">
+        <Button plain key={`${pickKey}${one.anchor}`} label={text} onPress={() => onPick(one.anchor)}>
+          <Text {...(isOn ? { bold: true, inverse: true } : {})}>{text}</Text>
+        </Button>
+        {hasState ? <Text color={STATE_STYLE[planStateOf(one)].color} {...(isOn ? { inverse: true } : {})}>{`  ${padTo(planStateOf(one), STATE_COLUMNS)}`}</Text> : null}
+        <Text color="suggestion" {...(isOn ? { inverse: true } : {})}>{` ${countText(one)}`}</Text>
+      </Box>
+    )
+  }
+
+  return (
+    <Box key={listKey} flexDirection="column" marginLeft={1}>
+      {plans.map(option)}
+    </Box>
+  )
+}
+
 /** Columns the band's frame takes from the row: two border columns and one padding column each side. */
 const FRAME_COLUMNS = 4
 
@@ -164,29 +218,6 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
   const { color: stateColor } = STATE_STYLE[line.state]
   const hasChoice = plans.length > 1
   const { color: dotColor, ...dotDim } = STYLE[worstStatus(plan)]
-  // The list is as wide as the column. The name is cut first (to 4 columns at the least); if even then the state word has no room, it is dropped whole.
-  const listColumns = columns + BAND_MASCOT_SPACE
-  const countCols = Math.max(0, ...plans.map(one => displayWidth(countText(one))))
-  const nameRoom = (hasState: boolean) => listColumns - 2 - 2 - countCols - (hasState ? STATE_COLUMNS + 2 : 0)
-  const hasListState = nameRoom(true) >= 4
-  const names = plans.map(one => truncate(one.name, Math.max(1, nameRoom(hasListState))))
-  const nameCols = Math.max(0, ...names.map(displayWidth))
-
-  const option = (one: PlanEntry, at: number) => {
-    const isOn = one.anchor === plan.anchor
-    const lead = `${isOn ? '▸' : ' '} ${padTo(names[at] ?? '', nameCols)}  `
-    const word = hasListState ? padTo(planStateOf(one), STATE_COLUMNS) : ''
-    const tail = `${hasListState ? '  ' : ''}${countText(one)}`
-
-    return (
-      <Button plain key={`band:plan:${one.anchor}`} label={`${lead}${word}${tail}`} onPress={() => onPick(one.anchor)}>
-        <Text {...(isOn ? { bold: true } : {})}>{lead}</Text>
-        {hasListState ? <Text color={STATE_STYLE[planStateOf(one)].color} {...(isOn ? { bold: true } : {})}>{word}</Text> : null}
-        <Text {...(isOn ? { bold: true } : {})}>{tail}</Text>
-      </Button>
-    )
-  }
-
   const fileLabel = isFile ? BOARD_LABEL : FILE_LABEL
   const fileButton = isFile ? (
     <Button plain key="band:board" label={BOARD_LABEL} onPress={onBoard} />
@@ -275,11 +306,7 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
           {fileButton}
         </Box>
         </Box>
-        {isOpen && hasChoice ? (
-          <Box key="band:list" flexDirection="column">
-            {plans.map(option)}
-          </Box>
-        ) : null}
+        {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns: columns + BAND_MASCOT_SPACE, listKey: 'band:list', pickKey: 'band:plan:', onPick }) : null}
         {holdsSomething(below) ? below : null}
       </Box>
     )
@@ -340,12 +367,53 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
           </Box>
         ) : null}
       </Box>
-      {isOpen && hasChoice ? (
-        <Box key="band:list" flexDirection="column">
-          {plans.map(option)}
-        </Box>
-      ) : null}
+      {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns: columns + BAND_MASCOT_SPACE, listKey: 'band:list', pickKey: 'band:plan:', onPick }) : null}
       {holdsSomething(below) ? below : null}
+    </Box>
+  )
+}
+
+type StatsArgs = {
+  stats: readonly Stat[]
+  isProportional: boolean
+  boxKey: string
+}
+
+/**
+ * A row of stats, each a bold value over a small dim label. The terminal has no font size: two lines of text, the values bold
+ * and the labels dim under them, each stat in a column as wide as the wider of the two. The desktop has no size prop either: a
+ * Box per stat, the value bold in the normal colour against its dim label.
+ */
+function drawStats(kit: Kit, { stats, isProportional, boxKey }: StatsArgs): RenderElement {
+  const { Box, Text } = kit
+
+  if (isProportional) {
+    return (
+      <Box key={boxKey} flexDirection="row" gap={STAT_GAP} marginTop={1}>
+        {stats.map(stat => (
+          <Box key={`${boxKey}:${stat.label}`} flexDirection="column" flexShrink={0}>
+            <Text bold wrap="truncate">
+              {stat.value}
+            </Text>
+            <Text dimColor wrap="truncate">
+              {stat.label}
+            </Text>
+          </Box>
+        ))}
+      </Box>
+    )
+  }
+
+  const { values, labels } = statLines(stats)
+
+  return (
+    <Box key={boxKey} flexDirection="column">
+      <Text bold wrap="truncate">
+        {values}
+      </Text>
+      <Text dimColor wrap="truncate">
+        {labels}
+      </Text>
     </Box>
   )
 }
@@ -405,7 +473,8 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   const { color: dotColor, ...dotDim } = STYLE[worstStatus(plan)]
   const hasChoice = plans.length > 1
   const state = planStateOf(plan)
-  const planLine = planLineOf(plan, args.now, columns)
+  const stats = planStatsOf(plan, args.now, columns)
+  const notStarted = notStartedText(plan)
   // The state word is never cut: the name is shortened to leave it room (two gaps and the word besides the count).
   const headName = truncate(plan.name, Math.max(8, columns - 20 - displayWidth(countText(plan)) - 2 - displayWidth(state)))
 
@@ -430,24 +499,6 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
       <Button plain key="plan-file" label={FILE_LABEL} onPress={onFile} />
     </Box>
   )
-
-  const names = plans.map(one => truncate(one.name, Math.max(8, columns - 8 - STATE_COLUMNS - 2 - displayWidth(countText(one)))))
-  const nameCols = Math.max(0, ...names.map(displayWidth))
-
-  const option = (one: PlanEntry, at: number) => {
-    const isOn = one.anchor === plan.anchor
-    const text = `${isOn ? '▶' : ' '} ${padTo(names[at] ?? '', nameCols)}`
-
-    return (
-      <Box flexDirection="row">
-        <Button plain key={`plan:${one.anchor}`} label={text} onPress={() => onPick(one.anchor)}>
-          <Text {...(isOn ? { bold: true, inverse: true } : {})}>{text}</Text>
-        </Button>
-        <Text color={STATE_STYLE[planStateOf(one)].color} {...(isOn ? { inverse: true } : {})}>{`  ${padTo(planStateOf(one), STATE_COLUMNS)}`}</Text>
-        <Text color="suggestion" {...(isOn ? { inverse: true } : {})}>{` ${countText(one)}`}</Text>
-      </Box>
-    )
-  }
 
   // A card is its own bordered Box (the border takes 2 columns): every line of it is a Button, so a press anywhere opens
   // its page. An In Progress card has the mascot beside its two lines; a Blocked card is red all through (border, text,
@@ -757,15 +808,13 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
       {row === undefined ? (
         <Box key="strip" flexDirection="column">
           {header}
-          {isOpen && hasChoice ? (
-            <Box key="menu:list" flexDirection="column" marginLeft={1}>
-              {plans.map(option)}
-            </Box>
-          ) : null}
-          {planLine === '' ? null : (
-            <Box key="plan-line">
+          {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns, listKey: 'menu:list', pickKey: 'plan:', onPick }) : null}
+          {stats.length > 0 ? (
+            drawStats(kit, { stats, isProportional, boxKey: 'plan-stats' })
+          ) : notStarted === '' ? null : (
+            <Box key="plan-stats">
               <Text dimColor wrap="truncate">
-                {planLine}
+                {notStarted}
               </Text>
             </Box>
           )}
@@ -783,7 +832,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
       ) : (
         drawDetail(kit, { row, columns, home, onBack, isProportional })
       )}
-      {row === undefined && groups.length > 0 ? drawDeliverables(kit, { groups, columns, home, isProportional }) : null}
+      {row === undefined && groups.length > 0 ? drawDeliverables(kit, { groups, columns, home, isProportional, isOpen: expanded.includes('Deliverables'), onLane: () => onLane('Deliverables') }) : null}
     </Box>
   )
 }
@@ -793,6 +842,10 @@ type DeliverablesArgs = {
   columns: number
   home: string | undefined
   isProportional: boolean
+  /** Whether every row shows, not only the first `DELIVERABLES_SHOWN`. */
+  isOpen: boolean
+  /** The overflow button's press. */
+  onLane: () => void
 }
 
 /**
@@ -823,9 +876,11 @@ const NBSP = ' '
  * whole path wraps (nothing is cut to the column count) and is a `Markdown` link: a `Link` opens only `https:` on a remote
  * surface, and the desktop opens it itself (no `onLinkPress`: a link the plugin answers is one the surface does not open).
  */
-function drawDeliverables(kit: Kit, { groups, columns, home, isProportional }: DeliverablesArgs): RenderElement {
-  const { Box, Text, Markdown } = kit
-  const rows = groups.flatMap(group => group.items.map((item, at) => ({ item, type: at === 0 ? group.type : '' })))
+function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, isOpen, onLane }: DeliverablesArgs): RenderElement {
+  const { Box, Text, Markdown, Button } = kit
+  const all = groups.flatMap(group => group.items.map((item, at) => ({ item, type: at === 0 ? group.type : '' })))
+  const hidden = Math.max(0, all.length - DELIVERABLES_SHOWN)
+  const rows = isOpen ? all : all.slice(0, DELIVERABLES_SHOWN)
   const typeCols = Math.max(4, ...groups.map(group => displayWidth(group.type))) + 2
 
   const chip = (type: string, padding = ' ') => (
@@ -836,31 +891,47 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional }: D
 
   const desktopRow = ({ item, type }: { item: Deliverable; type: string }, at: number) => {
     const href = deliverableHref(item.path, home)
+    const typeCell = (
+      <Box key={`deliverable:${at}:type`} width={typeCols + 2} flexShrink={0}>
+        {type === '' ? null : chip(type, NBSP)}
+      </Box>
+    )
+    const pathCell = (
+      <Box key={`deliverable:${at}:path`} flexGrow={1} flexShrink={1}>
+        {href === null ? <Text wrap="wrap">{item.path}</Text> : <Markdown key={`deliverable:${at}`} text={markdownLink(item.path, href)} />}
+      </Box>
+    )
+
+    // A proportional font sets ' .tsx ' wider than its cells: with a breaking space the Text wraps and the word falls a line below its path.
+    if (!hasChange) {
+      return (
+        <Box key={`deliverable:${at}:item`} flexDirection="column">
+          <Box flexDirection="row" gap={1} alignItems="flex-start">
+            {typeCell}
+            {pathCell}
+          </Box>
+          {item.change === undefined || item.change === '' ? null : (
+            <Box marginLeft={typeCols + 3}>
+              <Text dimColor wrap="wrap">{item.change}</Text>
+            </Box>
+          )}
+        </Box>
+      )
+    }
 
     return (
       <Box key={`deliverable:${at}:item`} flexDirection="row" gap={1} alignItems="flex-start">
-        {/* A proportional font sets ' .tsx ' wider than its cells: with a breaking space the Text wraps and the word falls a line below its path. */}
-        <Box width={typeCols + 2} flexShrink={0}>
-          {type === '' ? null : chip(type, NBSP)}
+        {typeCell}
+        {pathCell}
+        <Box width="34%" flexShrink={0}>
+          <Text dimColor wrap="wrap">{item.change ?? '—'}</Text>
         </Box>
-        <Box flexGrow={1} flexShrink={1}>
-          {href === null ? (
-            <Text wrap="wrap">{item.path}</Text>
-          ) : (
-            <Markdown key={`deliverable:${at}`} text={markdownLink(item.path, href)} />
-          )}
-        </Box>
-        {hasChange ? (
-          <Box width="34%" flexShrink={0}>
-            <Text dimColor wrap="wrap">{item.change ?? '—'}</Text>
-          </Box>
-        ) : null}
       </Box>
     )
   }
 
-  const pathNatural = Math.max(0, ...rows.map(({ item }) => displayWidth(item.path)))
-  const changeNatural = Math.max(displayWidth('CHANGE'), ...rows.map(({ item }) => displayWidth(item.change ?? '—')))
+  const pathNatural = Math.max(0, ...all.map(({ item }) => displayWidth(item.path)))
+  const changeNatural = Math.max(displayWidth('CHANGE'), ...all.map(({ item }) => displayWidth(item.change ?? '—')))
   const avail = columns - typeCols - TABLE_GAP
   let pathCols = avail
   let changeCols = 0
@@ -898,16 +969,34 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional }: D
     )
   }
 
+  // Too narrow for three columns: each deliverable is a block, its path first and its change dim and wrapped under it.
+  const indent = typeCols + TABLE_GAP
+
+  const stacked = (one: { item: Deliverable; type: string }, at: number) => (
+    <Box key={`deliverable:${at}:item`} flexDirection="column">
+      {line(one)}
+      {wrap(one.item.change ?? '', Math.max(1, columns - indent)).filter(text => text !== '').map(text => (
+        <Text dimColor wrap="truncate">{`${' '.repeat(indent)}${text}`}</Text>
+      ))}
+    </Box>
+  )
+
   const header = (
     <Text dimColor wrap="truncate">
       {`${padTo('TYPE', typeCols)}${gap}${changeCols === 0 ? 'DELIVERABLE' : `${padTo('DELIVERABLE', pathCols)}${gap}${padTo('CHANGE', changeCols)}`}`}
     </Text>
   )
 
+  const isStacked = isProportional ? !hasChange : changeCols === 0
+  const fold =
+    hidden === 0 ? null : (
+      <Button key="lane:Deliverables:more" label={overflowLabel({ moreLabel: isOpen ? SHOW_LESS : `+${hidden} more`, more: hidden }, columns)} onPress={onLane} />
+    )
+
   return (
     <Box key="deliverables" flexDirection="column" marginTop={1}>
       <Text bold>Deliverables</Text>
-      {isProportional ? (
+      {isStacked ? null : isProportional ? (
         <Box key="deliverables:head" flexDirection="row" gap={1}>
           <Box width={typeCols + 2} flexShrink={0}>
             <Text dimColor>TYPE</Text>
@@ -915,16 +1004,15 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional }: D
           <Box flexGrow={1} flexShrink={1}>
             <Text dimColor>DELIVERABLE</Text>
           </Box>
-          {hasChange ? (
-            <Box width="34%" flexShrink={0}>
-              <Text dimColor>CHANGE</Text>
-            </Box>
-          ) : null}
+          <Box width="34%" flexShrink={0}>
+            <Text dimColor>CHANGE</Text>
+          </Box>
         </Box>
       ) : (
         header
       )}
-      {isProportional ? rows.map(desktopRow) : rows.map(line)}
+      {isProportional ? rows.map(desktopRow) : isStacked ? rows.map(stacked) : rows.map(line)}
+      {fold}
     </Box>
   )
 }
@@ -955,8 +1043,8 @@ const chipParts = (words: string): Part[] =>
   words.split(' · ').flatMap((word, at): Part[] => [...(at === 0 ? [] : [{ text: ' · ' }]), CHIPS[word] === undefined ? { text: word } : { text: word, chip: CHIPS[word] }])
 
 /**
- * One task's page: the task behind a square in its status color; one dim line of `working time · tokens · cost` (and `high
- * effort` when the work ran at one), left out for a row with no usage and for her own rows; then a bordered table of labelled
+ * One task's page: the task behind a square in its status color; a row of stats (working time, tokens, est. cost, and the effort when the
+ * work ran at one: bold values over dim labels), left out for a row with no usage and for her own rows; then a bordered table of labelled
  * rows, each left out when the tracker records nothing for it: Goal, Status (in words and its color), Done by (the tier a chip
  * and the executor, or the you chip), Checked by (once the row is Done), Progress (a bar), "Latest note" (the reason, on a
  * Blocked row; its date, then one bulleted point per line, its file paths links) and Deliverable (the path as a link, the
@@ -977,7 +1065,7 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional }: De
   const bar = progressOf(row)
   // Nothing is shown before the row started, nor for a row written before the tracker kept usage: never a guessed window.
   // Her own tasks show no usage: the numbers are Claude's session, which does not measure her work.
-  const usage = usageLineOf(row.started === undefined || isYou(executorOf(row)) ? undefined : row.usage)
+  const usage = usageStatsOf(row.started === undefined || isYou(executorOf(row)) ? undefined : row.usage)
   const deliverable = row.deliverable === undefined || row.deliverable === '' ? undefined : row.deliverable
   const plain = (text: string): Part[][] => wrap(text, valueWidth).map(line => [{ text: line }])
   // The chips stay when the cell holds the line whole; a narrower cell wraps the plain words instead.
@@ -1047,13 +1135,7 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional }: De
           {row.task}
         </Text>
       </Box>
-      {usage === undefined ? null : (
-        <Box key="detail:usage">
-          <Text dimColor wrap="wrap">
-            {usage}
-          </Text>
-        </Box>
-      )}
+      {usage === undefined ? null : drawStats(kit, { stats: fitStats(usage, columns), isProportional, boxKey: 'detail:usage' })}
       {drawTable(kit, { rows, columns, home, isProportional })}
     </Box>
   )

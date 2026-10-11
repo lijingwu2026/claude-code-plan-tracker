@@ -1,7 +1,7 @@
 import { describe, expect, test } from './testing'
 import type { Engine } from 'claude-code/testing'
 
-import { assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, needsYou, parseProgress, planLineOf, planStateOf, settings, whoLineOf } from '../hooks/board'
+import { assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, needsYou, parseProgress, notStartedText, planStateOf, settings, whoLineOf } from '../hooks/board'
 import type { PlanEntry, PlanRow } from '../types'
 import { PROGRESS_REAL } from './fixtures/progress-real'
 import { PROGRESS_REAL_EXECUTOR } from './fixtures/progress-real-executor'
@@ -287,7 +287,7 @@ describe('the board file: the plan line', () => {
     const pane = await mountPane($)
 
     expect(await pane.find({ key: 'summary' })).toBeUndefined()
-    expect(await pane.find({ key: 'plan-line' })).toBeUndefined()
+    expect(await pane.find({ key: 'plan-stats' })).toBeUndefined()
     expect(textOf(await pane.find({ key: 'menu' }))).toBe('● Progress  Done  3/3Plan file ›')
     await openCard(pane, 0)
     expect(await pane.find({ key: 'detail:usage' })).toBeUndefined()
@@ -308,8 +308,8 @@ describe('the board file: the plan state', () => {
     expect(state('Todo', 'Todo')).toBe('Idle')
   })
 
-  test('the plan line: nothing started reads "Not started yet"; work under way has no times, so no line', () => {
-    expect(planLineOf(planOf(withStatus('Todo')), Date.now(), 100)).toBe('Not started yet')
-    expect(planLineOf(planOf(withStatus('In Progress')), Date.now(), 100)).toBe('')
+  test('the plan summary: nothing started reads "Not started yet"; work under way has no times, so no line', () => {
+    expect(notStartedText(planOf(withStatus('Todo')))).toBe('Not started yet')
+    expect(notStartedText(planOf(withStatus('In Progress')))).toBe('')
   })
 })

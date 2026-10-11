@@ -32,6 +32,35 @@ type Band = Awaited<ReturnType<typeof mountBand>>
 // The desktop draws the mascot as a picture, which has no text to cut off.
 const rowOf = async (band: Band) => textOf(await band.find({ key: 'bar' })).slice((await band.findAll({ type: 'Svg' })).length > 0 ? 0 : BAND_MASCOT_SPACE)
 
+describe('the plan list is one drawing: the band opens the same list as the board', () => {
+  /** A list's rows as text, and each part's look (the key aside, which names the press). */
+  const looks = (list: Parameters<typeof kids>[0]) =>
+    kids(list).map(row => ({ text: textOf(row), parts: kids(row).map(part => ({ type: part.type, text: textOf(part), look: { ...part.props, key: undefined, label: undefined, onPress: undefined } })) }))
+
+  for (const surface of SURFACES) {
+    test(`${surface}: the band's list and the pane's menu list have the same rows, marker, state colours and spacing`, async ($, on) => {
+      world(on)
+      await $.session.start(SESSION)
+      const band = await mountBand($, surface, 120)
+      const pane = await mountPane($, surface, 120 + BAND_MASCOT_SPACE)
+
+      await band.press({ key: 'band:plans' })
+      await pane.press({ key: 'menu:name' })
+
+      const fromBand = await band.find({ key: 'band:list' })
+      const fromPane = await pane.find({ key: 'menu:list' })
+
+      expect(looks(fromBand)).toEqual(looks(fromPane))
+      expect(fromBand?.props.marginLeft).toBe(fromPane?.props.marginLeft)
+      expect(kids(fromBand).map(textOf)[0]).toStartWith('▶ Alpha plan')
+      // each row's button still presses its own plan from the band
+      expect(kids(kids(fromBand)[1])[0]?.props.key).toBe('band:plan:beta')
+      await pane.unmount()
+      await band.unmount()
+    })
+  }
+})
+
 describe('the band while the board shows the plan file', () => {
   test('the right end is "‹ Board" and pressing it returns to the lanes and gives the pane the keys', async ($, on) => {
     const w = world(on)
@@ -213,8 +242,8 @@ describe('plan-tracker band', () => {
 
       const list = await band.find({ key: 'band:list' })
 
-      expect(kids(list).map(textOf)).toEqual(['▸ Alpha plan  In progress  5/13', '  Beta        Done         2/2', '  Gamma       In progress  0/2'])
-      expect(kids(list).map(child => child.props.key)).toEqual(['band:plan:alpha', 'band:plan:beta', 'band:plan:gamma'])
+      expect(kids(list).map(textOf)).toEqual(['▶ Alpha plan  In progress 5/13', '  Beta        Done        2/2', '  Gamma       In progress 0/2'])
+      expect(kids(list).map(child => kids(child)[0]?.props.key)).toEqual(['band:plan:alpha', 'band:plan:beta', 'band:plan:gamma'])
       // the row stays one row, the list is extra rows under it
       expect(await rowOf(band)).toStartWith('● Alpha plan ▾')
 

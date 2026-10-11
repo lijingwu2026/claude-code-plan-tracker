@@ -30,8 +30,11 @@ export const STYLE: Record<PlanStatus, Style> = {
 /** The color of a "needs you" marker: used by no status. */
 export const NEEDS_YOU_COLOR = 'merged'
 
-/** The color of a link, in the deliverables and the note of a task page, as the plan file view's links. */
-export const LINK_COLOR = 'remember'
+/**
+ * The color of a link, in the deliverables and the note of a task page: the theme's accent for suggestions, which reads on a
+ * dark and on a light theme (`remember` is a dark blue on a dark one).
+ */
+export const LINK_COLOR = 'suggestion'
 
 /** Most urgent first: what "worst" means for a plan. */
 const URGENCY: readonly PlanStatus[] = ['Blocked', 'Verifying', 'Needs Verification', 'In Progress', 'Other', 'Todo', 'Done', 'Canceled']
@@ -522,7 +525,7 @@ export const rainbowAt = (cell: number, frame: number): string => RAINBOW[(cell 
 /** A row on a lane; `index` is its place in the plan's `rows`, which names the card. */
 export type Card = { row: PlanRow; index: number }
 
-export type LaneKey = 'Todo' | 'In Progress' | 'Verify' | 'Done' | 'Other'
+export type LaneKey = 'Todo' | 'In Progress' | 'Verify' | 'Done' | 'Other' | 'Deliverables'
 
 /** `more` is how many cards the lane does not show; `moreLabel` the line that says so (`+2 more`, `+1 blocked · 12 running`). */
 export type Lane = { key: LaneKey; header: string; color: string; cards: Card[]; more: number; moreLabel: string }
@@ -535,6 +538,9 @@ export const moreButton = (label: string): string => `${label} ${label === SHOW_
 
 /** Todo and Done show this many cards, then `+N more`. */
 export const CAPPED = 3
+
+/** The deliverables table shows this many rows, then `+N more`; the same press that unfolds a lane unfolds it. */
+export const DELIVERABLES_SHOWN = 5
 
 /** In Progress shows this many cards, Blocked ones first, then a line counting the rest. */
 export const DOING_SHOWN = 5
@@ -1072,17 +1078,60 @@ function startedText(iso: string, now: number): string | undefined {
 }
 
 /**
- * The dim line under the plan name: `started 20:08 today · 56m so far · 38.2M tokens · ~$9.30` (the state word is the header's).
- * A closed plan (the tracker gives `finished`) reads `started … · took 56m · …`; a plan no row has started reads `Not started yet`;
- * a plan from a board file (no times) with work under way has nothing to say and reads ''. Tokens
- * are in + out (in already holds the cached);
- * the tokens and the cost are left out when none is measured, the cost alone when it has no price. Wider than `width`:
- * "started …" goes first, then the elapsed time, then the tokens; the cost stays, and a line still too wide is cut with …
+ * One figure of the stats row: a big bold `value` over a small dim `label`. `drop` orders what a narrow pane gives up: the
+ * lowest goes first.
  */
-export function planLineOf(plan: PlanEntry, now: number, width: number): string {
+export type Stat = { value: string; label: string; drop: number }
+
+/** Columns between two stats of a row. */
+export const STAT_GAP = 3
+
+/** What a stats row shows when no row of the plan has started; a board file with work under way says nothing. */
+export const NOT_STARTED = 'Not started yet'
+
+/** `Not started yet` for a plan no row has started, '' for one that has (or a board file with work under way, which keeps no times). */
+export function notStartedText(plan: PlanEntry): string {
+  if (plan.started !== undefined || plan.finished !== undefined) {
+    return ''
+  }
+
+  return plan.anchor === 'progress' && plan.rows.some(row => row.status !== 'Todo' && row.status !== 'Canceled') ? '' : NOT_STARTED
+}
+
+/** Columns a stat takes: the wider of its value and its label. */
+const statCols = (stat: Stat): number => Math.max(displayWidth(stat.value), displayWidth(stat.label))
+
+/** `stats` as far as they fit `width` columns: the lowest `drop` goes first, the last one stays however narrow the pane. */
+export function fitStats(stats: readonly Stat[], width: number): Stat[] {
+  const kept = [...stats]
+  const need = () => kept.reduce((all, stat) => all + statCols(stat), 0) + STAT_GAP * Math.max(0, kept.length - 1)
+
+  while (kept.length > 1 && need() > width) {
+    const lowest = kept.reduce((low, stat) => (stat.drop < low.drop ? stat : low))
+
+    kept.splice(kept.indexOf(lowest), 1)
+  }
+
+  return kept
+}
+
+/** A stats row as two lines of text, each stat in a column as wide as the wider of its value and its label. */
+export function statLines(stats: readonly Stat[]): { values: string; labels: string } {
+  const cell = (text: string, stat: Stat) => `${text}${' '.repeat(statCols(stat) - displayWidth(text))}`
+  const gap = ' '.repeat(STAT_GAP)
+
+  return { values: stats.map(stat => cell(stat.value, stat)).join(gap).trimEnd(), labels: stats.map(stat => cell(stat.label, stat)).join(gap).trimEnd() }
+}
+
+/**
+ * The stats under the plan name: the time (`56m` over `since 20:08`, `Oct 9 20:08` on another day; a closed plan `3h 05m` over
+ * `total time`), the tokens (in + out, in already holds the cached) and the cost. Tokens and cost are left out when none is
+ * measured, the cost alone when it has no price. Narrower than `width`: the time goes first, then the tokens; the cost stays.
+ * Empty for a plan no row has started.
+ */
+export function planStatsOf(plan: PlanEntry, now: number, width: number): Stat[] {
   if (plan.started === undefined && plan.finished === undefined) {
-    // A board file keeps no times: once work is under way there is nothing to show.
-    return plan.anchor === 'progress' && plan.rows.some(row => row.status !== 'Todo' && row.status !== 'Canceled') ? '' : 'Not started yet'
+    return []
   }
 
   const totals = plan.usage_totals
@@ -1092,34 +1141,15 @@ export function planLineOf(plan: PlanEntry, now: number, width: number): string 
   const span = Number.isNaN(begin) || Number.isNaN(end) ? undefined : spanText(end - begin)
   const started = plan.started === undefined ? undefined : startedText(plan.started, now)
   const measured = totals !== undefined && totals.measured > 0
-  const tokens = measured ? `${compactCount(totals.tokens_in + totals.tokens_out)} tokens` : undefined
-  const cost = measured && totals.cost !== null ? `~$${totals.cost.toFixed(2)}` : undefined
 
-  const line = (keep: { started: boolean; elapsed: boolean; tokens: boolean }): string => {
-    const money = [...(keep.tokens && tokens !== undefined ? [tokens] : []), ...(cost === undefined ? [] : [cost])]
-    const shown = [
-      ...(keep.started && started !== undefined ? [`started ${started}`] : []),
-      ...(keep.elapsed && span !== undefined ? [isClosed ? `took ${span}` : `${span} so far`] : []),
-      ...money,
-    ]
-
-    return shown.join(' · ')
-  }
-
-  const steps = [
-    { started: true, elapsed: true, tokens: true },
-    { started: false, elapsed: true, tokens: true },
-    { started: false, elapsed: false, tokens: true },
-    { started: false, elapsed: false, tokens: false },
-  ]
-
-  for (const keep of steps) {
-    if (displayWidth(line(keep)) <= width) {
-      return line(keep)
-    }
-  }
-
-  return truncate(line(steps[3] as (typeof steps)[number]), width)
+  return fitStats(
+    [
+      ...(span === undefined ? [] : [{ value: span, label: isClosed || started === undefined ? 'total time' : `since ${started.replace(/ today$/, '')}`, drop: 1 }]),
+      ...(measured ? [{ value: compactCount(totals.tokens_in + totals.tokens_out), label: 'tokens', drop: 2 }] : []),
+      ...(measured && totals.cost !== null ? [{ value: `~$${totals.cost.toFixed(2)}`, label: 'est. cost', drop: 3 }] : []),
+    ],
+    width,
+  )
 }
 
 /** The task page's status in words: `Waiting for your check`, `In progress`, `Done`. */
@@ -1158,10 +1188,11 @@ export function whoLineOf(row: PlanRow): { tier?: string; executor: string } | u
 }
 
 /**
- * The task page's usage line: `12m · 207.3k tokens · ~$1.10 · high effort`. Tokens are in + out (in holds the cached); the
- * cost is left out with no price; effort only when the work ran at one (a mix does not read on a line). Undefined for no usage.
+ * The task page's stats: working time, tokens (in + out; in holds the cached), the cost, each a value over a label. The cost is
+ * left out with no price; effort (`medium` over `effort`) only when the work ran at one (a mix does not read as a figure).
+ * Undefined for no usage.
  */
-export function usageLineOf(usage: PlanUsage | undefined): string | undefined {
+export function usageStatsOf(usage: PlanUsage | undefined): Stat[] | undefined {
   if (usage === undefined) {
     return undefined
   }
@@ -1170,11 +1201,11 @@ export function usageLineOf(usage: PlanUsage | undefined): string | undefined {
   const efforts = Object.entries(usage.effort).filter(([, share]) => share > 0)
 
   return [
-    durationText(usage.working_ms),
-    `${compactCount(total)} tokens`,
-    ...(usage.cost_usd === null ? [] : [`~$${usage.cost_usd.toFixed(2)}`]),
-    ...(efforts.length === 1 ? [`${(efforts[0] as [string, number])[0]} effort`] : []),
-  ].join(' · ')
+    { value: durationText(usage.working_ms), label: 'working time', drop: 1 },
+    { value: compactCount(total), label: 'tokens', drop: 2 },
+    ...(usage.cost_usd === null ? [] : [{ value: `~$${usage.cost_usd.toFixed(2)}`, label: 'est. cost', drop: 3 }]),
+    ...(efforts.length === 1 ? [{ value: (efforts[0] as [string, number])[0], label: 'effort', drop: 0 }] : []),
+  ]
 }
 
 /** The command that makes the tracker write `usage` into a row: one place for its words. */
