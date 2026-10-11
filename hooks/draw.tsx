@@ -379,8 +379,6 @@ type PaneArgs = {
   hasClient: boolean
   /** The surface drawing: the desktop app has a proportional font, so it is laid out with flex, not padded with spaces. */
   surface: RenderSurface
-  /** A press on a deliverable's link on the desktop: the deliverable's path as the tracker wrote it. */
-  onOpenPath: (path: string) => void
   onMenu: () => void
   onPick: (anchor: string) => void
   onCard: (index: number) => void
@@ -395,7 +393,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   // Only the terminal and the desktop draw a Client; another surface's table has the name but drops the element.
   const Client = args.hasClient ? kit.Client : undefined
   const { plans, plan, columns, message, detail, file, home, frame, isOpen, expanded } = args
-  const { onMenu, onPick, onCard, onBack, onFile, onLane, onOpenPath, bodyRows } = args
+  const { onMenu, onPick, onCard, onBack, onFile, onLane, bodyRows } = args
   const isProportional = args.surface === 'desktop'
   // A Client's props: the terminal's stay as they were.
   const proportional = isProportional ? ({ isProportional: true } as const) : {}
@@ -783,9 +781,9 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
           {lanesOf(plan, expanded).map(lane)}
         </Box>
       ) : (
-        drawDetail(kit, { row, columns, home, onBack, isProportional, onOpenPath })
+        drawDetail(kit, { row, columns, home, onBack, isProportional })
       )}
-      {row === undefined && groups.length > 0 ? drawDeliverables(kit, { groups, columns, home, isProportional, onOpenPath }) : null}
+      {row === undefined && groups.length > 0 ? drawDeliverables(kit, { groups, columns, home, isProportional }) : null}
     </Box>
   )
 }
@@ -795,7 +793,6 @@ type DeliverablesArgs = {
   columns: number
   home: string | undefined
   isProportional: boolean
-  onOpenPath: (path: string) => void
 }
 
 /**
@@ -824,9 +821,9 @@ const NBSP = ' '
  * `Deliverables`, then a table of Type, Deliverable and Change with a dim header and no ruled lines, grouped by type (the
  * type as a grey chip on the first row of its group). The path is a link that opens it; the change is dim. On the desktop the
  * whole path wraps (nothing is cut to the column count) and is a `Markdown` link: a `Link` opens only `https:` on a remote
- * surface, so a press is answered here and the plugin opens the file.
+ * surface, and the desktop opens it itself (no `onLinkPress`: a link the plugin answers is one the surface does not open).
  */
-function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, onOpenPath }: DeliverablesArgs): RenderElement {
+function drawDeliverables(kit: Kit, { groups, columns, home, isProportional }: DeliverablesArgs): RenderElement {
   const { Box, Text, Markdown } = kit
   const rows = groups.flatMap(group => group.items.map((item, at) => ({ item, type: at === 0 ? group.type : '' })))
   const typeCols = Math.max(4, ...groups.map(group => displayWidth(group.type))) + 2
@@ -850,7 +847,7 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, onO
           {href === null ? (
             <Text wrap="wrap">{item.path}</Text>
           ) : (
-            <Markdown key={`deliverable:${at}`} text={markdownLink(item.path, href)} onLinkPress={() => onOpenPath(item.path)} />
+            <Markdown key={`deliverable:${at}`} text={markdownLink(item.path, href)} />
           )}
         </Box>
         {hasChange ? (
@@ -932,7 +929,7 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, onO
   )
 }
 
-type DetailArgs = Pick<PaneArgs, 'columns' | 'home' | 'onBack' | 'onOpenPath'> & { row: PlanRow; isProportional: boolean }
+type DetailArgs = Pick<PaneArgs, 'columns' | 'home' | 'onBack'> & { row: PlanRow; isProportional: boolean }
 
 
 
@@ -967,7 +964,7 @@ const chipParts = (words: string): Part[] =>
  * values wrap inside their cell. On the desktop each row is a round-bordered Box, a label Box of fixed width and a value Box that
  * wraps its text; the path is a `Markdown` link.
  */
-function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, onOpenPath }: DetailArgs): RenderElement {
+function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional }: DetailArgs): RenderElement {
   const { Box, Text, Button } = kit
   const { color, ...dim } = STYLE[row.status]
   const stuck = isBlocked(row)
@@ -1057,15 +1054,15 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, onOp
           </Text>
         </Box>
       )}
-      {drawTable(kit, { rows, columns, home, isProportional, onOpenPath })}
+      {drawTable(kit, { rows, columns, home, isProportional })}
     </Box>
   )
 }
 
-type TableArgs = Pick<DetailArgs, 'columns' | 'home' | 'onOpenPath' | 'isProportional'> & { rows: readonly TableRow[] }
+type TableArgs = Pick<DetailArgs, 'columns' | 'home' | 'isProportional'> & { rows: readonly TableRow[] }
 
 /** The bordered table of label and value rows: box characters on the terminal, one round-bordered Box per row on the desktop. */
-function drawTable(kit: Kit, { rows, columns, home, isProportional, onOpenPath }: TableArgs): RenderElement {
+function drawTable(kit: Kit, { rows, columns, home, isProportional }: TableArgs): RenderElement {
   const { Box, Text, Link, Markdown } = kit
   const labelWidth = Math.max(4, Math.min(LABEL_COLUMNS, columns - 7 - MIN_VALUE_COLUMNS))
   const valueWidth = isProportional ? UNWRAPPED_COLUMNS : Math.max(1, columns - 7 - labelWidth)
@@ -1157,7 +1154,7 @@ function drawTable(kit: Kit, { rows, columns, home, isProportional, onOpenPath }
           </Text>
         </Box>
         <Box flexGrow={1} flexShrink={1} flexDirection="column">
-          {path !== undefined && href !== null ? <Markdown key="detail:deliverable" text={markdownLink(path, href)} onLinkPress={() => onOpenPath(path)} /> : null}
+          {path !== undefined && href !== null ? <Markdown key="detail:deliverable" text={markdownLink(path, href)} /> : null}
           {one.lines.map(valueLine)}
         </Box>
       </Box>

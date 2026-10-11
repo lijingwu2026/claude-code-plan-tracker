@@ -892,17 +892,24 @@ export function absolutePath(path: string, home: string | undefined): string | n
 }
 
 /**
- * Why a deliverable must not be opened or revealed by a press, or null when it may: it has to sit under one of `roots`
- * once its `.` and `..` segments are folded.
+ * Why a deliverable must not be opened or revealed by a press, or null when it may: once its `.` and `..` segments are
+ * folded it has to sit under one of `roots`, or under `home` with no segment starting with `.` (a hidden folder or file).
  */
-export function openRefusal(absolute: string, roots: readonly string[]): string | null {
+export function openRefusal(absolute: string, roots: readonly string[], home?: string): string | null {
   if (!absolute.startsWith('/')) {
     return 'not an absolute path'
   }
 
   const path = foldedPath(absolute)
 
-  return roots.some(root => path === root || path.startsWith(`${root}/`)) ? null : 'outside the project and ~/.claude'
+  return roots.some(root => path === root || path.startsWith(`${root}/`)) || isVisibleHomePath(path, home) ? null : 'outside the project, home and ~/.claude'
+}
+
+/** Whether `path` (folded) is below `home` and none of its segments below `home` starts with `.`. */
+export function isVisibleHomePath(path: string, home: string | undefined): boolean {
+  const base = home === undefined || home === '' ? '' : home.replace(/\/+$/, '')
+
+  return base !== '' && path.startsWith(`${base}/`) && !path.slice(base.length + 1).split('/').some(part => part.startsWith('.'))
 }
 
 /** The file types `open` only shows in a viewer or editor. Nothing here is an application, a script or an installer. */

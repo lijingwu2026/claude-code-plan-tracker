@@ -2,6 +2,7 @@ import { describe, expect, test } from './testing'
 import type { Engine } from 'claude-code/testing'
 
 import { BAND_MASCOT, BAR_PX, CARD_SPRITE_PX, FRAME_MS, MASCOT, MASCOT_EVERY, barSvg, spriteSvg, spriteSvgAnimated } from '../hooks/board'
+import { openDeliverable } from '../hooks/register'
 import type { PlanBoard, PlanRow } from '../types'
 import type { Node } from './fixtures'
 import { ALPHA_ROWS, BOARD, HOME, ROOT, PANE_ID, bandProps, plans, SESSION, cardRowsIn, kids, openCard, paneProps, textIn, textOf, world } from './fixtures'
@@ -44,6 +45,42 @@ const settle = async (clock: { advance: (ms: number) => Promise<void> }) => {
   for (let at = 0; at < 20; at += 1) {
     await clock.advance(10)
   }
+}
+
+/**
+ * `openDeliverable` run on a stand-in for `$` built over the world's recorded state: the desktop's Markdown carries no
+ * press, so no chain reaches it, but the function stays the plugin's fallback for a link press that does arrive.
+ */
+const openVia = (w: ReturnType<typeof world>, path: string) => {
+  const done = { exitCode: 0, stdout: '', stderr: '' }
+  const engine = {
+    env: { get: async () => HOME },
+    session: { id: async () => 'sess', root: async () => ROOT },
+    fs: {
+      exists: async (p: string) => w.present.includes(p),
+      stat: async (p: string) => ({ kind: w.dirs.includes(p) ? 'dir' : 'file' }),
+    },
+    process: {
+      run: async (argv: readonly string[], init?: { stdin?: string }) => {
+        if (argv[0] === '/bin/realpath') {
+          const p = argv[1] ?? ''
+
+          w.realpathRuns.push(argv)
+
+          const real = p in w.realpaths ? w.realpaths[p] : w.present.includes(p) ? p : null
+
+          return real === null || real === undefined ? { exitCode: 1, stdout: '', stderr: 'no such file' } : { ...done, stdout: `${real}\n` }
+        }
+
+        w.logRuns.push({ argv, stdin: init?.stdin })
+
+        return argv[0] === 'open' && w.openRun !== null ? { ...done, exitCode: w.openRun.exitCode, stderr: w.openRun.stderr } : done
+      },
+    },
+    ui: { toast: (text: string) => void w.toasts.push(text) },
+  }
+
+  return openDeliverable(engine as never, path)
 }
 
 const BOX_CHARS = /[╭╮╰╯├┤┬┴┼│─]/
@@ -445,12 +482,12 @@ describe('the desktop: deliverables', () => {
     await pane.unmount()
   })
 
-  test('pressing the link runs `open <path>` when the file exists', async ($, on) => {
+  test('a link press that reaches the plugin runs `open <path>` when the file exists', async ($, on) => {
     const w = world(on, { present: [PLAN_PATH] })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop')
 
-    await pane.press({ key: 'deliverable:0', link: { href: HREF } })
+    await openVia(w, 'automation/plans/alpha-plan.md')
     await settle(w.clock)
 
     expect(w.logRuns.filter(run => run.argv[0] === 'open').map(run => run.argv)).toEqual([['open', PLAN_PATH]])
@@ -469,7 +506,7 @@ describe('the desktop: deliverables', () => {
 
     expect(markdown?.props.text).toBe(`[automation/plans/alpha-plan.md](${HREF})`)
 
-    await pane.press({ key: 'detail:deliverable', link: { href: HREF } })
+    await openVia(w, 'automation/plans/alpha-plan.md')
     await settle(w.clock)
 
     expect(w.logRuns.filter(run => run.argv[0] === 'open').map(run => run.argv)).toEqual([['open', PLAN_PATH]])
@@ -482,12 +519,52 @@ describe('the desktop: deliverables', () => {
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop')
 
-    await pane.press({ key: 'deliverable:0', link: { href: 'x' } })
+    await openVia(w, '~/.claude/notes.md')
     await settle(w.clock)
 
     expect(w.logRuns.filter(run => run.argv[0] === 'open').map(run => run.argv)).toEqual([['open', path]])
     await pane.unmount()
   })
+
+  test('the desktop host opens the link itself: the Markdown answers no press, so the mod never also opens or refuses it', async ($, on) => {
+    world(on)
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop')
+
+    expect(await pane.find({ type: 'Markdown', key: 'deliverable:0' })).toBeDefined()
+    // a Markdown with no `onLinkPress` has no press for a test (or the host) to raise: the surface opens the link alone
+    await expect(pane.press({ key: 'deliverable:0', link: { href: HREF } })).rejects.toThrow()
+
+    await openCard(pane, indexOfTask('d4'))
+    expect(await pane.find({ type: 'Markdown', key: 'detail:deliverable' })).toBeDefined()
+    await expect(pane.press({ key: 'detail:deliverable', link: { href: HREF } })).rejects.toThrow()
+    await pane.unmount()
+  })
+
+  test('a file under the home directory outside hidden folders opens', async ($, on) => {
+    const path = `${HOME}/code/x/y.ts`
+    const w = await pressOnly($, on, '~/code/x/y.ts', { present: [path] })
+
+    expect(opens(w)).toEqual([['open', path]])
+    expect(w.toasts).toEqual([])
+  })
+
+  for (const [name, rel, extra] of [
+    ['a file in ~/.ssh', '~/.ssh/id_rsa', {}],
+    ['a file in a hidden folder deeper in home', '~/code/.git/config', {}],
+    ['a hidden file in home', '~/.zshrc', {}],
+    ['a directory in home', '~/code/x', { dirs: [`${HOME}/code/x`] }],
+    ['a missing file in home', '~/code/none.ts', { present: [] }],
+  ] as const) {
+    test(`${name} is not opened`, async ($, on) => {
+      const path = rel.replace('~', HOME)
+      const w = await pressOnly($, on, rel, { present: [path], ...extra })
+
+      expect(opens(w)).toEqual([])
+      expect(w.toasts).toHaveLength(1)
+      expect(w.toasts[0]).toStartWith('Not opened: ')
+    })
+  }
 
   const REFUSED: [string, string][] = [
     ['outside both roots', '/etc/hosts'],
@@ -501,7 +578,7 @@ describe('the desktop: deliverables', () => {
       await $.session.start(SESSION)
       const pane = await mountPane($, 'desktop')
 
-      await pane.press({ key: 'deliverable:0', link: { href: 'x' } })
+      await openVia(w, path)
       await settle(w.clock)
 
       expect(w.logRuns.filter(run => run.argv[0] === 'open')).toEqual([])
@@ -519,7 +596,7 @@ describe('the desktop: deliverables', () => {
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop')
 
-    await pane.press({ key: 'deliverable:0', link: { href: 'x' } })
+    await openVia(w, path)
     await settle(w.clock)
     await pane.unmount()
 
@@ -587,7 +664,7 @@ describe('the desktop: deliverables', () => {
     const w = await pressOnly($, on, link, { present: [link], realpaths: { [link]: '/Applications/Tool.app' } })
 
     expect(opens(w)).toEqual([])
-    expect(w.toasts).toEqual(['Not opened: outside the project and ~/.claude'])
+    expect(w.toasts).toEqual(['Not opened: outside the project, home and ~/.claude'])
     expect(w.logLines()).toMatchObject([{ stage: 'open-path', path: link }])
   })
 
@@ -603,7 +680,7 @@ describe('the desktop: deliverables', () => {
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop')
 
-    await pane.press({ key: 'deliverable:0', link: { href: HREF } })
+    await openVia(w, 'automation/plans/alpha-plan.md')
     await settle(w.clock)
 
     expect(w.logRuns.filter(run => run.argv[0] === 'open')).toEqual([])
@@ -616,7 +693,7 @@ describe('the desktop: deliverables', () => {
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop')
 
-    await pane.press({ key: 'deliverable:0', link: { href: HREF } })
+    await openVia(w, 'automation/plans/alpha-plan.md')
     await settle(w.clock)
 
     expect(w.toasts).toEqual(['Not opened: open exited 1'])

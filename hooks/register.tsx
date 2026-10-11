@@ -634,8 +634,9 @@ async function runCommand($: EngineInterface, e: { args: string }) {
 }
 
 /**
- * A press on a deliverable's link on the desktop: the file has to exist and, both as written (`..` folded) and as it really
- * is (`realpath`, symlinks followed), sit under the project root or ~/.claude. Its real path is then opened with `open` when its
+ * A press on a deliverable's link that reaches the plugin (the desktop opens these links itself, so none does today): the
+ * file has to exist and, both as written (`..` folded) and as it really is (`realpath`, symlinks followed), sit under the
+ * project root or ~/.claude, or be a regular file under the home directory outside hidden folders. Its real path is then opened with `open` when its
  * type is one that is only viewed and it is a regular file, and revealed in Finder with `open -R` for anything else. A refusal is logged and shown
  * as a toast.
  */
@@ -644,7 +645,7 @@ export async function openDeliverable($: EngineInterface, path: string) {
   const absolute = absolutePath(path, home)
   const root = await projectRoot($)
   const roots = [root, ...(home === undefined || home === '' ? [] : [`${home.replace(/\/+$/, '')}/.claude`])].filter(one => one !== '')
-  const refusal = absolute === null ? 'cannot place that path' : openRefusal(absolute, roots)
+  const refusal = absolute === null ? 'cannot place that path' : openRefusal(absolute, roots, home)
 
   if (absolute === null || refusal !== null) {
     await log($, 'open-path', refusal, { path })
@@ -664,7 +665,7 @@ export async function openDeliverable($: EngineInterface, path: string) {
 
   const real = await $.process.run(['/bin/realpath', target]).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: messageOf(error) }))
   const resolved = real.stdout.trim()
-  const resolvedRefusal = real.exitCode !== 0 || resolved === '' ? 'real path unknown' : openRefusal(resolved, roots)
+  const resolvedRefusal = real.exitCode !== 0 || resolved === '' ? 'real path unknown' : openRefusal(resolved, roots, home)
 
   if (resolvedRefusal !== null) {
     await log($, 'open-path', resolvedRefusal, { path })
@@ -674,6 +675,15 @@ export async function openDeliverable($: EngineInterface, path: string) {
   }
 
   const isFile = (await $.fs.stat(resolved).catch(() => undefined))?.kind === 'file'
+
+  // Only a regular file is opened from the home directory at large; a folder is shown only inside the project and ~/.claude.
+  if (!isFile && openRefusal(resolved, roots) !== null) {
+    await log($, 'open-path', 'not a regular file', { path })
+    $.ui.toast('Not opened: not a regular file')
+
+    return
+  }
+
   const argv = isFile && openMode(resolved) === 'open' ? ['open', resolved] : ['open', '-R', resolved]
   const { exitCode, stderr } = await $.process.run(argv).catch((error: unknown) => ({ exitCode: -1, stderr: messageOf(error) }))
 
@@ -883,7 +893,6 @@ export const register: Register = (on, options) => {
       isOpen: await read($, menu),
       hasClient: e.surface === 'terminal' || e.surface === 'desktop',
       surface: e.surface,
-      onOpenPath: path => void openDeliverable($, path).catch(() => undefined),
       expanded: (await read($, expanded)).flatMap(key => (key.startsWith(`${plan.anchor}:`) ? [key.slice(plan.anchor.length + 1) as LaneKey] : [])),
       onLane: lane => void pressByKey($, `lane:${lane}:more`, false, e.surface),
       onMenu: () => void pressByKey($, 'menu:name', false, e.surface),
