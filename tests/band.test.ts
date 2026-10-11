@@ -1,7 +1,7 @@
 import { describe, expect, test } from './testing'
 import type { Engine } from 'claude-code/testing'
 
-import { BAND_MASCOT, BAND_MASCOT_SPACE, RAINBOW, displayWidth, rainbowAt } from '../hooks/board'
+import { BAND_MASCOT, BAND_MASCOT_SPACE, RAINBOW, STATE_STYLE, displayWidth, rainbowAt } from '../hooks/board'
 import { ALPHA_FILE, ALPHA_ROWS, BOARD, FILES, FRAME_MS, PANE_ID, SESSION, SURVEY, VIEW_INIT, bandProps, jsonArgv, kids, paneProps, plans, promptSubmit, textIn, textOf, world, openCard } from './fixtures'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -213,7 +213,7 @@ describe('plan-tracker band', () => {
 
       const list = await band.find({ key: 'band:list' })
 
-      expect(kids(list).map(textOf)).toEqual(['▸ Alpha plan  5/13', '  Beta        2/2', '  Gamma       0/2'])
+      expect(kids(list).map(textOf)).toEqual(['▸ Alpha plan  In progress  5/13', '  Beta        Done         2/2', '  Gamma       In progress  0/2'])
       expect(kids(list).map(child => child.props.key)).toEqual(['band:plan:alpha', 'band:plan:beta', 'band:plan:gamma'])
       // the row stays one row, the list is extra rows under it
       expect(await rowOf(band)).toStartWith('● Alpha plan ▾')
@@ -505,6 +505,125 @@ describe('the band is framed so it reads as a panel, not a chat message', () => 
     const band = await mountBand($, 'terminal', 80)
 
     expect(displayWidth(await rowOf(band)) + BAND_MASCOT_SPACE + 4).toBeLessThanOrEqual(80 + BAND_MASCOT_SPACE)
+    await band.unmount()
+  })
+})
+
+describe('the band in a column a docked pane leaves it', () => {
+  const WORDS = /In progress|Idle|Done/
+  const FRAGMENT = /\bIn\b|progress|rogre|Idl\b|Don\b/
+  const LONG = 'A very long plan name that keeps going and going'
+
+  /** Each row inside the frame, as text. */
+  const rowsOf = async (band: Band) => {
+    const rows = [await band.find({ key: 'bar' }), await band.find({ key: 'bar:2' })]
+
+    return rows.filter(row => row !== undefined).map(textOf)
+  }
+
+  for (const columns of [19, 24, 30, 40, 80, 155]) {
+    test(`terminal, ${columns} columns: every row stays inside the frame and the state word is whole or gone`, async ($, on) => {
+      const w = world(on)
+
+      w.fixture = { ...BOARD, plans: [{ ...BOARD.plans[0]!, name: LONG }, ...BOARD.plans.slice(1)] }
+      await $.session.start(SESSION)
+      const band = await mountBand($, 'terminal', columns)
+      const rows = await rowsOf(band)
+
+      for (const row of rows) {
+        expect(displayWidth(row)).toBeLessThanOrEqual(columns - 4)
+      }
+      const text = rows.join('\n')
+
+      expect(text.includes('In progress') || !FRAGMENT.test(text)).toBe(true)
+      expect(WORDS.test(text) || columns < 60).toBe(true)
+      expect(text).toContain('5/13')
+      await band.unmount()
+    })
+  }
+
+  test('terminal: a very narrow column drops the state word whole and the progress goes under the name', async ($, on) => {
+    world(on)
+    await $.session.start(SESSION)
+    const band = await mountBand($, 'terminal', 19)
+    const rows = await rowsOf(band)
+
+    expect(rows).toHaveLength(2)
+    expect(rows.join('')).not.toMatch(FRAGMENT)
+    expect(rows[1]).toMatch(/^ *▰+▱* 5\/13$/)
+    await band.unmount()
+  })
+
+  test('terminal: the name is cut before the state word goes', async ($, on) => {
+    const w = world(on)
+
+    w.fixture = { ...BOARD, plans: [{ ...BOARD.plans[0]!, name: LONG }, ...BOARD.plans.slice(1)] }
+    await $.session.start(SESSION)
+    const band = await mountBand($, 'terminal', 54)
+    const [row] = await rowsOf(band)
+
+    expect(row).toContain('In progress')
+    expect(row).toContain('…')
+    expect(row).toContain('Plan file ›')
+    await band.unmount()
+  })
+
+  test('terminal: the plan list fits the column too, the state word whole or dropped', async ($, on) => {
+    world(on)
+    await $.session.start(SESSION)
+    const band = await mountBand($, 'terminal', 24)
+
+    await band.press({ key: 'band:plans' })
+
+    const lines = kids(await band.find({ key: 'band:list' })).map(textOf)
+
+    expect(lines).toHaveLength(3)
+    for (const line of lines) {
+      expect(displayWidth(line)).toBeLessThanOrEqual(24)
+      expect(FRAGMENT.test(line) && !/In progress/.test(line)).toBe(false)
+    }
+    await band.unmount()
+  })
+})
+
+describe('the band\'s plan list names each plan\'s state', () => {
+  for (const surface of SURFACES) {
+    test(`${surface}: the word is coloured as in the board's dropdown`, async ($, on) => {
+      world(on)
+      await $.session.start(SESSION)
+      const band = await mountBand($, surface)
+
+      await band.press({ key: 'band:plans' })
+
+      const words = (await band.findAll({ type: 'Text' })).filter(node => ['In progress', 'Done'].includes(textOf(node).trim()) && node.props.color !== undefined)
+
+      // the band's own row names the state first; the list's three follow
+      expect(words.slice(1).map(node => [textOf(node).trim(), node.props.color])).toEqual([
+        ['In progress', STATE_STYLE['In progress'].color],
+        ['Done', STATE_STYLE.Done.color],
+        ['In progress', STATE_STYLE['In progress'].color],
+      ])
+      await band.unmount()
+    })
+  }
+})
+
+describe('the band when a pane left it fewer rows than its frame needs', () => {
+  test('terminal: two rows (a pane open inline at 80 columns) draw the band without the frame, as one full-width row', async ($, on) => {
+    world(on)
+    await $.session.start(SESSION)
+
+    const props = { ...bandProps(80), maxRows: 2 }
+    const band = await $.ui.mount({ plugin: 'plan-board', surface: 'terminal', component: 'AbovePrompt', requestId: 'band', props, viewport: { columns: 85, rows: 40, isFullscreen: true } })
+
+    expect(await band.find({ key: 'band:frame' })).toBeUndefined()
+    expect(await band.find({ key: 'bar:2' })).toBeUndefined()
+
+    const row = textOf(await band.find({ key: 'bar' }))
+
+    expect(displayWidth(row)).toBeLessThanOrEqual(80)
+    expect(row).toContain('In progress')
+    expect(row.endsWith('Plan file ›')).toBe(true)
     await band.unmount()
   })
 })

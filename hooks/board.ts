@@ -425,6 +425,69 @@ export function bandLine(plan: PlanEntry, cols: number): BandLine {
   return { name: truncate(plan.name, Math.max(4, rest - bar)), state, filled, empty: bar - filled, count }
 }
 
+/** What the terminal band draws in the room its column leaves (`bandFit`). */
+export type BandFit = {
+  name: string
+  state: PlanState
+  /** Whether the state word shows: it is dropped whole, never cut. */
+  hasState: boolean
+  filled: number
+  empty: number
+  count: string
+  /** Whether the right end ("Plan file ›") shows. */
+  hasFile: boolean
+  /** True when the row cannot hold even the name and the count: the progress takes a second row under it. */
+  isStacked: boolean
+}
+
+/** Columns of name the terminal band keeps before it drops anything else. */
+const MIN_FIT_NAME = 4
+
+/**
+ * The terminal band's parts for a row of `cols` columns after the mascot and its space. The name is cut first (to 4 columns at
+ * the least, the bar shrinking to 4 cells before the name goes under 8); then the state word is dropped whole, then the right end,
+ * then the bar; when even the name and the count do not fit one row, the progress goes to a second row of `cols` plus the
+ * mascot's columns. Nothing is ever cut mid-word or left wider than `cols`.
+ */
+export function bandFit(plan: PlanEntry, cols: number, hasChoice: boolean, fileWidth: number): BandFit {
+  const { done, total } = countOf(plan)
+  const count = `${done}/${total}`
+  const state = planStateOf(plan)
+  const countCols = displayWidth(count)
+  const stateBit = 1 + displayWidth(state) + 2
+  // The columns of every part but the name and the bar's cells: the dot, the arrow, the state, the bar's trailing space, the count, the right end.
+  const fixed = (hasState: boolean, hasBar: boolean, hasFile: boolean) =>
+    2 + (hasChoice ? 2 : 0) + (hasState ? stateBit : 1) + (hasBar ? 1 : 0) + countCols + (hasFile ? 2 + fileWidth : 0)
+  const stages = [
+    { hasState: true, hasFile: true, hasBar: true },
+    { hasState: false, hasFile: true, hasBar: true },
+    { hasState: false, hasFile: false, hasBar: true },
+    { hasState: false, hasFile: false, hasBar: false },
+  ]
+
+  for (const stage of stages) {
+    const rest = cols - fixed(stage.hasState, stage.hasBar, stage.hasFile)
+
+    if (rest >= MIN_FIT_NAME + (stage.hasBar ? 4 : 0)) {
+      const bar = stage.hasBar ? Math.min(BAR_COLUMNS, Math.max(4, rest - MIN_BAND_NAME)) : 0
+      const filled = filledOf(done, total, bar)
+
+      return { name: truncate(plan.name, rest - bar), state, hasState: stage.hasState, filled, empty: bar - filled, count, hasFile: stage.hasFile, isStacked: false }
+    }
+  }
+
+  // Stacked: the first row keeps the dot, the name and the arrow; the second row (the whole frame width) the state, the bar and the count.
+  const wide = cols + BAND_MASCOT_SPACE
+  const second = (hasState: boolean) => wide - (hasState ? stateBit : 1) - 1 - countCols
+  const hasState = second(true) >= 4
+  const bar = Math.min(BAR_COLUMNS, second(hasState))
+  const barCells = bar >= 4 ? bar : 0
+  const filled = filledOf(done, total, barCells)
+  const name = truncate(plan.name, Math.max(1, cols - 2 - (hasChoice ? 2 : 0)))
+
+  return { name, state, hasState, filled, empty: barCells - filled, count, hasFile: false, isStacked: true }
+}
+
 /** A plan with nothing left to do: each row Done or Canceled, at least one of them Done (an all-Canceled plan was not completed). */
 export const isComplete = (plan: PlanEntry): boolean => plan.rows.every(row => !isOpen(row)) && plan.rows.some(row => row.status === 'Done')
 

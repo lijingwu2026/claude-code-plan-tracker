@@ -782,6 +782,7 @@ export const register: Register = (on, options) => {
       plans: (await boardOf($))?.plans ?? [],
       columns: e.props.bodyColumns - BAND_MASCOT_SPACE,
       below,
+      maxRows: e.props.maxRows,
       isOpen: await read($, bandMenu),
       isFile,
       frame: isRainbowUp ? now : null,

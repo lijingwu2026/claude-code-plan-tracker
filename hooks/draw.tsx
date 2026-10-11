@@ -28,6 +28,7 @@ import {
   NEEDS_YOU_COLOR,
   SIDE_BY_SIDE_FROM,
   STYLE,
+  bandFit,
   bandLine,
   cardRows,
   checkerOf,
@@ -138,6 +139,8 @@ type BandArgs = {
   isMoving?: boolean
   /** The desktop's proportional font: the mascot is drawn one Box per cell. */
   isProportional?: boolean
+  /** Rows the engine lets the band show whole (`e.props.maxRows`); a terminal band that does not fit them with its frame is drawn without it. */
+  maxRows?: number
   onBar: () => void
   onMenu: () => void
   onPick: (anchor: string) => void
@@ -156,21 +159,30 @@ const FRAME_COLUMNS = 4
  */
 export function drawBand(kit: Kit, args: BandArgs): RenderElement {
   const { Box, Text, Button } = kit
-  const { plan, plans, columns, below, isOpen, isFile, frame, pose, spritePose, isMoving = false, isProportional = false, onBar, onMenu, onPick, onFile, onBoard } = args
+  const { plan, plans, columns, below, isOpen, isFile, frame, pose, spritePose, isMoving = false, isProportional = false, maxRows = Number.POSITIVE_INFINITY, onBar, onMenu, onPick, onFile, onBoard } = args
   const line = bandLine(plan, columns)
   const { color: stateColor } = STATE_STYLE[line.state]
   const hasChoice = plans.length > 1
   const { color: dotColor, ...dotDim } = STYLE[worstStatus(plan)]
-  const names = plans.map(one => truncate(one.name, Math.max(8, columns - 6 - displayWidth(countText(one)))))
+  // The list is as wide as the column. The name is cut first (to 4 columns at the least); if even then the state word has no room, it is dropped whole.
+  const listColumns = columns + BAND_MASCOT_SPACE
+  const countCols = Math.max(0, ...plans.map(one => displayWidth(countText(one))))
+  const nameRoom = (hasState: boolean) => listColumns - 2 - 2 - countCols - (hasState ? STATE_COLUMNS + 2 : 0)
+  const hasListState = nameRoom(true) >= 4
+  const names = plans.map(one => truncate(one.name, Math.max(1, nameRoom(hasListState))))
   const nameCols = Math.max(0, ...names.map(displayWidth))
 
   const option = (one: PlanEntry, at: number) => {
     const isOn = one.anchor === plan.anchor
-    const text = `${isOn ? '▸' : ' '} ${padTo(names[at] ?? '', nameCols)}  ${countText(one)}`
+    const lead = `${isOn ? '▸' : ' '} ${padTo(names[at] ?? '', nameCols)}  `
+    const word = hasListState ? padTo(planStateOf(one), STATE_COLUMNS) : ''
+    const tail = `${hasListState ? '  ' : ''}${countText(one)}`
 
     return (
-      <Button plain key={`band:plan:${one.anchor}`} label={text} onPress={() => onPick(one.anchor)}>
-        <Text {...(isOn ? { bold: true } : {})}>{text}</Text>
+      <Button plain key={`band:plan:${one.anchor}`} label={`${lead}${word}${tail}`} onPress={() => onPick(one.anchor)}>
+        <Text {...(isOn ? { bold: true } : {})}>{lead}</Text>
+        {hasListState ? <Text color={STATE_STYLE[planStateOf(one)].color} {...(isOn ? { bold: true } : {})}>{word}</Text> : null}
+        <Text {...(isOn ? { bold: true } : {})}>{tail}</Text>
       </Button>
     )
   }
@@ -182,9 +194,8 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
     <Button plain key="band:file" label={FILE_LABEL} onPress={onFile} />
   )
 
-  const filledCells = Array.from({ length: line.filled }, (_, at) => (
-    <Text color={frame === null ? STYLE.Done.color : rainbowAt(at, frame)}>▰</Text>
-  ))
+  const filledCells = (count: number) =>
+    Array.from({ length: count }, (_, at) => <Text color={frame === null ? STYLE.Done.color : rainbowAt(at, frame)}>▰</Text>)
 
   // The desktop: a Button holds only strings and Text, so a picture (the mascot, the bar) cannot be pressed. A region
   // that posts `{ band: 'toggle' }` is laid over each such part (and the dot and the gap), so the whole band is a target. The
@@ -275,40 +286,59 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
   }
 
   // The terminal: the mascot, the dot and (with one plan) the name are one Button; the bar, the count and the gap up to
-  // "Plan file ›" are another. Both toggle the board; the name's menu and the plan file keep their own buttons.
-  const headText = `${pose} ● ${hasChoice ? '' : line.name}`
-  const barText = ` ${line.state}  ${'▰'.repeat(line.filled)}${'▱'.repeat(line.empty)} ${line.count}`
-  const nameWidth = hasChoice ? displayWidth(`${line.name} ▾`) : 0
-  const filler = ' '.repeat(Math.max(0, columns + BAND_MASCOT_SPACE - displayWidth(headText) - nameWidth - displayWidth(barText) - displayWidth(fileLabel) - 2 - FRAME_COLUMNS))
+  // "Plan file ›" are another. Both toggle the board; the name's menu and the plan file keep their own buttons. The parts
+  // are fitted to the frame's inside (`bandFit`), so the row never runs past the column a docked pane leaves it.
+  // A pane open inline can leave the band two rows: then the frame (its two border rows) goes and the band is the one row it was before it.
+  const framedFit = bandFit(plan, columns - FRAME_COLUMNS, hasChoice, displayWidth(fileLabel))
+  const isFramed = maxRows >= (framedFit.isStacked ? 4 : 3)
+  const frameColumns = isFramed ? FRAME_COLUMNS : 0
+  const fit = isFramed ? framedFit : bandFit(plan, columns, hasChoice, displayWidth(fileLabel))
+  const headText = `${pose} ● ${hasChoice ? '' : fit.name}`
+  const nameWidth = hasChoice ? displayWidth(`${fit.name} ▾`) : 0
+  const bar = fit.filled + fit.empty
+  const barText = ` ${fit.hasState ? `${fit.state}  ` : ''}${bar > 0 ? `${'▰'.repeat(fit.filled)}${'▱'.repeat(fit.empty)} ` : ''}${fit.count}`
+  const used = displayWidth(headText) + nameWidth + displayWidth(barText) + (fit.hasFile ? displayWidth(fileLabel) : 0)
+  const filler = ' '.repeat(Math.max(0, columns + BAND_MASCOT_SPACE - frameColumns - used - (fit.hasFile ? 2 : 0)))
+
+  const progress = (
+    <Button plain key="band:bar" label={`${barText}${fit.isStacked ? '' : filler}`} onPress={onBar}>
+      <Text>{' '}</Text>
+      {fit.hasState ? <Text color={stateColor}>{fit.state}</Text> : null}
+      {fit.hasState ? <Text>{'  '}</Text> : null}
+      {bar > 0 ? filledCells(fit.filled) : null}
+      {bar > 0 ? <Text dimColor>{'▱'.repeat(fit.empty)}</Text> : null}
+      {bar > 0 ? <Text>{' '}</Text> : null}
+      <Text>{`${fit.count}${fit.isStacked ? '' : filler}`}</Text>
+    </Button>
+  )
 
   return (
     <Box flexDirection="column">
-      <Box key="band:frame" flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
-      <Box key="bar" flexDirection="row">
-        <Button plain key="band:head" label={headText} onPress={onBar}>
-          <Text color="claude">{`${pose} `}</Text>
-          <Text color={dotColor} {...dotDim}>
-            ●{' '}
-          </Text>
-          {hasChoice ? null : <Text bold>{line.name}</Text>}
-        </Button>
-        {hasChoice ? (
-          <Button plain key="band:plans" label={`${line.name} ▾`} onPress={onMenu}>
-            <Text bold>{line.name}</Text>
-            <Text> ▾</Text>
+      <Box key={isFramed ? 'band:frame' : 'band:plain'} flexDirection="column" {...(isFramed ? { borderStyle: 'round' as const, borderDimColor: true, paddingX: 1 } : {})}>
+        <Box key="bar" flexDirection="row">
+          <Button plain key="band:head" label={headText} onPress={onBar}>
+            <Text color="claude">{`${pose} `}</Text>
+            <Text color={dotColor} {...dotDim}>
+              ●{' '}
+            </Text>
+            {hasChoice ? null : <Text bold>{fit.name}</Text>}
           </Button>
+          {hasChoice ? (
+            <Button plain key="band:plans" label={`${fit.name} ▾`} onPress={onMenu}>
+              <Text bold>{fit.name}</Text>
+              <Text> ▾</Text>
+            </Button>
+          ) : null}
+          {fit.isStacked ? <Box flexGrow={1} minWidth={0} /> : progress}
+          {fit.isStacked ? null : <Box flexGrow={1} minWidth={1} />}
+          {fit.hasFile ? fileButton : null}
+        </Box>
+        {fit.isStacked ? (
+          <Box key="bar:2" flexDirection="row">
+            {progress}
+            <Box flexGrow={1} minWidth={0} />
+          </Box>
         ) : null}
-        <Button plain key="band:bar" label={`${barText}${filler}`} onPress={onBar}>
-          <Text>{' '}</Text>
-          <Text color={stateColor}>{line.state}</Text>
-          <Text>{'  '}</Text>
-          {filledCells}
-          <Text dimColor>{'▱'.repeat(line.empty)}</Text>
-          <Text>{` ${line.count}${filler}`}</Text>
-        </Button>
-        <Box flexGrow={1} minWidth={1} />
-        {fileButton}
-      </Box>
       </Box>
       {isOpen && hasChoice ? (
         <Box key="band:list" flexDirection="column">

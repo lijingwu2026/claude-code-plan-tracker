@@ -1,6 +1,6 @@
 {
   "name": "plan-tracker",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Your approved plan, live: which step is done, running, or waiting on you. A one-row band above the prompt (plan, state word, progress bar, Plan file) and a pane with lanes of task cards, a state word (In progress, Idle, Done) after the plan name in the header, the plan dropdown and the band, a dim plan line under the plan name (start, elapsed, tokens, cost), compact task pages and deliverables, in the terminal and the Claude Desktop app. It reads PROGRESS.md (or the output of a command you set) and redraws whenever it changes. Read-only.",
   "types": "./types/index.d.ts",
   "author": {
