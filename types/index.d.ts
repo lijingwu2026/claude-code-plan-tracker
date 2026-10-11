@@ -24,6 +24,8 @@ export type PlanRow = {
   deliverable?: string
   /** One line on what the deliverable changed, written with the file; absent when not given. */
   change?: string
+  /** One sentence on what the task is for; absent when not given. */
+  goal?: string
   /** `n/m` steps done of total, as the agent reported it; absent until it has. */
   progress?: string
   /** When the row first went In Progress, and when it was finished (Done or Canceled); ISO text. Absent on rows written before these fields. */

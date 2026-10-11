@@ -543,7 +543,7 @@ describe('plan-tracker pane: the cards', () => {
 })
 
 describe('plan-tracker pane: deliverables', () => {
-  test('the section shows the paths that rows recorded, as links, each with its task', async ($, on) => {
+  test('the section shows the paths that rows recorded, each once, in the link colour', async ($, on) => {
     world(on)
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal')
@@ -551,12 +551,13 @@ describe('plan-tracker pane: deliverables', () => {
     const section = await pane.find({ key: 'deliverables' })
 
     expect(textOf(section)).toContain('DELIVERABLE')
-    expect(textOf(section)).toContain('TASK')
+    expect(textOf(section)).not.toContain('TASK')
+    expect(textOf(section)).not.toContain('d4 newest')
     expect(textOf(section)).toContain(' .md ')
-    expect(textOf(section)).toContain('automation/plans/alpha-plan.md  —       d4 newest')
-    expect((await pane.find({ type: 'Link' }))?.props.href).toBe(
-      'file:///work/automation/plans/alpha-plan.md',
-    )
+    expect(textOf(section)).toContain('automation/plans/alpha-plan.md  —')
+    expect(await pane.findAll({ type: 'Link' })).toEqual([])
+    expect(textOf(section).split('automation/plans/alpha-plan.md')).toHaveLength(2)
+    expect(JSON.stringify(section)).toContain('"color":"remember"')
     await pane.unmount()
   })
 
@@ -575,7 +576,18 @@ describe('plan-tracker pane: deliverables', () => {
 })
 
 /** The lines of a task page's note, top to bottom (the heading is the first child). */
-const noteRows = async (pane: Pane): Promise<Node[]> => kids(await pane.find({ key: 'detail:note' })).slice(1)
+const noteRows = async (pane: Pane): Promise<Node[]> =>
+  kids(await pane.find({ key: 'field:note' })).map((line): Node => ({ type: 'Box', props: {}, children: kids(line).slice(3, -2) }))
+
+/** The label cell of the note row on the terminal. */
+const noteLabel = async (pane: Pane): Promise<Node | undefined> => kids(kids(await pane.find({ key: 'field:note' }))[0])[1]
+
+/** A table row of a task page as one line of words: the frame and the padding gone (`Status Done`); undefined when the page has no such row. */
+const fieldText = async (pane: Pane, key: string): Promise<string | undefined> => {
+  const found = await pane.find({ key: `field:${key}` })
+
+  return found === undefined ? undefined : textOf(found).replace(/[│╭╮╰╯├┤┬┴┼─]/g, ' ').replace(/\s+/g, ' ').trim()
+}
 
 /** The task page's keys, top to bottom. */
 const pageKeys = async (pane: Pane): Promise<string[]> => kids(await pane.find({ key: 'detail' })).map(node => String(node.props?.key ?? node.type))
@@ -590,18 +602,35 @@ describe('plan-tracker pane: the task page', () => {
     return { pane }
   }
 
-  test('it is compact: the title, one status line, the note; no table, no frame, no labelled rows', async ($, on) => {
+  test('the title, then a framed table of labelled rows: Status and Done by; no Working time, Effort, Tokens or Est. cost rows', async ($, on) => {
     world(on)
     await $.session.start(SESSION)
     const { pane } = await open($, 'Build')
 
-    expect(await pageKeys(pane)).toEqual(['back', 'detail:title', 'detail:status'])
-    expect(await pane.find({ key: 'detail:fields' })).toBeUndefined()
-    expect(textOf(await pane.find({ key: 'detail' }))).not.toMatch(/[╭╮╰╯├┤┬┴┼│─]|Status|Done by|Working time|Tokens|Est\. cost/)
+    expect(await pageKeys(pane)).toEqual(['back', 'detail:title', 'detail:fields'])
+    expect(textOf(await pane.find({ key: 'detail:fields' }))).toMatch(/^╭[─┬]+╮/)
+    expect(textOf(await pane.find({ key: 'detail:fields' }))).not.toMatch(/Working time|Effort|Tokens|Est\. cost|Goal|Checked by|Progress/)
     expect(textOf(await pane.find({ key: 'detail:title' }))).toBe('■ Build the eval suite (official claude plugin eval) and run it')
-    // the tier is a chip, the executor follows; the status is in words
-    expect(textOf(await pane.find({ key: 'detail:status' }))).toBe('In progress ·  Sonnet  subagent')
-    expect(JSON.stringify(await pane.find({ key: 'detail:status' }))).toContain('"backgroundColor":"#D3E2F4"')
+    // the status is in words; the tier is a chip, the executor follows
+    expect(await fieldText(pane, 'status')).toBe('Status In progress')
+    expect(await fieldText(pane, 'who')).toBe('Done by Sonnet subagent')
+    expect(JSON.stringify(await pane.find({ key: 'field:who' }))).toContain('"backgroundColor":"#D3E2F4"')
+    await pane.unmount()
+  })
+
+  test('Goal is the first row when the tracker has one, and no row at all when it has none', async ($, on) => {
+    const goal = 'Prove the eval suite runs green on the new plugin'
+    const board: PlanBoard = { ...BOARD, plans: [{ ...BOARD.plans[0]!, rows: [{ ...ALPHA_ROWS[6]!, goal }, ALPHA_ROWS[8]!] }] }
+    world(on, { fixture: board })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal')
+
+    await openCard(pane, 0)
+    expect(kids(await pane.find({ key: 'detail:fields' })).filter(node => String(node.props?.key ?? '').startsWith('field:')).map(node => String(node.props?.key))).toEqual(['field:goal', 'field:status', 'field:who'])
+    expect(await fieldText(pane, 'goal')).toBe(`Goal ${goal}`)
+    await pane.press({ key: 'back' })
+    await openCard(pane, 1)
+    expect(await pane.find({ key: 'field:goal' })).toBeUndefined()
     await pane.unmount()
   })
 
@@ -620,8 +649,9 @@ describe('plan-tracker pane: the task page', () => {
     await $.session.start(SESSION)
     const { pane } = await open($, 'v1')
 
-    expect(textOf(await pane.find({ key: 'detail:status' }))).toBe('Waiting for your check ·  you ')
-    expect(JSON.stringify(await pane.find({ key: 'detail:status' }))).toContain('"backgroundColor":"#4B2FB8"')
+    expect(await fieldText(pane, 'status')).toBe('Status Waiting for your check')
+    expect(await fieldText(pane, 'who')).toBe('Done by you')
+    expect(JSON.stringify(await pane.find({ key: 'field:who' }))).toContain('"backgroundColor":"#4B2FB8"')
     expect(await pane.find({ key: 'detail:usage' })).toBeUndefined()
     await pane.unmount()
   })
@@ -631,8 +661,10 @@ describe('plan-tracker pane: the task page', () => {
     await $.session.start(SESSION)
     const { pane } = await open($, 't3')
 
-    expect(await pageKeys(pane)).toEqual(['back', 'detail:title', 'detail:status'])
-    expect(textOf(await pane.find({ key: 'detail:status' }))).toBe('To do')
+    expect(await pageKeys(pane)).toEqual(['back', 'detail:title', 'detail:fields'])
+    expect(await fieldText(pane, 'status')).toBe('Status To do')
+    expect(await pane.find({ key: 'field:who' })).toBeUndefined()
+    expect(await pane.find({ key: 'field:checker' })).toBeUndefined()
     await pane.unmount()
   })
 
@@ -660,9 +692,13 @@ describe('plan-tracker pane: the task page', () => {
 
     await openCard(pane, 6)
 
-    // the status line is a Text that wraps itself; the note is wrapped to the width here
-    expect(kids(await pane.find({ key: 'detail:status' }))[0]?.props.wrap).toBe('wrap')
-    expect((await noteRows(pane)).every(line => displayWidth(textOf(line)) <= 30)).toBe(true)
+    // every line of the frame, the rules included, is within the width
+    for (const node of kids(await pane.find({ key: 'detail:fields' }))) {
+      for (const line of node.type === 'Box' ? kids(node) : [node]) {
+        expect(displayWidth(textOf(line))).toBeLessThanOrEqual(30)
+      }
+    }
+
     await pane.unmount()
   })
 
@@ -685,15 +721,11 @@ describe('plan-tracker pane: the task page', () => {
     await $.session.start(SESSION)
     const { pane } = await open($, 'b1')
 
-    const status = kids(kids(await pane.find({ key: 'detail:status' }))[0])[0]
-    const heading = await pane.find({ key: 'note:heading' })
-
-    expect(textOf(status)).toBe('⚑ Blocked')
-    expect(status?.props).toMatchObject({ color: 'error', bold: true })
-    expect(textOf(kids(heading)[0])).toBe('Blocked because')
-    expect(kids(heading)[0]?.props.color).toBe('error')
-    expect(textOf(await pane.find({ key: 'detail:note' }))).toContain('waiting on a ruling about the hook')
-    expect(textOf(await pane.find({ key: 'detail:status' }))).toBe('⚑ Blocked ·  Opus  main session')
+    expect(await fieldText(pane, 'status')).toBe('Status ⚑ Blocked')
+    expect(JSON.stringify(await pane.find({ key: 'field:status' }))).toContain('"color":"error","bold":true')
+    expect(await fieldText(pane, 'note')).toBe('Blocked because waiting on a ruling about the hook')
+    expect(JSON.stringify(await pane.find({ key: 'field:note' }))).toContain('"color":"error"')
+    expect(await fieldText(pane, 'who')).toBe('Done by Opus main session')
     await pane.unmount()
   })
 
@@ -702,10 +734,10 @@ describe('plan-tracker pane: the task page', () => {
     await $.session.start(SESSION)
     const first = await open($, 'd4')
 
-    expect(textOf(await first.pane.find({ key: 'detail:deliverable-section' }))).toStartWith('Deliverableautomation/plans/alpha-plan.md')
+    expect(await fieldText(first.pane, 'deliverable')).toBe('Deliverable automation/plans/alpha-plan.md')
     expect((await first.pane.find({ type: 'Link' }))?.props.label).toBe('automation/plans/alpha-plan.md')
-    expect(textOf(await first.pane.find({ key: 'detail:status' }))).toBe('Done')
-    expect(textOf(await first.pane.find({ key: 'detail:note' }))).toStartWith('Latest note• built the suite')
+    expect(await fieldText(first.pane, 'status')).toBe('Status Done')
+    expect(await fieldText(first.pane, 'note')).toStartWith('Latest note • built the suite')
     await first.pane.unmount()
   })
 
@@ -767,7 +799,7 @@ describe('plan-tracker pane: v4 review changes', () => {
     const lines = await noteRows(pane)
     const cell = (line: Node) => kids(line).map(textOf).join('')
 
-    expect(kids(await pane.find({ key: 'note:heading' }))[0]?.props.color).toBe('error')
+    expect((await noteLabel(pane))?.props.color).toBe('error')
     expect(lines).toHaveLength(3)
     expect(lines.map(cell).map(text => text.trimEnd())).toEqual(['• Source is here', '• second point docs/report-2026-09-20.md', '• 【Decide】Should it run again?'])
     // the body is in the default colour: no part of a value cell is red
@@ -777,8 +809,8 @@ describe('plan-tracker pane: v4 review changes', () => {
 
     expect(link?.props.label).toBe('docs/report-2026-09-20.md')
     expect(String(link?.props.href)).toEndWith('/docs/report-2026-09-20.md')
-    expect(JSON.stringify(await pane.find({ key: 'detail:note' }))).toContain('"color":"remember"')
-    expect(kids(kids(await pane.find({ key: 'detail:status' }))[0])[0]).toMatchObject({ props: { color: 'error', bold: true } })
+    expect(JSON.stringify(await pane.find({ key: 'field:note' }))).toContain('"color":"remember"')
+    expect(JSON.stringify(await pane.find({ key: 'field:status' }))).toContain('"color":"error","bold":true')
     await pane.unmount()
   })
 
@@ -831,7 +863,7 @@ describe('plan-tracker pane: v4 review changes', () => {
 
     expect(JSON.stringify(await pane.find({ key: 'deliverables' }))).toContain('"color":"remember"')
     await openCard(pane, indexOfTask('d4'))
-    expect(JSON.stringify(await pane.find({ key: 'detail:deliverable-section' }))).toContain('"color":"remember"')
+    expect(JSON.stringify(await pane.find({ key: 'field:deliverable' }))).toContain('"color":"remember"')
     await pane.unmount()
   })
 
@@ -989,8 +1021,7 @@ describe('plan-tracker pane: the note cell and the Route row', () => {
 
     expect(await pane.find({ key: 'detail:route' })).toBeUndefined()
     expect(textOf(await pane.find({ key: 'detail' }))).not.toMatch(/Route|spawn ×|a mechanical change/)
-    expect(textOf(await pane.find({ key: 'detail:status' }))).toContain('subagent')
-    expect(textOf(await pane.find({ key: 'detail:status' }))).toContain(' Sonnet ')
+    expect(await fieldText(pane, 'who')).toBe('Done by Sonnet subagent')
     await pane.unmount()
   })
 
@@ -1072,10 +1103,10 @@ describe('plan-tracker pane: the note cell and the Route row', () => {
 
     const lines = await noteRows(pane)
 
-    const label = kids(await pane.find({ key: 'note:heading' }))[0]
+    const label = await noteLabel(pane)
 
     expect(label?.props.color).toBe('error')
-    expect(textOf(label)).toBe('Blocked because')
+    expect(textOf(label).trim()).toBe('Blocked because')
     expect(JSON.stringify(lines.map(line => kids(line)))).not.toContain('"color":"error"')
     await pane.unmount()
   })
@@ -1568,7 +1599,7 @@ describe('plan-tracker pane: the Verify lane with a Verifying row', () => {
 
     await openCard(pane, 1)
 
-    const status = kids(kids(await pane.find({ key: 'detail:status' }))[0]).find(node => textOf(node) === 'Being checked')
+    const status = kids(kids(await pane.find({ key: 'field:status' }))[0]).find(node => textOf(node).trim() === 'Being checked')
 
     expect(status?.props.color).toBe('warning')
     await pane.unmount()
@@ -1595,8 +1626,9 @@ describe('plan-tracker pane: the Verify lane with a Verifying row', () => {
 
     expect(textOf((await cardRowsIn(pane, 0))[0])).toStartWith('◆ needs you · from json')
     await openCard(pane, 0)
-    expect(textOf(await pane.find({ key: 'detail:status' }))).toBe('Waiting for your check ·  you ')
-    expect(await pane.find({ key: 'detail:note' })).toBeUndefined()
+    expect(await fieldText(pane, 'status')).toBe('Status Waiting for your check')
+    expect(await fieldText(pane, 'who')).toBe('Done by you')
+    expect(await pane.find({ key: 'field:note' })).toBeUndefined()
     await pane.unmount()
   })
 })

@@ -73,6 +73,16 @@ describe('the board file: a real PROGRESS.md', () => {
     expect(executorOf(row)).toBe('subagent')
   })
 
+  test('optional goal and change columns are read, wherever they stand in the header', () => {
+    const plan = planOf(
+      '| goal | task | change | status |\n|---|---|---|---|\n| Prove the export works | build it | Create src/csv.ts | Done |\n| | plain | | Todo |\n',
+    )
+
+    expect(plan.rows[0]).toMatchObject({ task: 'build it', goal: 'Prove the export works', change: 'Create src/csv.ts' })
+    expect(plan.rows[1]).not.toHaveProperty('goal')
+    expect(plan.rows[1]).not.toHaveProperty('change')
+  })
+
   test('an executor equal to your_name is you; with no name set nobody is', () => {
     const row = planOf('| task | status | executor |\n|---|---|---|\n| t | Todo | Sam |\n').rows[0]!
 
@@ -142,11 +152,11 @@ describe('the board file: the kit\'s executor and check columns', () => {
 
     expect(await textIn(pane, await pane.drawn())).toContain('◆ needs you')
     await openCard(pane, 0)
-    const text = textOf(await pane.find({ key: 'detail:status' }))
+    const text = textOf(await pane.find({ key: 'field:who' }))
 
     expect(text).toContain('main session')
     expect(text).toContain('Sonnet')
-    expect(textOf(await pane.find({ key: 'detail:checked' }))).toBe('Checked by script (grep)')
+    expect(textOf(await pane.find({ key: 'field:checker' })).replace(/[│╭╮╰╯├┤┬┴┼─]/g, ' ').replace(/\s+/g, ' ').trim()).toBe('Checked by script (grep)')
     await pane.unmount()
   })
 })

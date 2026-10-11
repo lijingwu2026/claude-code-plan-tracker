@@ -808,7 +808,7 @@ const markdownLink = (label: string, href: string) =>
 /** Columns between two cells of the terminal table. */
 const TABLE_GAP = 2
 
-/** The narrowest path column the terminal table keeps before it drops the task column. */
+/** The narrowest path column the terminal table keeps before it drops the change column. */
 const MIN_PATH_COLUMNS = 12
 
 /** The narrowest the terminal's CHANGE column is kept at; a narrower one is dropped. */
@@ -817,31 +817,34 @@ const MIN_CHANGE_COLUMNS = 8
 /** The desktop pane width from which the deliverables table has a CHANGE column. */
 const DESKTOP_CHANGE_FROM = 100
 
+/** A no-break space: the desktop's type chip is padded with it, so the Text cannot wrap between the padding and the word. */
+const NBSP = ' '
+
 /**
- * `Deliverables N`, then a table of Type, Deliverable, Change and Task (Change goes first when the pane is narrow) with a dim header and no ruled lines, grouped by type (the
- * type as a grey chip on the first row of its group). The path is a link that opens it; the task is dim. On the desktop the
+ * `Deliverables`, then a table of Type, Deliverable and Change with a dim header and no ruled lines, grouped by type (the
+ * type as a grey chip on the first row of its group). The path is a link that opens it; the change is dim. On the desktop the
  * whole path wraps (nothing is cut to the column count) and is a `Markdown` link: a `Link` opens only `https:` on a remote
  * surface, so a press is answered here and the plugin opens the file.
  */
 function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, onOpenPath }: DeliverablesArgs): RenderElement {
-  const { Box, Text, Link, Markdown } = kit
+  const { Box, Text, Markdown } = kit
   const rows = groups.flatMap(group => group.items.map((item, at) => ({ item, type: at === 0 ? group.type : '' })))
   const typeCols = Math.max(4, ...groups.map(group => displayWidth(group.type))) + 2
 
-  const chip = (type: string) => (
-    <Text color={TYPE_CHIP.fg} backgroundColor={TYPE_CHIP.bg}>{` ${type} `}</Text>
+  const chip = (type: string, padding = ' ') => (
+    <Text color={TYPE_CHIP.fg} backgroundColor={TYPE_CHIP.bg}>{`${padding}${type}${padding}`}</Text>
   )
 
-  // The desktop drops CHANGE on a narrow pane, before TASK.
   const hasChange = isProportional && columns >= DESKTOP_CHANGE_FROM
 
   const desktopRow = ({ item, type }: { item: Deliverable; type: string }, at: number) => {
     const href = deliverableHref(item.path, home)
 
     return (
-      <Box key={`deliverable:${at}:item`} flexDirection="row" gap={1}>
-        <Box width={typeCols} flexShrink={0}>
-          {type === '' ? null : chip(type)}
+      <Box key={`deliverable:${at}:item`} flexDirection="row" gap={1} alignItems="flex-start">
+        {/* A proportional font sets ' .tsx ' wider than its cells: with a breaking space the Text wraps and the word falls a line below its path. */}
+        <Box width={typeCols + 2} flexShrink={0}>
+          {type === '' ? null : chip(type, NBSP)}
         </Box>
         <Box flexGrow={1} flexShrink={1}>
           {href === null ? (
@@ -851,50 +854,31 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, onO
           )}
         </Box>
         {hasChange ? (
-          <Box width="28%" flexShrink={0}>
+          <Box width="34%" flexShrink={0}>
             <Text dimColor wrap="wrap">{item.change ?? '—'}</Text>
           </Box>
         ) : null}
-        <Box width={hasChange ? '24%' : '38%'} flexShrink={0}>
-          <Text dimColor wrap="wrap">{item.task}</Text>
-        </Box>
       </Box>
     )
   }
 
   const pathNatural = Math.max(0, ...rows.map(({ item }) => displayWidth(item.path)))
   const changeNatural = Math.max(displayWidth('CHANGE'), ...rows.map(({ item }) => displayWidth(item.change ?? '—')))
-  const taskNatural = Math.max(0, ...rows.map(({ item }) => displayWidth(item.task)))
   const avail = columns - typeCols - TABLE_GAP
   let pathCols = avail
   let changeCols = 0
-  let taskCols = 0
 
-  if (pathNatural + changeNatural + taskNatural + 2 * TABLE_GAP <= avail) {
+  if (pathNatural + changeNatural + TABLE_GAP <= avail) {
     pathCols = pathNatural
     changeCols = changeNatural
-    taskCols = taskNatural
   } else {
-    // CHANGE is the first to go: with it the path keeps its minimum, or the table is the old Type, Deliverable, Task.
-    taskCols = Math.min(taskNatural, Math.floor(avail * 0.25))
-    changeCols = Math.min(changeNatural, Math.floor(avail * 0.3))
-    pathCols = avail - 2 * TABLE_GAP - changeCols - taskCols
+    // The path keeps its whole width up to two thirds of the table, CHANGE the rest; CHANGE is the first to go.
+    pathCols = Math.min(pathNatural, Math.floor(avail * 0.65))
+    changeCols = avail - TABLE_GAP - pathCols
 
     if (pathCols < MIN_PATH_COLUMNS || changeCols < MIN_CHANGE_COLUMNS) {
       changeCols = 0
-
-      if (pathNatural + TABLE_GAP + taskNatural <= avail) {
-        pathCols = pathNatural
-        taskCols = taskNatural
-      } else {
-        taskCols = Math.min(taskNatural, Math.floor((avail - TABLE_GAP) * 0.4))
-        pathCols = avail - TABLE_GAP - taskCols
-
-        if (pathCols < MIN_PATH_COLUMNS) {
-          pathCols = avail
-          taskCols = 0
-        }
-      }
+      pathCols = avail
     }
   }
 
@@ -904,49 +888,41 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, onO
     const href = deliverableHref(item.path, home)
     const label = truncate(item.path, pathCols)
     const change = changeCols === 0 ? '' : padTo(truncate(item.change ?? '—', changeCols), changeCols)
-    const task = taskCols === 0 ? '' : truncate(item.task, taskCols)
-    const tail = `${changeCols === 0 ? '' : `${gap}${change}`}${taskCols === 0 ? '' : `${gap}${task}`}`
 
     return (
       <Text wrap="truncate">
         {type === '' ? ' '.repeat(typeCols) : chip(type)}
         {type === '' ? '' : ' '.repeat(typeCols - chipCols(type))}
         {gap}
-        {href === null ? label : (
-          <Text color={LINK_COLOR}>
-            <Link href={href} label={label} />
-          </Text>
-        )}
-        {tail === '' ? null : <Text dimColor>{`${' '.repeat(pathCols - displayWidth(label))}${tail}`}</Text>}
+        {/* Not a Link: a terminal without OSC 8 support draws a Link as its text and then the URL, so the path would show twice and the columns shift. */}
+        {href === null ? label : <Text color={LINK_COLOR}>{label}</Text>}
+        {changeCols === 0 ? null : <Text dimColor>{`${' '.repeat(pathCols - displayWidth(label))}${gap}${change}`}</Text>}
       </Text>
     )
   }
 
   const header = (
     <Text dimColor wrap="truncate">
-      {`${padTo('TYPE', typeCols)}${gap}${taskCols === 0 && changeCols === 0 ? 'DELIVERABLE' : `${padTo('DELIVERABLE', pathCols)}${changeCols === 0 ? '' : `${gap}${padTo('CHANGE', changeCols)}`}${taskCols === 0 ? '' : `${gap}TASK`}`}`}
+      {`${padTo('TYPE', typeCols)}${gap}${changeCols === 0 ? 'DELIVERABLE' : `${padTo('DELIVERABLE', pathCols)}${gap}${padTo('CHANGE', changeCols)}`}`}
     </Text>
   )
 
   return (
     <Box key="deliverables" flexDirection="column" marginTop={1}>
-      <Text bold>{`Deliverables ${rows.length}`}</Text>
+      <Text bold>Deliverables</Text>
       {isProportional ? (
         <Box key="deliverables:head" flexDirection="row" gap={1}>
-          <Box width={typeCols} flexShrink={0}>
+          <Box width={typeCols + 2} flexShrink={0}>
             <Text dimColor>TYPE</Text>
           </Box>
           <Box flexGrow={1} flexShrink={1}>
             <Text dimColor>DELIVERABLE</Text>
           </Box>
           {hasChange ? (
-            <Box width="28%" flexShrink={0}>
+            <Box width="34%" flexShrink={0}>
               <Text dimColor>CHANGE</Text>
             </Box>
           ) : null}
-          <Box width={hasChange ? '24%' : '38%'} flexShrink={0}>
-            <Text dimColor>TASK</Text>
-          </Box>
         </Box>
       ) : (
         header
@@ -960,25 +936,44 @@ type DetailArgs = Pick<PaneArgs, 'columns' | 'home' | 'onBack' | 'onOpenPath'> &
 
 
 
-/** A piece of a line: text, its colour, and the file link it opens, if any. */
+/** Columns of the table's label cell, at the most (the longest label is "Blocked because"). */
+const LABEL_COLUMNS = 15
+
+/** The narrowest value cell the table keeps before the label cell shrinks. */
+const MIN_VALUE_COLUMNS = 12
+
+/** A piece of a cell's line: text, its colour, and the file link it opens, if any. */
 type Part = { text: string; color?: string; bold?: boolean; dim?: true; href?: string | null; /** Drawn as this chip: the text padded one space each side. */ chip?: Chip; /** Drawn as a solid bar of Boxes (the desktop). */ bar?: { fraction: number; color: string } }
 
-/** Columns a desktop line wraps at: none, since its Text wraps itself. */
+/** One row of the table: the label and its lines, each a list of parts. */
+type TableRow = { key: string; label: string; isRed?: boolean; lines: Part[][]; /** The deliverable's path as the tracker wrote it: on the desktop a `Markdown` link above `lines`. */ path?: string }
+
+/** Columns a desktop cell wraps at: none, since its Box wraps the text itself. */
 const UNWRAPPED_COLUMNS = 100_000
 
+const widthOf = (parts: readonly Part[]) => parts.reduce((all, part) => all + displayWidth(part.text) + (part.chip === undefined ? 0 : 2), 0)
+
+/** A cell of words with the chips `you`, `Opus`, `Sonnet` and `Haiku` kept: `main session · Sonnet`. */
+const chipParts = (words: string): Part[] =>
+  words.split(' · ').flatMap((word, at): Part[] => [...(at === 0 ? [] : [{ text: ' · ' }]), CHIPS[word] === undefined ? { text: word } : { text: word, chip: CHIPS[word] }])
+
 /**
- * One task's page, compact like the Agent map: the task behind a square in its status color; one dim status line (`Waiting
- * for your check · Sonnet subagent`, the tier a chip); one dim line of `working time · tokens · cost` (and `high effort` when
- * the work ran at one), left out for a row with no usage; the progress bar when the row has progress; "Latest note" (the
- * reason, on a Blocked row) with its date and one bulleted point per line, its file paths links; "Deliverable" with the path as
- * a link and the change in dim text; and `Checked by <who>` once the row is Done. Nothing is drawn for what the tracker does
- * not record. On the desktop the note's points hang under their bullet and the path is a `Markdown` link.
+ * One task's page: the task behind a square in its status color; one dim line of `working time · tokens · cost` (and `high
+ * effort` when the work ran at one), left out for a row with no usage and for her own rows; then a bordered table of labelled
+ * rows, each left out when the tracker records nothing for it: Goal, Status (in words and its color), Done by (the tier a chip
+ * and the executor, or the you chip), Checked by (once the row is Done), Progress (a bar), "Latest note" (the reason, on a
+ * Blocked row; its date, then one bulleted point per line, its file paths links) and Deliverable (the path as a link, the
+ * change in dim text under it). The frame is box characters on the terminal: a label cell and a value cell, a rule between rows;
+ * values wrap inside their cell. On the desktop each row is a round-bordered Box, a label Box of fixed width and a value Box that
+ * wraps its text; the path is a `Markdown` link.
  */
 function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, onOpenPath }: DetailArgs): RenderElement {
-  const { Box, Text, Button, Link, Markdown } = kit
+  const { Box, Text, Button } = kit
   const { color, ...dim } = STYLE[row.status]
   const stuck = isBlocked(row)
-  const valueWidth = isProportional ? UNWRAPPED_COLUMNS : Math.max(1, columns)
+  // `│ ` label ` │ ` value ` │`: seven columns of frame and padding.
+  const labelWidth = Math.max(4, Math.min(LABEL_COLUMNS, columns - 7 - MIN_VALUE_COLUMNS))
+  const valueWidth = isProportional ? UNWRAPPED_COLUMNS : Math.max(1, columns - 7 - labelWidth)
   const who = whoLineOf(row)
   const checker = checkerOf(row)
   const noteLines = noteLinesOf(row.note ?? '', valueWidth)
@@ -987,83 +982,62 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, onOp
   // Her own tasks show no usage: the numbers are Claude's session, which does not measure her work.
   const usage = usageLineOf(row.started === undefined || isYou(executorOf(row)) ? undefined : row.usage)
   const deliverable = row.deliverable === undefined || row.deliverable === '' ? undefined : row.deliverable
-  const href = deliverable === undefined ? null : deliverableHref(deliverable, home)
-
-  const part = (one: Part, at: number) => {
-    if (one.bar !== undefined) {
-      return (
-        <Box key={`part:${at}`} flexShrink={0} alignSelf="center">
-          {kit.Svg === undefined ? null : <kit.Svg source={barSvg(one.bar.fraction, one.bar.color)} alt="progress" width={BAR_PX.width} height={BAR_PX.height} />}
-        </Box>
-      )
-    }
-
-    if (one.chip !== undefined) {
-      return (
-        <Text key={`part:${at}`} color={one.chip.fg} backgroundColor={one.chip.bg} {...(one.chip.bold === true ? { bold: true } : {})}>{` ${one.text} `}</Text>
-      )
-    }
-
-    return (
-      <Text key={`part:${at}`} {...(one.color === undefined ? {} : { color: one.color })} {...(one.bold === true ? { bold: true } : {})} {...(one.dim === true ? { dimColor: true } : {})}>
-        {one.href === undefined || one.href === null ? one.text : <Link href={one.href} label={one.text} />}
-      </Text>
-    )
-  }
-
-  // The status line: the status in its colour, then who, the tier as a chip.
-  const statusLine: Part[] = [
-    { text: row.statusText ?? statusWords(row), color, bold: stuck, ...(dim.dimColor === true ? { dim: true as const } : {}) },
-    ...(who === undefined
-      ? []
-      : [
-          { text: ' · ', dim: true as const },
-          ...(who.executor === 'you'
-            ? [{ text: 'you', chip: CHIPS.you }]
-            : [...(who.tier === undefined || CHIPS[who.tier] === undefined ? [] : [{ text: who.tier, chip: CHIPS[who.tier] }]), { text: ` ${who.executor}`, dim: true as const }]),
-        ]),
-  ]
-  const barLine: Part[] | undefined =
+  const plain = (text: string): Part[][] => wrap(text, valueWidth).map(line => [{ text: line }])
+  // The chips stay when the cell holds the line whole; a narrower cell wraps the plain words instead.
+  const chipped = (words: string): Part[][] => (widthOf(chipParts(words)) <= valueWidth ? [chipParts(words)] : plain(words))
+  const doneBy: Part[] =
+    who === undefined ? [] : who.executor === 'you' ? [{ text: 'you', chip: CHIPS.you }] : [...(who.tier === undefined || CHIPS[who.tier] === undefined ? [] : [{ text: who.tier, chip: CHIPS[who.tier] }]), { text: ` ${who.executor}` }]
+  const whoLines: Part[][] = widthOf(doneBy) <= valueWidth ? [doneBy] : plain(who?.executor === 'you' ? 'you' : `${who?.tier ?? ''} ${who?.executor ?? ''}`.trim())
+  const barParts: Part[] | undefined =
     bar === undefined
       ? undefined
       : isProportional
         ? [{ text: '', bar: { fraction: bar.done / bar.total, color: HEX[color] ?? HEX.inactive ?? '#8A8A85' } }, { text: ` ${bar.count}` }]
         : [{ text: '▰'.repeat(bar.filled), color }, { text: '▱'.repeat(bar.empty), dim: true }, { text: ` ${bar.count}` }]
-  const noteParts = noteLines.map((line): Part[] =>
-    piecesOf(line.text).map((piece): Part => ({
-      text: piece.text,
-      ...(line.dim === true ? { dim: true as const } : {}),
-      ...(line.needsYou === true ? { color: NEEDS_YOU_COLOR, bold: true } : {}),
-      ...(line.tag === true ? { bold: true, ...(stuck ? { color: 'error' } : {}) } : {}),
-      ...(piece.path === undefined ? {} : { color: LINK_COLOR, href: deliverableHref(piece.path, home) }),
-    })),
-  )
+  const changeLines: Part[][] = row.change === undefined || row.change === '' ? [] : wrap(row.change, valueWidth).map((text): Part[] => [{ text, dim: true }])
 
-  const heading = (key: string, text: string, isRed = false) => (
-    <Box key={key} marginTop={1}>
-      <Text bold {...(isRed ? { color: 'error' } : {})}>
-        {text}
-      </Text>
-    </Box>
-  )
-
-  // The desktop's line: a bullet is its own Text beside a Box that wraps the point, so a long point hangs under its text.
-  const desktopLine = (parts: Part[], at: number) => {
-    const isBullet = parts[0]?.text.startsWith('• ') === true
-    const shown = isBullet ? parts.map((one, i) => (i === 0 ? { ...one, text: one.text.slice(2) } : one)).filter(one => one.text !== '') : parts
-    const text = <Text wrap="wrap">{shown.map(part)}</Text>
-
-    return isBullet ? (
-      <Box key={`note:${at}`} flexDirection="row">
-        <Text>•</Text>
-        <Box marginLeft={1} flexGrow={1} flexShrink={1}>
-          {text}
-        </Box>
-      </Box>
-    ) : (
-      <Box key={`note:${at}`}>{text}</Box>
-    )
-  }
+  const rows: TableRow[] = [
+    ...(row.goal === undefined || row.goal === '' ? [] : [{ key: 'goal', label: 'Goal', lines: plain(row.goal) }]),
+    {
+      key: 'status',
+      label: 'Status',
+      lines: wrap(row.statusText ?? statusWords(row), valueWidth).map((text): Part[] => [{ text, color, bold: stuck, ...(dim.dimColor === true ? { dim: true as const } : {}) }]),
+    },
+    ...(who === undefined ? [] : [{ key: 'who', label: 'Done by', lines: whoLines }]),
+    ...(row.status === 'Done' && checker !== undefined ? [{ key: 'checker', label: 'Checked by', lines: chipped(checker) }] : []),
+    ...(barParts === undefined ? [] : [{ key: 'progress', label: 'Progress', lines: [barParts] }]),
+    ...(noteLines.length === 0
+      ? []
+      : [
+          {
+            key: 'note',
+            label: stuck ? 'Blocked because' : 'Latest note',
+            isRed: stuck,
+            lines: noteLines.map(line =>
+              piecesOf(line.text).map((piece): Part => ({
+                text: piece.text,
+                ...(line.dim === true ? { dim: true as const } : {}),
+                ...(line.needsYou === true ? { color: NEEDS_YOU_COLOR, bold: true } : {}),
+                ...(line.tag === true ? { bold: true, ...(stuck ? { color: 'error' } : {}) } : {}),
+                ...(piece.path === undefined ? {} : { color: LINK_COLOR, href: deliverableHref(piece.path, home) }),
+              })),
+            ),
+          },
+        ]),
+    ...(deliverable === undefined
+      ? []
+      : [
+          {
+            key: 'deliverable',
+            label: 'Deliverable',
+            path: deliverable,
+            lines: [
+              ...(isProportional && deliverableHref(deliverable, home) !== null ? [] : wrap(deliverable, valueWidth).map((text): Part[] => [{ text, color: LINK_COLOR, href: deliverableHref(deliverable, home) }])),
+              ...changeLines,
+            ],
+          },
+        ]),
+  ]
 
   return (
     <Box key="detail" flexDirection="column" marginTop={1}>
@@ -1076,11 +1050,6 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, onOp
           {row.task}
         </Text>
       </Box>
-      <Box key="detail:status">
-        <Text dimColor wrap="wrap">
-          {statusLine.map(part)}
-        </Text>
-      </Box>
       {usage === undefined ? null : (
         <Box key="detail:usage">
           <Text dimColor wrap="wrap">
@@ -1088,47 +1057,122 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, onOp
           </Text>
         </Box>
       )}
-      {barLine === undefined ? null : (
-        <Box key="detail:progress" flexDirection="row">
-          {barLine.map(part)}
+      {drawTable(kit, { rows, columns, home, isProportional, onOpenPath })}
+    </Box>
+  )
+}
+
+type TableArgs = Pick<DetailArgs, 'columns' | 'home' | 'onOpenPath' | 'isProportional'> & { rows: readonly TableRow[] }
+
+/** The bordered table of label and value rows: box characters on the terminal, one round-bordered Box per row on the desktop. */
+function drawTable(kit: Kit, { rows, columns, home, isProportional, onOpenPath }: TableArgs): RenderElement {
+  const { Box, Text, Link, Markdown } = kit
+  const labelWidth = Math.max(4, Math.min(LABEL_COLUMNS, columns - 7 - MIN_VALUE_COLUMNS))
+  const valueWidth = isProportional ? UNWRAPPED_COLUMNS : Math.max(1, columns - 7 - labelWidth)
+
+  const part = (one: Part) => {
+    if (one.bar !== undefined) {
+      return (
+        <Box flexShrink={0} alignSelf="center">
+          {kit.Svg === undefined ? null : <kit.Svg source={barSvg(one.bar.fraction, one.bar.color)} alt="progress" width={BAR_PX.width} height={BAR_PX.height} />}
         </Box>
-      )}
-      {noteLines.length === 0 ? null : (
-        <Box key="detail:note" flexDirection="column">
-          {heading('note:heading', stuck ? 'Blocked because' : 'Latest note', stuck)}
-          {isProportional
-            ? noteParts.map(desktopLine)
-            : noteParts.map((parts, at) => (
-                <Box key={`note:${at}`} flexDirection="row">
-                  {parts.map(part)}
-                </Box>
-              ))}
+      )
+    }
+
+    if (one.chip !== undefined) {
+      return (
+        <Text color={one.chip.fg} backgroundColor={one.chip.bg} {...(one.chip.bold === true ? { bold: true } : {})}>{` ${one.text} `}</Text>
+      )
+    }
+
+    return (
+      <Text {...(one.color === undefined ? {} : { color: one.color })} {...(one.bold === true ? { bold: true } : {})} {...(one.dim === true ? { dimColor: true } : {})}>
+        {one.href === undefined || one.href === null ? one.text : <Link href={one.href} label={one.text} />}
+      </Text>
+    )
+  }
+
+  const rule = (key: string, left: string, mid: string, right: string) => (
+    <Text key={key} dimColor wrap="truncate">
+      {`${left}${'─'.repeat(labelWidth + 2)}${mid}${'─'.repeat(valueWidth + 2)}${right}`}
+    </Text>
+  )
+
+  const tableRow = (one: TableRow) => {
+    const height = one.lines.length
+
+    return (
+      <Box key={`field:${one.key}`} flexDirection="column">
+        {Array.from({ length: height }, (_, at) => {
+          const parts = one.lines[at] ?? []
+
+          return (
+            <Box key={`field:${one.key}:${at}`} flexDirection="row">
+              <Text dimColor>│ </Text>
+              <Text bold {...(one.isRed === true ? { color: 'error' } : {})}>
+                {at === 0 ? padTo(truncate(one.label, labelWidth), labelWidth) : ' '.repeat(labelWidth)}
+              </Text>
+              <Text dimColor> │ </Text>
+              {parts.map(part)}
+              <Text>{' '.repeat(Math.max(0, valueWidth - widthOf(parts)))}</Text>
+              <Text dimColor> │</Text>
+            </Box>
+          )
+        })}
+      </Box>
+    )
+  }
+
+  // The desktop's row: a round Box, the label in a Box of fixed width, the value in a Box that wraps. A bullet is its own Text
+  // beside a Box that wraps the point, so a long point hangs under its text.
+  const labelBox = Math.max(4, Math.min(LABEL_COLUMNS, columns - 6 - MIN_VALUE_COLUMNS))
+
+  const valueLine = (parts: Part[], at: number) => {
+    const isBullet = parts[0]?.text.startsWith('• ') === true
+    const shown = isBullet ? parts.map((one, i) => (i === 0 ? { ...one, text: one.text.slice(2) } : one)).filter(one => one.text !== '') : parts
+    // A solid bar is a Box, which a Text cannot hold: such a line is a row of its parts.
+    const text = shown.some(one => one.bar !== undefined) ? <Box flexDirection="row">{shown.map(part)}</Box> : <Text wrap="wrap">{shown.map(part)}</Text>
+
+    return isBullet ? (
+      <Box key={`value:${at}`} flexDirection="row">
+        <Text>•</Text>
+        <Box marginLeft={1} flexGrow={1} flexShrink={1}>
+          {text}
         </Box>
-      )}
-      {deliverable === undefined ? null : (
-        <Box key="detail:deliverable-section" flexDirection="column">
-          {heading('deliverable:heading', 'Deliverable')}
-          {isProportional && href !== null ? (
-            <Markdown key="detail:deliverable" text={markdownLink(deliverable, href)} onLinkPress={() => onOpenPath(deliverable)} />
-          ) : (
-            wrap(deliverable, valueWidth).map((line, at) => (
-              <Box key={`deliverable:${at}`} flexDirection="row">
-                {part({ text: line, color: LINK_COLOR, href }, 0)}
-              </Box>
-            ))
-          )}
-          {row.change === undefined || row.change === '' ? null : (
-            <Text key="deliverable:change" dimColor wrap="wrap">
-              {row.change}
-            </Text>
-          )}
+      </Box>
+    ) : (
+      <Box key={`value:${at}`}>{text}</Box>
+    )
+  }
+
+  const field = (one: TableRow) => {
+    const href = one.path === undefined ? null : deliverableHref(one.path, home)
+    const path = one.path
+
+    return (
+      <Box key={`field:${one.key}`} flexDirection="row" borderStyle="round" borderDimColor paddingX={1}>
+        <Box width={labelBox} flexShrink={0}>
+          <Text bold {...(one.isRed === true ? { color: 'error' } : {})}>
+            {one.label}
+          </Text>
         </Box>
-      )}
-      {row.status === 'Done' && checker !== undefined ? (
-        <Box key="detail:checked" marginTop={1}>
-          <Text dimColor wrap="wrap">{`Checked by ${checker}`}</Text>
+        <Box flexGrow={1} flexShrink={1} flexDirection="column">
+          {path !== undefined && href !== null ? <Markdown key="detail:deliverable" text={markdownLink(path, href)} onLinkPress={() => onOpenPath(path)} /> : null}
+          {one.lines.map(valueLine)}
         </Box>
-      ) : null}
+      </Box>
+    )
+  }
+
+  return isProportional ? (
+    <Box key="detail:fields" flexDirection="column" marginTop={1}>
+      {rows.map(field)}
+    </Box>
+  ) : (
+    <Box key="detail:fields" flexDirection="column" marginTop={1}>
+      {rule('rule:top', '╭', '┬', '╮')}
+      {rows.flatMap((one, at) => (at === 0 ? [tableRow(one)] : [rule(`rule:${at}`, '├', '┼', '┤'), tableRow(one)]))}
+      {rule('rule:bottom', '╰', '┴', '╯')}
     </Box>
   )
 }

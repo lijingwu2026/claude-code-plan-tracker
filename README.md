@@ -24,13 +24,16 @@ them are done, running or waiting on you.
    The state is a coloured word after the plan name in the band, the pane header and the plan dropdown: `In progress`
    while a step is In Progress or Verifying, `Done` once every step is Done or Canceled, otherwise `Idle`. Both also draw
    in the Claude Desktop app.
-3. Press a card to open its page, kept short: a status line (the status, who runs it, the model as a chip), a progress
-   bar when the step reports one, the latest note, and the deliverable with what it changed. `Checked by` appears once
-   the step is Done.
+3. Press a card to open its page: the task name, one dim `time · tokens · cost` line when usage is recorded, then a
+   table of labelled rows. `Goal` (the step's `goal` cell), `Status`, `Done by` (the model as a chip), `Checked by` (once
+   the step is Done), `Progress` (a bar, when the step reports one), `Latest note` and `Deliverable` (the path and what
+   it changed). A row with nothing to show is left out. Below the lanes, `Deliverables` lists every file the steps
+   produced: type, path and the `change` cell.
 
 It also works without plan-orchestrator: any `PROGRESS.md` with a markdown table that has `task` and `status` columns.
 Columns are found by header name, in any order. Statuses read: `Todo`, `In Progress`, `Needs Verification`, `Blocked`,
-`Done`, `Canceled`; any other status gets its own lane.
+`Done`, `Canceled`; any other status gets its own lane. Optional columns: `executor`, `check`, `deliverable`, `change`
+(one line on what the deliverable changed), `goal` (one sentence on what the step is for) and `progress`.
 
 ```markdown
 | task | status | executor | check | evidence |
@@ -74,6 +77,8 @@ there is no usage and no start time: no plan line is drawn once a step is under 
   while the pane is open.
 - Shows the first table in the file with `task` and `status` columns, as one plan.
 - Needs a Claude Code version that loads plugin hooks modules (mods). No minimum version is declared.
+- In the terminal the deliverables table shows each path as coloured text, not a link: a terminal without OSC 8
+  hyperlink support would print the address after every link.
 - In the Desktop app, a deliverable link (from an optional `deliverable` column) opens the file with macOS `open`, and
   only for a file under the project root or `~/.claude`.
 

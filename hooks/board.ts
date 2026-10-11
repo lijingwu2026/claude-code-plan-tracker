@@ -142,6 +142,7 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
       const who = asText(row.who)
       const deliverable = asText(row.deliverable)
       const change = asText(row.change)
+      const goal = asText(row.goal)
       const progress = asText(row.progress)
       const started = asText(row.started)
       const finished = asText(row.finished)
@@ -156,6 +157,7 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
         ...(who === undefined ? {} : { who }),
         ...(deliverable === undefined ? {} : { deliverable }),
         ...(change === undefined ? {} : { change }),
+        ...(goal === undefined ? {} : { goal }),
         ...(progress === undefined ? {} : { progress }),
         ...(started === undefined ? {} : { started }),
         ...(finished === undefined ? {} : { finished }),
@@ -1690,7 +1692,7 @@ const plainCell = (cell: string): string => cell.replace(/[*_`]/g, '').trim()
 /**
  * The board file's markdown as a board, or one line saying why it cannot be read. The first table with `task` and `status`
  * columns is the board; the columns are found by their header (any case), so their order does not matter. `evidence` is the
- * note; `executor`, `check`, `route`, `deliverable`, `change` and `progress` are read when present. A status the reader does not know keeps its
+ * note; `executor`, `check`, `route`, `deliverable`, `change`, `goal` and `progress` are read when present. A status the reader does not know keeps its
  * own text on a row of status `Other`, which has its own lane. `file` is the board file's absolute path; `name` the plan's name
  * unless the file's first `# ` heading gives one.
  */
@@ -1750,6 +1752,7 @@ export function parseProgress(text: string, file: string, name: string): { board
     const note = raw(cells, 'evidence')
     const deliverable = cell(cells, 'deliverable')
     const change = raw(cells, 'change')
+    const goal = raw(cells, 'goal')
     const progress = cell(cells, 'progress')
 
     rows.push({
@@ -1762,6 +1765,7 @@ export function parseProgress(text: string, file: string, name: string): { board
       ...(check === undefined ? {} : { check }),
       ...(deliverable === undefined ? {} : { deliverable }),
       ...(change === undefined ? {} : { change }),
+      ...(goal === undefined ? {} : { goal }),
       ...(progress === undefined ? {} : { progress }),
     })
   }

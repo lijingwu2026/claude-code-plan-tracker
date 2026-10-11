@@ -318,16 +318,32 @@ describe('the desktop: the task page', () => {
     return pane
   }
 
-  test('it has no box-drawing character and no table: the title, a status line, the note, as plain lines', async ($, on) => {
+  test('it has no box-drawing character: the title, then one round-bordered Box per labelled row', async ($, on) => {
     world(on)
     await $.session.start(SESSION)
     const pane = await open($, 'Build')
 
-    expect(await pane.find({ key: 'detail:fields' })).toBeUndefined()
-    expect(kids(await pane.find({ key: 'detail' })).map(node => String(node.props?.key ?? node.type))).toEqual(['back', 'detail:title', 'detail:status'])
+    expect(kids(await pane.find({ key: 'detail' })).map(node => String(node.props?.key ?? node.type))).toEqual(['back', 'detail:title', 'detail:fields'])
     expect(textOf(await pane.find({ key: 'detail' }))).not.toMatch(BOX_CHARS)
-    expect(textOf(await pane.find({ key: 'detail:status' }))).toBe('In progress ·  Sonnet  subagent')
-    expect(kids(await pane.find({ key: 'detail:status' }))[0]?.props).toMatchObject({ dimColor: true, wrap: 'wrap' })
+    expect(kids(await pane.find({ key: 'detail:fields' })).map(node => [node.props.key, node.props.borderStyle])).toEqual([
+      ['field:status', 'round'],
+      ['field:who', 'round'],
+    ])
+    expect(textOf(await pane.find({ key: 'field:status' }))).toBe('StatusIn progress')
+    expect(textOf(await pane.find({ key: 'field:who' }))).toBe('Done by Sonnet  subagent')
+    await pane.unmount()
+  })
+
+  test('Goal is the first row when the row has one', async ($, on) => {
+    const goal = 'Prove the eval suite runs green'
+    const board: PlanBoard = { ...BOARD, plans: [{ ...BOARD.plans[0]!, rows: [{ ...ALPHA_ROWS[6]!, goal }] }] }
+    world(on, { fixture: board })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 96)
+
+    await openCard(pane, 0)
+    expect(kids(await pane.find({ key: 'detail:fields' })).map(node => node.props.key)).toEqual(['field:goal', 'field:status', 'field:who'])
+    expect(textOf(await pane.find({ key: 'field:goal' }))).toBe(`Goal${goal}`)
     await pane.unmount()
   })
 
@@ -340,7 +356,7 @@ describe('the desktop: the task page', () => {
 
     await openCard(pane, 0)
 
-    const lines = kids(await pane.find({ key: 'detail:note' })).slice(1)
+    const lines = kids(kids(await pane.find({ key: 'field:note' }))[1])
 
     expect(lines).toHaveLength(1)
     expect(textOf(lines[0])).toBe(note)
@@ -353,7 +369,7 @@ describe('the desktop: the task page', () => {
     await $.session.start(SESSION)
     const pane = await open($, 'v1')
 
-    const lines = kids(await pane.find({ key: 'detail:note' })).slice(1)
+    const lines = kids(kids(await pane.find({ key: 'field:note' }))[1])
 
     expect(lines.map(textOf)).toEqual(['•built', '•waits for her eyes'])
     expect(kids(lines[0]).map(child => child.type)).toEqual(['Text', 'Box'])
@@ -366,8 +382,8 @@ describe('the desktop: the task page', () => {
     await $.session.start(SESSION)
     const pane = await open($, 'b1')
 
-    const status = kids(kids(await pane.find({ key: 'detail:status' }))[0])[0]
-    const label = kids(await pane.find({ key: 'note:heading' }))[0]
+    const status = kids(kids(await pane.find({ key: 'field:status' }))[1])[0]
+    const label = kids(kids(await pane.find({ key: 'field:note' }))[0])[0]
 
     expect(textOf(status)).toBe('⚑ Blocked')
     expect(JSON.stringify(status)).toContain('"color":"error"')
@@ -397,7 +413,7 @@ describe('the desktop: deliverables', () => {
 
     expect(markdown?.props.text).toBe(`[automation/plans/alpha-plan.md](${HREF})`)
     expect(await pane.find({ type: 'Link' })).toBeUndefined()
-    expect(textOf(await pane.find({ key: 'deliverables' }))).toContain('d4 newest')
+    expect(textOf(await pane.find({ key: 'deliverables' }))).not.toContain('d4 newest')
     expect(textOf(await pane.find({ key: 'deliverables' }))).toContain('automation/plans/alpha-plan.md')
     await pane.unmount()
   })
@@ -418,12 +434,13 @@ describe('the desktop: deliverables', () => {
     await pane.unmount()
   })
 
-  test('the terminal keeps its Link', async ($, on) => {
+  test('the terminal table draws the path as plain text, never a Link: a terminal without OSC 8 would print the URL after it', async ($, on) => {
     world(on)
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal')
 
-    expect((await pane.find({ type: 'Link' }))?.props.href).toBe(HREF)
+    expect(await pane.findAll({ type: 'Link' })).toEqual([])
+    expect(textOf(await pane.find({ key: 'deliverables' }))).not.toContain('file://')
     expect(await pane.find({ type: 'Markdown', key: 'deliverable:0' })).toBeUndefined()
     await pane.unmount()
   })
