@@ -1,0 +1,38 @@
+{
+  "name": "plan-tracker",
+  "version": "0.6.3",
+  "description": "Your approved plan, live: which step is done, running, or waiting on you. A one-row band above the prompt (plan, progress bar, Plan file) and a pane with lanes of task cards, a dim plan line under the plan name (state, start, elapsed, tokens, cost), compact task pages and deliverables, in the terminal and the Claude Desktop app. It reads PROGRESS.md (or the output of a command you set) and redraws whenever it changes. Read-only.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "lijingwu2026"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/lijingwu2026/claude-code-plan-tracker",
+  "homepage": "https://github.com/lijingwu2026/claude-code-plan-tracker",
+  "userConfig": {
+    "board_location": {
+      "type": "string",
+      "title": "Board location",
+      "description": "The board file, relative to the project root. Same meaning as plan-orchestrator's board_location.",
+      "default": "PROGRESS.md"
+    },
+    "board_command": {
+      "type": "string",
+      "title": "Board command (optional)",
+      "description": "A command that prints the board as JSON, used instead of the file. Placeholders: {session} is the session id, {query} the /plans argument; [ ... ] around words keeps them only when every placeholder inside is non-empty, e.g. mytool --view {session} --json [--query={query}]. No shell runs it.",
+      "default": ""
+    },
+    "usage_command": {
+      "type": "string",
+      "title": "Usage command (optional)",
+      "description": "A command that records a task's time and cost when its page opens; the board command then returns them. Placeholders: {session} {anchor} {index} {task}. Empty: cost and time are hidden.",
+      "default": ""
+    },
+    "your_name": {
+      "type": "string",
+      "title": "Your name (optional)",
+      "description": "A row whose executor or checker equals this name is shown as 'you', and its cost is hidden. Empty: nothing is shown as you.",
+      "default": ""
+    }
+  }
+}

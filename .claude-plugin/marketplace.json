@@ -1,0 +1,14 @@
+{
+  "name": "plan-tracker",
+  "description": "Plan tracker for Claude Code: your approved plan, live, from PROGRESS.md.",
+  "owner": {
+    "name": "lijingwu2026"
+  },
+  "plugins": [
+    {
+      "name": "plan-tracker",
+      "source": "./",
+      "description": "Your approved plan, live in Claude Code: which step is done, running, or waiting on you. Reads PROGRESS.md and redraws when it changes."
+    }
+  ]
+}

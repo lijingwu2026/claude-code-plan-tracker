@@ -1,0 +1,2 @@
+/** The text of progress-real.md (a hooks module cannot read files, so the test imports this copy; keep them identical). */
+export const PROGRESS_REAL = "# Progress\n\n| task | status | evidence |\n|---|---|---|\n| 1. Create greet.py with greet(name) | Done | `python3 -c \"import greet;print(greet.greet('Ada'))\"` printed `Hello, Ada!` |\n| 2. Create test_greet.py and run python3 -m unittest -v | Done | `python3 -m unittest -v`: test_greet_ada ... ok; Ran 1 test; OK |\n| 3. Create NOTES.md with how to run the test | Done | `grep -c unittest NOTES.md` printed `1` |\n"
