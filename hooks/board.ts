@@ -898,6 +898,23 @@ export function absolutePath(path: string, home: string | undefined): string | n
 }
 
 /**
+ * Whether the deliverable sits in the project root, whose files the desktop opens from a link itself (`..` folded, no symlink
+ * followed). A path outside it, or one placed while the root is unknown, is the plugin's to open.
+ */
+export function isInsideProject(path: string, home: string | undefined): boolean {
+  const absolute = absolutePath(path, home)
+  const root = settings.root.replace(/\/+$/, '')
+
+  if (absolute === null || root === '') {
+    return false
+  }
+
+  const folded = foldedPath(absolute)
+
+  return folded === root || folded.startsWith(`${root}/`)
+}
+
+/**
  * Why a deliverable must not be opened or revealed by a press, or null when it may: once its `.` and `..` segments are
  * folded it has to sit under one of `roots`, or under `home` with no segment starting with `.` (a hidden folder or file).
  */

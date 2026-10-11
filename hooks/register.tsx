@@ -634,7 +634,7 @@ async function runCommand($: EngineInterface, e: { args: string }) {
 }
 
 /**
- * A press on a deliverable's link that reaches the plugin (the desktop opens these links itself, so none does today): the
+ * A press on a deliverable's link that reaches the plugin (the desktop opens the links inside the project root itself; one outside it reaches here): the
  * file has to exist and, both as written (`..` folded) and as it really is (`realpath`, symlinks followed), sit under the
  * project root or ~/.claude, or be a regular file under the home directory outside hidden folders. Its real path is then opened with `open` when its
  * type is one that is only viewed and it is a regular file, and revealed in Finder with `open -R` for anything else. A refusal is logged and shown

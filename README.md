@@ -80,11 +80,11 @@ figures are drawn once a step is under way, and a task page has none.
 - Needs a Claude Code version that loads plugin hooks modules (mods). No minimum version is declared.
 - In the terminal the deliverables table shows each path as coloured text, not a link: a terminal without OSC 8
   hyperlink support would print the address after every link.
-- In the Desktop app, a deliverable link (from an optional `deliverable` column) is a plain `file:` link that the
-  Desktop opens itself, in whatever app it uses for that file type; the plugin does not intercept the click. Where a
-  press does reach the plugin, it runs macOS `open` only for a file under the project root or `~/.claude`, or a
-  regular file under your home directory outside hidden folders (a path with a segment starting with `.` is refused,
-  except `~/.claude`).
+- In the Desktop app, a deliverable link (from an optional `deliverable` column) is a plain `file:` link. Inside the
+  project root the Desktop opens it itself, in its own viewer; the plugin does not intercept the click. Outside the
+  project root the Desktop opens nothing, so the click goes to the plugin, which runs macOS `open` (the file's default
+  app) only for a file under `~/.claude` or a regular file under your home directory outside hidden folders (a path
+  with a segment starting with `.` is refused, except `~/.claude`); any other path gets a "Not opened" toast.
 
 ## License
 

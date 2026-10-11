@@ -526,6 +526,62 @@ describe('the desktop: deliverables', () => {
     await pane.unmount()
   })
 
+  describe('inside the project the surface opens the link; outside it the plugin does', () => {
+    const OUT = `${HOME}/code/x/y.ts`
+    const OUT_HREF = `file://${OUT}`
+
+    test('the board: pressing an inside link reaches nothing; an outside link is pressable', async ($, on) => {
+      world(on, { fixture: withDeliverables('automation/plans/alpha-plan.md', '~/code/x/y.ts') })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, 'desktop')
+
+      // a Markdown with no `onLinkPress` has nothing a press can reach (the surface opens the link); one with it takes the press
+      await expect(pane.press({ key: 'deliverable:0', link: { href: HREF } })).rejects.toThrow()
+      await expect(pane.press({ key: 'deliverable:1', link: { href: OUT_HREF } })).resolves.toBeDefined()
+      await pane.unmount()
+    })
+
+    test('the board: pressing an outside link runs `open <path>`', async ($, on) => {
+      const w = world(on, { fixture: withDeliverables('~/code/x/y.ts'), present: [OUT] })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, 'desktop')
+
+      await pane.press({ key: 'deliverable:0', link: { href: OUT_HREF } })
+      await settle(w.clock)
+
+      expect(w.logRuns.filter(run => run.argv[0] === 'open').map(run => run.argv)).toEqual([['open', OUT]])
+      expect(w.toasts).toEqual([])
+      await pane.unmount()
+    })
+
+    test('a disallowed outside link still gets the refusal toast and no `open`', async ($, on) => {
+      const w = world(on, { fixture: withDeliverables('/etc/hosts'), present: ['/etc/hosts'] })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, 'desktop')
+
+      await pane.press({ key: 'deliverable:0', link: { href: 'file:///etc/hosts' } })
+      await settle(w.clock)
+
+      expect(w.logRuns.filter(run => run.argv[0] === 'open')).toEqual([])
+      expect(w.toasts).toHaveLength(1)
+      expect(w.toasts[0]).toStartWith('Not opened: ')
+      await pane.unmount()
+    })
+
+    test('the task page: the same split', async ($, on) => {
+      const w = world(on, { fixture: withDeliverables('~/code/x/y.ts'), present: [OUT] })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, 'desktop')
+
+      await openCard(pane, 0)
+      await pane.press({ key: 'detail:deliverable', link: { href: OUT_HREF } })
+      await settle(w.clock)
+
+      expect(w.logRuns.filter(run => run.argv[0] === 'open').map(run => run.argv)).toEqual([['open', OUT]])
+      await pane.unmount()
+    })
+  })
+
   test('the desktop host opens the link itself: the Markdown answers no press, so the mod never also opens or refuses it', async ($, on) => {
     world(on)
     await $.session.start(SESSION)

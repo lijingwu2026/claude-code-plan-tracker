@@ -38,6 +38,7 @@ import {
   STATE_STYLE,
   deliverableGroups,
   deliverableHref,
+  isInsideProject,
   planStatsOf,
   notStartedText,
   planStateOf,
@@ -874,7 +875,7 @@ const NBSP = ' '
  * `Deliverables`, then a table of Type, Deliverable and Change with a dim header and no ruled lines, grouped by type (the
  * type as a grey chip on the first row of its group). The path is a link that opens it; the change is dim. On the desktop the
  * whole path wraps (nothing is cut to the column count) and is a `Markdown` link: a `Link` opens only `https:` on a remote
- * surface, and the desktop opens it itself (no `onLinkPress`: a link the plugin answers is one the surface does not open).
+ * surface, and a path inside the project root has no `onLinkPress` (the desktop opens it itself); one outside it has it, so the plugin answers the press and opens it.
  */
 function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, isOpen, onLane }: DeliverablesArgs): RenderElement {
   const { Box, Text, Markdown, Button } = kit
@@ -898,7 +899,7 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, isO
     )
     const pathCell = (
       <Box key={`deliverable:${at}:path`} flexGrow={1} flexShrink={1}>
-        {href === null ? <Text wrap="wrap">{item.path}</Text> : <Markdown key={`deliverable:${at}`} text={markdownLink(item.path, href)} />}
+        {href === null ? <Text wrap="wrap">{item.path}</Text> : <Markdown key={`deliverable:${at}`} text={markdownLink(item.path, href)} {...(isInsideProject(item.path, home) ? {} : { onLinkPress: () => undefined })} />}
       </Box>
     )
 
@@ -1236,7 +1237,7 @@ function drawTable(kit: Kit, { rows, columns, home, isProportional }: TableArgs)
           </Text>
         </Box>
         <Box flexGrow={1} flexShrink={1} flexDirection="column">
-          {path !== undefined && href !== null ? <Markdown key="detail:deliverable" text={markdownLink(path, href)} /> : null}
+          {path !== undefined && href !== null ? <Markdown key="detail:deliverable" text={markdownLink(path, href)} {...(isInsideProject(path, home) ? {} : { onLinkPress: () => undefined })} /> : null}
           {one.lines.map(valueLine)}
         </Box>
       </Box>
