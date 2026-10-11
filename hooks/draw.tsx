@@ -33,9 +33,12 @@ import {
   checkerOf,
   cardView,
   countText,
+  STATE_COLUMNS,
+  STATE_STYLE,
   deliverableGroups,
   deliverableHref,
   planLineOf,
+  planStateOf,
   progressOf,
   statusWords,
   usageLineOf,
@@ -155,6 +158,7 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
   const { Box, Text, Button } = kit
   const { plan, plans, columns, below, isOpen, isFile, frame, pose, spritePose, isMoving = false, isProportional = false, onBar, onMenu, onPick, onFile, onBoard } = args
   const line = bandLine(plan, columns)
+  const { color: stateColor } = STATE_STYLE[line.state]
   const hasChoice = plans.length > 1
   const { color: dotColor, ...dotDim } = STYLE[worstStatus(plan)]
   const names = plans.map(one => truncate(one.name, Math.max(8, columns - 6 - displayWidth(countText(one)))))
@@ -227,7 +231,14 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
           ) : (
             zone('name', <Text bold>{line.name}</Text>)
           )}
-          {zone('gap', <Text>{'  '}</Text>)}
+          {zone(
+            'gap',
+            <Box flexDirection="row">
+              <Text> </Text>
+              <Text color={stateColor}>{line.state}</Text>
+              <Text>{'  '}</Text>
+            </Box>,
+          )}
           {kit.Svg === undefined
             ? null
             : zone(
@@ -266,7 +277,7 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
   // The terminal: the mascot, the dot and (with one plan) the name are one Button; the bar, the count and the gap up to
   // "Plan file ›" are another. Both toggle the board; the name's menu and the plan file keep their own buttons.
   const headText = `${pose} ● ${hasChoice ? '' : line.name}`
-  const barText = `  ${'▰'.repeat(line.filled)}${'▱'.repeat(line.empty)} ${line.count}`
+  const barText = ` ${line.state}  ${'▰'.repeat(line.filled)}${'▱'.repeat(line.empty)} ${line.count}`
   const nameWidth = hasChoice ? displayWidth(`${line.name} ▾`) : 0
   const filler = ' '.repeat(Math.max(0, columns + BAND_MASCOT_SPACE - displayWidth(headText) - nameWidth - displayWidth(barText) - displayWidth(fileLabel) - 2 - FRAME_COLUMNS))
 
@@ -288,6 +299,8 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
           </Button>
         ) : null}
         <Button plain key="band:bar" label={`${barText}${filler}`} onPress={onBar}>
+          <Text>{' '}</Text>
+          <Text color={stateColor}>{line.state}</Text>
           <Text>{'  '}</Text>
           {filledCells}
           <Text dimColor>{'▱'.repeat(line.empty)}</Text>
@@ -363,7 +376,10 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
 
   const { color: dotColor, ...dotDim } = STYLE[worstStatus(plan)]
   const hasChoice = plans.length > 1
-  const headName = truncate(plan.name, Math.max(8, columns - 20 - displayWidth(countText(plan))))
+  const state = planStateOf(plan)
+  const planLine = planLineOf(plan, args.now, columns)
+  // The state word is never cut: the name is shortened to leave it room (two gaps and the word besides the count).
+  const headName = truncate(plan.name, Math.max(8, columns - 20 - displayWidth(countText(plan)) - 2 - displayWidth(state)))
 
   const header = (
     <Box key="menu" flexDirection="row">
@@ -377,7 +393,9 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
       ) : (
         <Text bold>{headName}</Text>
       )}
-      <Text> </Text>
+      <Text>{'  '}</Text>
+      <Text color={STATE_STYLE[state].color}>{state}</Text>
+      <Text>{'  '}</Text>
       <Text color="suggestion">{countText(plan)}</Text>
       {hasChoice ? <Button plain key="menu:arrow" label={isOpen ? ' ▴' : ' ▾'} onPress={onMenu} /> : null}
       <Box flexGrow={1} minWidth={2} />
@@ -385,7 +403,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
     </Box>
   )
 
-  const names = plans.map(one => truncate(one.name, Math.max(8, columns - 8 - displayWidth(countText(one)))))
+  const names = plans.map(one => truncate(one.name, Math.max(8, columns - 8 - STATE_COLUMNS - 2 - displayWidth(countText(one)))))
   const nameCols = Math.max(0, ...names.map(displayWidth))
 
   const option = (one: PlanEntry, at: number) => {
@@ -397,6 +415,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
         <Button plain key={`plan:${one.anchor}`} label={text} onPress={() => onPick(one.anchor)}>
           <Text {...(isOn ? { bold: true, inverse: true } : {})}>{text}</Text>
         </Button>
+        <Text color={STATE_STYLE[planStateOf(one)].color} {...(isOn ? { inverse: true } : {})}>{`  ${padTo(planStateOf(one), STATE_COLUMNS)}`}</Text>
         <Text color="suggestion" {...(isOn ? { inverse: true } : {})}>{` ${countText(one)}`}</Text>
       </Box>
     )
@@ -715,11 +734,13 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
               {plans.map(option)}
             </Box>
           ) : null}
-          <Box key="plan-line">
-            <Text dimColor wrap="truncate">
-              {planLineOf(plan, args.now, columns)}
-            </Text>
-          </Box>
+          {planLine === '' ? null : (
+            <Box key="plan-line">
+              <Text dimColor wrap="truncate">
+                {planLine}
+              </Text>
+            </Box>
+          )}
           <Box key="divider" marginTop={1}>
             <Text dimColor wrap="truncate">
               {'─'.repeat(columns)}

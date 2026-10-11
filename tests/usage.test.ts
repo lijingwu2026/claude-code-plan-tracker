@@ -910,59 +910,59 @@ describe('the plan line under the plan name', () => {
     expect(spanText((2 * 24 + 3) * 3_600_000 + 20 * 60_000)).toBe('2d 3h')
   })
 
-  test('an open plan started today: state, started HH:MM today, elapsed so far, one token total (in + out), the cost', () => {
-    expect(planLineOf(open, NOW, WIDE)).toBe('In progress · started 20:08 today · 56m so far · 38.2M tokens · ~$9.30')
+  test('an open plan started today: started HH:MM today, elapsed so far, one token total (in + out), the cost', () => {
+    expect(planLineOf(open, NOW, WIDE)).toBe('started 20:08 today · 56m so far · 38.2M tokens · ~$9.30')
   })
 
   test('started on another day reads Mon D HH:MM', () => {
-    expect(planLineOf({ ...open, started: '2026-10-09T20:08:00+09:00' }, NOW, WIDE)).toBe('In progress · started Oct 9 20:08 · 2d 0h so far · 38.2M tokens · ~$9.30')
+    expect(planLineOf({ ...open, started: '2026-10-09T20:08:00+09:00' }, NOW, WIDE)).toBe('started Oct 9 20:08 · 2d 0h so far · 38.2M tokens · ~$9.30')
   })
 
   test('"today" is the day on the clock the time was written in, not this machine\'s', () => {
     const started = '2026-10-11T23:30:00-05:00'
 
     // 04:40Z is 23:40 on the 11th at -05:00; 05:40Z is 00:40 on the 12th there
-    expect(planLineOf({ ...open, started }, Date.parse('2026-10-12T04:40:00Z'), WIDE)).toStartWith('In progress · started 23:30 today · 10m so far')
-    expect(planLineOf({ ...open, started }, Date.parse('2026-10-12T05:40:00Z'), WIDE)).toStartWith('In progress · started Oct 11 23:30 · 1h 10m so far')
+    expect(planLineOf({ ...open, started }, Date.parse('2026-10-12T04:40:00Z'), WIDE)).toStartWith('started 23:30 today · 10m so far')
+    expect(planLineOf({ ...open, started }, Date.parse('2026-10-12T05:40:00Z'), WIDE)).toStartWith('started Oct 11 23:30 · 1h 10m so far')
   })
 
   test('not every task measured: " (n of m tasks)" ends the line, after the cost', () => {
-    expect(planLineOf({ ...open, usage_totals: { ...TOTALS, measured: 3, total: 12 } }, NOW, WIDE)).toBe('In progress · started 20:08 today · 56m so far · 38.2M tokens · ~$9.30 (3 of 12 tasks)')
+    expect(planLineOf({ ...open, usage_totals: { ...TOTALS, measured: 3, total: 12 } }, NOW, WIDE)).toBe('started 20:08 today · 56m so far · 38.2M tokens · ~$9.30 (3 of 12 tasks)')
   })
 
   test('the suffix follows the tokens when there is no price; all measured has none', () => {
-    expect(planLineOf({ ...open, usage_totals: { ...TOTALS, cost: null, measured: 2, total: 4 } }, NOW, WIDE)).toBe('In progress · started 20:08 today · 56m so far · 38.2M tokens (2 of 4 tasks)')
+    expect(planLineOf({ ...open, usage_totals: { ...TOTALS, cost: null, measured: 2, total: 4 } }, NOW, WIDE)).toBe('started 20:08 today · 56m so far · 38.2M tokens (2 of 4 tasks)')
     expect(planLineOf({ ...open, usage_totals: { ...TOTALS, cost: null } }, NOW, WIDE)).not.toContain('tasks')
   })
 
   test('none measured, or no totals (an older tracker): the tokens and the cost are left out, with no suffix', () => {
-    expect(planLineOf({ ...open, usage_totals: { ...TOTALS, tokens_in: 0, tokens_out: 0, cost: null, measured: 0, total: 4 } }, NOW, WIDE)).toBe('In progress · started 20:08 today · 56m so far')
+    expect(planLineOf({ ...open, usage_totals: { ...TOTALS, tokens_in: 0, tokens_out: 0, cost: null, measured: 0, total: 4 } }, NOW, WIDE)).toBe('started 20:08 today · 56m so far')
 
     const { usage_totals: _totals, ...older } = open
 
-    expect(planLineOf(older, NOW, WIDE)).toBe('In progress · started 20:08 today · 56m so far')
+    expect(planLineOf(older, NOW, WIDE)).toBe('started 20:08 today · 56m so far')
   })
 
-  test('a closed plan reads Done and "took", counted to its last finish', () => {
-    expect(planLineOf({ ...open, finished: '2026-10-11T23:13:00+09:00' }, Date.parse('2030-01-01T00:00:00Z'), WIDE)).toBe('Done · started Oct 11 20:08 · took 3h 05m · 38.2M tokens · ~$9.30')
+  test('a closed plan reads "took", counted to its last finish', () => {
+    expect(planLineOf({ ...open, finished: '2026-10-11T23:13:00+09:00' }, Date.parse('2030-01-01T00:00:00Z'), WIDE)).toBe('started Oct 11 20:08 · took 3h 05m · 38.2M tokens · ~$9.30')
   })
 
-  test('a plan no row has started reads just Not started, however much is known', () => {
-    expect(planLineOf({ ...PLAN, usage_totals: TOTALS }, NOW, WIDE)).toBe('Not started')
+  test('a plan no row has started reads just Not started yet, however much is known', () => {
+    expect(planLineOf({ ...PLAN, usage_totals: TOTALS }, NOW, WIDE)).toBe('Not started yet')
   })
 
-  test('a narrow pane: "started …" goes first, then the elapsed time, then the tokens; the state and the cost stay', () => {
-    const full = 'In progress · started 20:08 today · 56m so far · 38.2M tokens · ~$9.30'
+  test('a narrow pane: "started …" goes first, then the elapsed time, then the tokens; the cost stays', () => {
+    const full = 'started 20:08 today · 56m so far · 38.2M tokens · ~$9.30'
     const line = (width: number) => planLineOf(open, NOW, width)
 
     expect(line(displayWidth(full))).toBe(full)
-    expect(line(displayWidth(full) - 1)).toBe('In progress · 56m so far · 38.2M tokens · ~$9.30')
-    expect(line(displayWidth('In progress · 56m so far · 38.2M tokens · ~$9.30') - 1)).toBe('In progress · 38.2M tokens · ~$9.30')
-    expect(line(displayWidth('In progress · 38.2M tokens · ~$9.30') - 1)).toBe('In progress · ~$9.30')
+    expect(line(displayWidth(full) - 1)).toBe('56m so far · 38.2M tokens · ~$9.30')
+    expect(line(displayWidth('56m so far · 38.2M tokens · ~$9.30') - 1)).toBe('38.2M tokens · ~$9.30')
+    expect(line(displayWidth('38.2M tokens · ~$9.30') - 1)).toBe('~$9.30')
     // still too wide: cut with …, never past the width
-    expect(line(8)).toBe('In prog…')
+    expect(line(4)).toBe('~$9…')
 
-    for (let width = 8; width <= 80; width += 1) {
+    for (let width = 4; width <= 80; width += 1) {
       expect(displayWidth(line(width))).toBeLessThanOrEqual(width)
     }
   })
@@ -970,8 +970,17 @@ describe('the plan line under the plan name', () => {
   test('the partial suffix stays with the last figure when the front of the line is dropped', () => {
     const partial = { ...open, usage_totals: { ...TOTALS, measured: 3, total: 12 } }
 
-    expect(planLineOf(partial, NOW, 60)).toBe('In progress · 38.2M tokens · ~$9.30 (3 of 12 tasks)')
-    expect(planLineOf(partial, NOW, 45)).toBe('In progress · ~$9.30 (3 of 12 tasks)')
+    expect(planLineOf(partial, NOW, 48)).toBe('38.2M tokens · ~$9.30 (3 of 12 tasks)')
+    expect(planLineOf(partial, NOW, 30)).toBe('~$9.30 (3 of 12 tasks)')
+  })
+
+  test('the line never starts with a state word, open or closed', () => {
+    const closed = { ...open, finished: '2026-10-11T21:04:00+09:00' }
+
+    for (const plan of [open, closed]) {
+      expect(planLineOf(plan, NOW, WIDE)).toStartWith('started ')
+      expect(planLineOf(plan, NOW, WIDE)).not.toMatch(/^(In progress|Idle|Done)/)
+    }
   })
 
   test('the board data reads the plan fields; damaged totals are dropped', () => {
@@ -996,10 +1005,10 @@ describe('the plan line under the plan name', () => {
       const line = await pane.find({ key: 'plan-line' })
 
       expect(strip).toEqual(['menu', 'plan-line', 'divider'])
-      expect(textOf(line)).toMatch(/^Done · started (20:08 today|Oct 11 20:08) · took 56m · 38\.2M tokens · ~\$9\.30 \(3 of 12 tasks\)$/)
+      expect(textOf(line)).toMatch(/^started (20:08 today|Oct 11 20:08) · took 56m · 38\.2M tokens · ~\$9\.30 \(3 of 12 tasks\)$/)
       expect(kids(line)[0]?.props.dimColor).toBe(true)
       expect(await pane.find({ key: 'summary' })).toBeUndefined()
-      expect(textOf(await pane.find({ key: 'menu' }))).toBe('● Alpha plan 5/8Plan file ›')
+      expect(textOf(await pane.find({ key: 'menu' }))).toBe('● Alpha plan  Done  5/8Plan file ›')
       await pane.unmount()
     })
   }
@@ -1012,7 +1021,7 @@ describe('the plan line under the plan name', () => {
     const pane = await mountPane($, 'terminal', 40)
 
     expect(displayWidth(textOf(await pane.find({ key: 'plan-line' })))).toBeLessThanOrEqual(40)
-    expect(textOf(await pane.find({ key: 'plan-line' }))).toStartWith('Done · ')
+    expect(textOf(await pane.find({ key: 'plan-line' }))).not.toMatch(/^(In progress|Idle|Done)/)
     expect(textOf(await pane.find({ key: 'plan-line' }))).toContain('~$9.30')
     await pane.unmount()
   })

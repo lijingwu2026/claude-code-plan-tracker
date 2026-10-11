@@ -20,9 +20,10 @@ them are done, running or waiting on you.
 1. The route skill of [plan-orchestrator](https://github.com/lijingwu2026/claude-code-plan-orchestrator) writes
    `PROGRESS.md`, one row per step: `task, status, executor, check, evidence`.
 2. plan-tracker reads that file again about every 1.5 s and redraws when it changed: a band above the prompt
-   (plan name, bar, done/total) and a pane with four lanes, Todo, In Progress, Verify and Done. Under the plan name
-   sits one dim line with the plan's state (`In progress`, `Done`, `Not started`). Both also draw in the Claude Desktop
-   app.
+   (plan name, the plan's state, bar, done/total) and a pane with four lanes, Todo, In Progress, Verify and Done.
+   The state is a coloured word after the plan name in the band, the pane header and the plan dropdown: `In progress`
+   while a step is In Progress or Verifying, `Done` once every step is Done or Canceled, otherwise `Idle`. Both also draw
+   in the Claude Desktop app.
 3. Press a card to open its page, kept short: a status line (the status, who runs it, the model as a chip), a progress
    bar when the step reports one, the latest note, and the deliverable with what it changed. `Checked by` appears once
    the step is Done.
@@ -60,10 +61,10 @@ Claude Code asks for these when you enable the plugin.
 | `your_name` | empty | A row whose executor or checker is this name is shown as `you`. `you` itself always counts. |
 
 Time, tokens and estimated cost appear only when `usage_command` is set and your `board_command` returns them: on a
-task page as one `time · tokens · cost` line, and on the plan line next to the plan's start time and elapsed time
-(`In progress · started 20:08 today · 56m so far · 38.2M tokens · ~$9.30`). On a narrow pane the plan line drops the start
-time first, then the elapsed time, then the tokens. With a plain `PROGRESS.md` there is no usage: the plan line shows the
-state only and a task page has no time line.
+task page as one `time · tokens · cost` line, and on the dim plan line under the plan name, which starts with the plan's
+start time (`started 20:08 today · 56m so far · 38.2M tokens · ~$9.30`; `Not started yet` before any step runs). On a
+narrow pane the plan line drops the start time first, then the elapsed time, then the tokens. With a plain `PROGRESS.md`
+there is no usage and no start time: no plan line is drawn once a step is under way, and a task page has no time line.
 
 ## Limits
 

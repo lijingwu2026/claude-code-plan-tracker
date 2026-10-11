@@ -172,10 +172,10 @@ describe('plan-tracker band', () => {
       const row = await rowOf(band)
 
       if (surface === 'desktop') {
-        expect(row).toBe('● Alpha plan ▾   5/13Plan file ›')
+        expect(row).toBe('● Alpha plan ▾ In progress   5/13Plan file ›')
       } else {
         // the gap between the count and "Plan file ›" is part of the bar's button, so the whole band is pressable
-        expect(row).toMatch(/^● Alpha plan ▾  ▰▰▰▰▰▱▱▱▱▱▱▱ 5\/13 *Plan file ›$/)
+        expect(row).toMatch(/^● Alpha plan ▾ In progress  ▰▰▰▰▰▱▱▱▱▱▱▱ 5\/13 *Plan file ›$/)
       }
       expect(kids(await band.find({ key: 'bar' })).map(child => child.type)).toEqual(
         surface === 'desktop' ? ['Box', 'Box', 'Button', 'Box', 'Box', 'Button', 'Box', 'Button'] : ['Button', 'Button', 'Button', 'Box', 'Button'],

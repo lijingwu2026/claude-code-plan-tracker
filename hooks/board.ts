@@ -190,6 +190,31 @@ export function countOf(plan: PlanEntry): { done: number; total: number; cancele
 /** `5/12`. */
 export const countText = (plan: PlanEntry): string => `${countOf(plan).done}/${countOf(plan).total}`
 
+/** A plan's state word: `Done` once closed, `In progress` while a row runs, else `Idle`. There is no "Todo" state: a plan nobody started is Idle. */
+export type PlanState = 'In progress' | 'Idle' | 'Done'
+
+/** The state words, widest first, for aligning a column of them. */
+export const STATE_COLUMNS = 'In progress'.length
+
+/** One color per state: the In Progress lane's, gray like the Todo lane, the Done lane's. */
+export const STATE_STYLE: Record<PlanState, Style> = {
+  'In progress': STYLE['In Progress'],
+  Idle: STYLE.Todo,
+  Done: STYLE.Done,
+}
+
+/**
+ * Done = the plan is closed (the tracker gave `finished`, or every row is Done or Canceled with one Done). In progress = open,
+ * with a row In Progress or Verifying. Idle = open and nothing running (rows Todo, Needs Verification or Blocked, or no row started).
+ */
+export function planStateOf(plan: PlanEntry): PlanState {
+  if (plan.finished !== undefined || isComplete(plan)) {
+    return 'Done'
+  }
+
+  return hasInProgress(plan) ? 'In progress' : 'Idle'
+}
+
 // ---------------------------------------------------------------- width
 
 const WIDE: readonly (readonly [number, number])[] = [
@@ -372,7 +397,7 @@ const BAND_FIXED = 2 + 2 + 2 + 1 + 2 + displayWidth(FILE_LABEL)
 /** Columns of name the band keeps before the bar starts to shrink. */
 const MIN_BAND_NAME = 8
 
-export type BandLine = { name: string; filled: number; empty: number; count: string }
+export type BandLine = { name: string; state: PlanState; filled: number; empty: number; count: string }
 
 /** Cells of a `width`-cell bar that are filled for `done` of `total`: at least 1 once started, all of them only when complete. */
 export function filledOf(done: number, total: number, width: number): number {
@@ -384,18 +409,20 @@ export function filledOf(done: number, total: number, width: number): number {
 }
 
 /**
- * The band's one row without the mascot, cut to `cols` columns: the name (cut first), the 12-cell bar (shrunk to 4 cells at
+ * The band's one row without the mascot, cut to `cols` columns: the name (cut first), the state word (never cut), the 12-cell bar (shrunk to 4 cells at
  * the least, and only when the name would keep under 8 columns) and `done/total`.
  */
 export function bandLine(plan: PlanEntry, cols: number): BandLine {
   const { done, total } = countOf(plan)
   const count = `${done}/${total}`
-  const rest = cols - BAND_FIXED - displayWidth(count)
+  const state = planStateOf(plan)
+  // The state word is never cut: it takes a space and its width from the name's room.
+  const rest = cols - BAND_FIXED - displayWidth(count) - 1 - displayWidth(state)
   // The bar keeps its 12 cells and the name is cut; only when less than 8 columns would be left for the name does the bar shrink.
   const bar = Math.min(BAR_COLUMNS, Math.max(4, rest - MIN_BAND_NAME))
   const filled = filledOf(done, total, bar)
 
-  return { name: truncate(plan.name, Math.max(4, rest - bar)), filled, empty: bar - filled, count }
+  return { name: truncate(plan.name, Math.max(4, rest - bar)), state, filled, empty: bar - filled, count }
 }
 
 /** A plan with nothing left to do: each row Done or Canceled, at least one of them Done (an all-Canceled plan was not completed). */
@@ -973,23 +1000,17 @@ function startedText(iso: string, now: number): string | undefined {
 }
 
 /**
- * The dim line under the plan name: `In progress · started 20:08 today · 56m so far · 38.2M tokens · ~$9.30`. A closed plan
- * (the tracker gives `finished`) reads `Done · started … · took 56m · …`; a plan no row has started reads `Not started`; a plan from a board file (no times) reads its state alone. Tokens
+ * The dim line under the plan name: `started 20:08 today · 56m so far · 38.2M tokens · ~$9.30` (the state word is the header's).
+ * A closed plan (the tracker gives `finished`) reads `started … · took 56m · …`; a plan no row has started reads `Not started yet`;
+ * a plan from a board file (no times) with work under way has nothing to say and reads ''. Tokens
  * are in + out (in already holds the cached); `(n of m tasks)` ends the line when only n of the m measurable tasks have usage;
  * the tokens and the cost are left out when none is measured, the cost alone when it has no price. Wider than `width`:
- * "started …" goes first, then the elapsed time, then the tokens; state and cost stay, and a line still too wide is cut with …
+ * "started …" goes first, then the elapsed time, then the tokens; the cost stays, and a line still too wide is cut with …
  */
 export function planLineOf(plan: PlanEntry, now: number, width: number): string {
   if (plan.started === undefined && plan.finished === undefined) {
-    if (plan.anchor !== 'progress') {
-      return 'Not started'
-    }
-
-    // A board file keeps no times: the state alone, from the rows.
-    const live = plan.rows.filter(row => row.status !== 'Canceled')
-    const hasWork = live.some(row => row.status !== 'Todo')
-
-    return !hasWork ? 'Not started' : live.every(row => row.status === 'Done') ? 'Done' : 'In progress'
+    // A board file keeps no times: once work is under way there is nothing to show.
+    return plan.anchor === 'progress' && plan.rows.some(row => row.status !== 'Todo' && row.status !== 'Canceled') ? '' : 'Not started yet'
   }
 
   const totals = plan.usage_totals
@@ -1006,7 +1027,6 @@ export function planLineOf(plan: PlanEntry, now: number, width: number): string 
   const line = (keep: { started: boolean; elapsed: boolean; tokens: boolean }): string => {
     const money = [...(keep.tokens && tokens !== undefined ? [tokens] : []), ...(cost === undefined ? [] : [cost])]
     const shown = [
-      isClosed ? 'Done' : 'In progress',
       ...(keep.started && started !== undefined ? [`started ${started}`] : []),
       ...(keep.elapsed && span !== undefined ? [isClosed ? `took ${span}` : `${span} so far`] : []),
       ...money.map((one, at) => (at === money.length - 1 ? `${one}${part}` : one)),

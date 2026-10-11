@@ -59,15 +59,15 @@ const indexOfTask = (start: string) => ALPHA_ROWS.findIndex(one => one.task.star
 
 describe('plan-tracker pane: the header', () => {
   for (const surface of SURFACES) {
-    test(`${surface}: one row: ● name n/m ▾ on the left, "Plan file ›" at the right; a dim plan line under it and no goal`, async ($, on) => {
+    test(`${surface}: one row: ● name state n/m ▾ on the left, "Plan file ›" at the right; a dim plan line under it and no goal`, async ($, on) => {
       world(on)
       await $.session.start(SESSION)
       const ui = await mountPane($, surface)
 
       const header = await ui.find({ key: 'menu' })
 
-      expect(textOf(header)).toBe('● Alpha plan 5/13 ▾Plan file ›')
-      expect(kids(header).map(child => child.type)).toEqual(['Text', 'Button', 'Text', 'Text', 'Button', 'Box', 'Button'])
+      expect(textOf(header)).toBe('● Alpha plan  In progress  5/13 ▾Plan file ›')
+      expect(kids(header).map(child => child.type)).toEqual(['Text', 'Button', 'Text', 'Text', 'Text', 'Text', 'Button', 'Box', 'Button'])
       expect(kids(header)[0]?.props.color).toBe('error')
       expect(await ui.find({ key: 'goal' })).toBeUndefined()
       expect(textOf(await ui.drawn())).not.toContain('Goal')
@@ -77,7 +77,7 @@ describe('plan-tracker pane: the header', () => {
       const strip = kids(await ui.find({ key: 'strip' })).map(node => String(node.props?.key))
 
       expect(strip).toEqual(['menu', 'plan-line', 'divider'])
-      expect(textOf(await ui.find({ key: 'plan-line' }))).toBe('Not started')
+      expect(textOf(await ui.find({ key: 'plan-line' }))).toBe('Not started yet')
       expect(kids(await ui.find({ key: 'plan-line' }))[0]?.props.dimColor).toBe(true)
       await ui.unmount()
     })
@@ -89,7 +89,7 @@ describe('plan-tracker pane: the header', () => {
 
       await ui.press({ key: 'menu:name' })
 
-      expect((await ui.find({ key: 'menu:list' }))?.children.map(textOf)).toEqual(['▶ Alpha plan 5/13', '  Beta       2/2', '  Gamma      0/2'])
+      expect((await ui.find({ key: 'menu:list' }))?.children.map(textOf)).toEqual(['▶ Alpha plan  In progress 5/13', '  Beta        Done        2/2', '  Gamma       In progress 0/2'])
       await ui.unmount()
     })
 
@@ -231,7 +231,7 @@ describe('plan-tracker pane: the header', () => {
     const ui = await mountPane($, 'terminal')
 
     // one plan: nothing to pick, so no ▾
-    expect(textOf(await ui.find({ key: 'menu' }))).toBe('● MVP 1/2Plan file ›')
+    expect(textOf(await ui.find({ key: 'menu' }))).toBe('● MVP  Idle  1/2Plan file ›')
     expect(await ui.find({ key: 'goal' })).toBeUndefined()
     expect(textOf(await ui.find({ key: 'deliverables' }))).toContain('automation/plans/mvp.md')
     await ui.unmount()

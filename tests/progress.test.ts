@@ -1,7 +1,7 @@
 import { describe, expect, test } from './testing'
 import type { Engine } from 'claude-code/testing'
 
-import { assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, needsYou, parseProgress, settings, whoLineOf } from '../hooks/board'
+import { assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, needsYou, parseProgress, planLineOf, planStateOf, settings, whoLineOf } from '../hooks/board'
 import type { PlanEntry, PlanRow } from '../types'
 import { PROGRESS_REAL } from './fixtures/progress-real'
 import { PROGRESS_REAL_EXECUTOR } from './fixtures/progress-real-executor'
@@ -271,15 +271,35 @@ describe('the board file: live refresh', () => {
 })
 
 describe('the board file: the plan line', () => {
-  test('a PROGRESS.md plan has no times or usage: the line under the plan name is the state alone, and a task page has no usage line', FILE_MODE, async ($, on) => {
+  test('a PROGRESS.md plan has no times or usage: no line under the plan name once work is under way, the state word is the header\'s, and a task page has no usage line', FILE_MODE, async ($, on) => {
     world(on, { files: { [FILE]: REAL } })
     await $.session.start(SESSION)
     const pane = await mountPane($)
 
     expect(await pane.find({ key: 'summary' })).toBeUndefined()
-    expect(textOf(await pane.find({ key: 'plan-line' }))).toMatch(/^(Not started|In progress|Done)$/)
+    expect(await pane.find({ key: 'plan-line' })).toBeUndefined()
+    expect(textOf(await pane.find({ key: 'menu' }))).toBe('● Progress  Done  3/3Plan file ›')
     await openCard(pane, 0)
     expect(await pane.find({ key: 'detail:usage' })).toBeUndefined()
     await pane.unmount()
+  })
+})
+
+describe('the board file: the plan state', () => {
+  const state = (...statuses: string[]) => planStateOf(planOf(`# Progress\n\n| task | status | evidence |\n|---|---|---|\n${statuses.map((status, at) => `| t${at} | ${status} | seen |`).join('\n')}\n`))
+
+  test('every row Done or Canceled is Done; a running row (In Progress, Verifying) is In progress; the rest is Idle', () => {
+    expect(state('Done', 'Done')).toBe('Done')
+    expect(state('Done', 'Canceled')).toBe('Done')
+    expect(state('Done', 'In Progress', 'Todo')).toBe('In progress')
+    expect(state('Todo', 'Verifying')).toBe('In progress')
+    expect(state('Done', 'Needs Verification')).toBe('Idle')
+    expect(state('Todo', 'Blocked')).toBe('Idle')
+    expect(state('Todo', 'Todo')).toBe('Idle')
+  })
+
+  test('the plan line: nothing started reads "Not started yet"; work under way has no times, so no line', () => {
+    expect(planLineOf(planOf(withStatus('Todo')), Date.now(), 100)).toBe('Not started yet')
+    expect(planLineOf(planOf(withStatus('In Progress')), Date.now(), 100)).toBe('')
   })
 })

@@ -58,7 +58,7 @@ describe('a PLAN-DONE block in a Bash result', () => {
       expect(await textIn(pane, await pane.find({ key: 'lane:In Progress' }))).not.toContain(DOING.slice(0, 10))
       expect(textOf((await pane.find({ key: 'lane:Done' }))?.children[0])).toBe('Done 6 · 1 canceled')
       expect(await textIn(pane, (await pane.find({ key: 'lane:Done' }))?.children[1])).toContain(DOING.slice(0, 10))
-      expect(textOf(await pane.find({ key: 'menu' }))).toContain('Alpha plan 6/13')
+      expect(textOf(await pane.find({ key: 'menu' }))).toContain('Alpha plan  Idle  6/13')
       expect(textOf(await band.find({ key: 'bar' }))).toContain('6/13')
       await pane.unmount()
       await band.unmount()
