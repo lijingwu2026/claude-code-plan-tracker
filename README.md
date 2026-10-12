@@ -20,6 +20,7 @@ Claude Code's todo list shows a session's steps. plan-tracker shows the approved
 
 - **Band** above the prompt: the plan's name, its state (`In progress` while a step is In Progress or Verifying, `Done` once every step is Done or Canceled, otherwise `Idle`), a progress bar and done/total. Press the bar to open the board.
 - **Board:** four lanes, Todo, In Progress, Verify and Done. A Blocked card sits red at the top of In Progress.
+- **Lane order:** each lane lists its latest-updated task first; Blocked cards come first in In Progress, and in Verify the tasks being verified, then those waiting on you, then the rest. A board with no times, like a plain `PROGRESS.md`, keeps file order.
 - **Plan details** under the plan name when your board command supplies them: `54.8M` over `tokens` and `~$13.19` over `est. cost`; then the plan's recap, if it has one: a dim `Recap · updated 12 min ago` and Claude's short summary of the plan, wrapped to the pane.
 - **Card:** hover for the whole name and the step's goal; press for its page (goal, status, who did it, who checked it, progress, latest note, deliverable, and time, tokens and cost when your board command supplies them).
 - **Below the lanes:** Artifacts (pages made for you, linked) and Deliverables (each file and what changed).

@@ -15,6 +15,7 @@ export type PlanRow = {
   /** The status as written in the board file, kept for a row whose status is `Other`. */
   statusText?: string
   note?: string
+  /** When the row was last written, ISO text; each lane lists the latest first. Null for none (a `PROGRESS.md` has none): a lane with no times keeps file order. */
   updated: string | null
   route?: string
   /** The route's `<split> × <executor> · <tier>` or `unrouted`, as the tracker's `--json` gives it; used when there is no `route`. */

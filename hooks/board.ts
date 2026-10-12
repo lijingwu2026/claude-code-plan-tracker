@@ -636,16 +636,25 @@ export const VERIFY_SHOWN = 5
 const timeOf = (row: PlanRow) => (row.updated === null ? 0 : Date.parse(row.updated) || 0)
 
 /**
- * The four lanes of a plan. Verifying and Needs Verification are Verify; Blocked stays on the In Progress lane (its card is red, first
- * in the lane, 3 at the most while running cards fill the rest of 5); a Canceled row is no card and is counted nowhere.
+ * `cards` with the latest `updated` first; cards updated at the same moment keep the later row first. Cards none of which has a time
+ * (a plain PROGRESS.md) keep their file order, so a lane with no times is not reversed by the tie rule.
+ */
+const latestFirst = (cards: Card[]): Card[] =>
+  cards.some(card => timeOf(card.row) > 0) ? [...cards].sort((a, b) => timeOf(b.row) - timeOf(a.row) || b.index - a.index) : cards
+
+/**
+ * The four lanes of a plan, each listing its latest updated task first. Verifying and Needs Verification are Verify; Blocked stays on the
+ * In Progress lane (its card is red, first in the lane, 3 at the most while running cards fill the rest of 5); a Canceled row is no card
+ * and is counted nowhere. The groups of a lane keep their places and each is sorted inside: Blocked, then running in In Progress;
+ * verifying, then waiting on you, then other waiting in Verify. A lane whose cards have no times keeps file order.
  * Todo and Done keep 3 cards (Done: the latest).
  */
 export function lanesOf(plan: PlanEntry, expanded: readonly LaneKey[] = []): Lane[] {
   const cards = plan.rows.map((row, index): Card => ({ row, index }))
   const of = (...statuses: PlanStatus[]) => cards.filter(card => statuses.includes(card.row.status))
-  const todo = of('Todo')
-  const blocked = of('Blocked')
-  const running = of('In Progress')
+  const todo = latestFirst(of('Todo'))
+  const blocked = latestFirst(of('Blocked'))
+  const running = latestFirst(of('In Progress'))
   // Blocked cards first, but at most 3 unless there are too few running cards to fill the lane: a lane of red cards only
   // reads "everything is stuck" when 12 of 18 are running.
   const blockedShown = Math.min(blocked.length, Math.max(BLOCKED_SHOWN, DOING_SHOWN - running.length))
@@ -658,8 +667,8 @@ export function lanesOf(plan: PlanEntry, expanded: readonly LaneKey[] = []): Lan
   const hiddenRunning = running.length - runningShown
   const isFoldable = (key: LaneKey, count: number) => isOpen(key) && count > 0
   // Verify: rows being verified now first, then the ones waiting on her (◆ needs you), then the other waiting rows.
-  const verifying = of('Verifying')
-  const waiting = of('Needs Verification')
+  const verifying = latestFirst(of('Verifying'))
+  const waiting = latestFirst(of('Needs Verification'))
   const verify = [...verifying, ...waiting.filter(card => needsYou(card.row)), ...waiting.filter(card => !needsYou(card.row))]
   // What the collapsed Verify lane hides, and how many of those wait on her.
   const hiddenVerify = verify.slice(VERIFY_SHOWN)

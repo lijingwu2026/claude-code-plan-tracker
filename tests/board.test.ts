@@ -106,6 +106,108 @@ describe('lane mapping', () => {
   })
 })
 
+describe('lane order: the latest updated task first', () => {
+  // `minute` counts from 10:00, so 70 is 11:10.
+  const at = (minute: number) => `2026-10-12T${String(10 + Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}:00+09:00`
+  const timed = (task: string, status: PlanStatus, minute: number | null, extra: Partial<PlanRow> = {}): PlanRow => ({ task, status, updated: minute === null ? null : at(minute), ...extra })
+  const planOf = (...rows: PlanRow[]): PlanEntry => ({ anchor: 'p', name: 'p', goal: '', plan_file: '/p.md', rows })
+  const ALL: LaneKey[] = ['Todo', 'In Progress', 'Verify', 'Done']
+  /** The tasks of one lane, every card shown. */
+  const lane = (plan: PlanEntry, key: LaneKey) => lanesOf(plan, ALL).find(one => one.key === key)?.cards.map(card => card.row.task)
+  const HERS = 'serial × Sam · — — only she can judge'
+
+  test('Todo, In Progress, Verify and Done each list the latest updated first', () => {
+    const plan = planOf(
+      timed('todo old', 'Todo', 10), timed('todo new', 'Todo', 30), timed('todo mid', 'Todo', 20),
+      timed('run old', 'In Progress', 11), timed('run new', 'In Progress', 31), timed('run mid', 'In Progress', 21),
+      timed('chk old', 'Verifying', 12), timed('chk new', 'Verifying', 32),
+      timed('wait old', 'Needs Verification', 13), timed('wait new', 'Needs Verification', 33),
+      timed('done old', 'Done', 14), timed('done new', 'Done', 34), timed('done mid', 'Done', 24),
+    )
+
+    expect(lane(plan, 'Todo')).toEqual(['todo new', 'todo mid', 'todo old'])
+    expect(lane(plan, 'In Progress')).toEqual(['run new', 'run mid', 'run old'])
+    expect(lane(plan, 'Verify')).toEqual(['chk new', 'chk old', 'wait new', 'wait old'])
+    expect(lane(plan, 'Done')).toEqual(['done new', 'done mid', 'done old'])
+  })
+
+  test('rows updated at the same moment keep the later row first, in every lane', () => {
+    const plan = planOf(
+      timed('todo a', 'Todo', 10), timed('todo b', 'Todo', 10),
+      timed('run a', 'In Progress', 10), timed('run b', 'In Progress', 10),
+      timed('blocked a', 'Blocked', 10), timed('blocked b', 'Blocked', 10),
+      timed('wait a', 'Needs Verification', 10), timed('wait b', 'Needs Verification', 10),
+    )
+
+    expect(lane(plan, 'Todo')).toEqual(['todo b', 'todo a'])
+    expect(lane(plan, 'In Progress')).toEqual(['blocked b', 'blocked a', 'run b', 'run a'])
+    expect(lane(plan, 'Verify')).toEqual(['wait b', 'wait a'])
+  })
+
+  test('In Progress keeps Blocked first: a newer running card stays below an older blocked one, each group sorted inside', () => {
+    const plan = planOf(timed('run newest', 'In Progress', 50), timed('blocked old', 'Blocked', 10), timed('run older', 'In Progress', 40), timed('blocked new', 'Blocked', 20))
+
+    expect(lane(plan, 'In Progress')).toEqual(['blocked new', 'blocked old', 'run newest', 'run older'])
+  })
+
+  test('the folded In Progress lane keeps the cap: the latest blocked cards first, then the latest running ones', () => {
+    const blocked = [1, 2, 3, 4].map(minute => timed(`blocked ${minute}`, 'Blocked', minute))
+    const running = [11, 12, 13, 14].map(minute => timed(`run ${minute}`, 'In Progress', minute))
+    const doing = lanesOf(planOf(...blocked, ...running))[1]
+
+    // 3 blocked at the most while running cards fill the rest of 5
+    expect(doing?.cards.map(card => card.row.task)).toEqual(['blocked 4', 'blocked 3', 'blocked 2', 'run 14', 'run 13'])
+    expect(doing?.more).toBe(3)
+  })
+
+  test('Verify keeps its groups: verifying, then waiting on you, then other waiting; a needs-you card stays above a newer other-waiting one', () => {
+    const plan = planOf(
+      timed('other newest', 'Needs Verification', 60, { route: 'serial × inline · Opus — x — check by main session · Sonnet: y' }),
+      timed('hers old', 'Needs Verification', 10, { route: HERS }),
+      timed('hers new', 'Needs Verification', 20, { route: HERS }),
+      timed('other old', 'Needs Verification', 30, { route: 'serial × inline · Opus — x — check by main session · Sonnet: y' }),
+      timed('verifying old', 'Verifying', 5),
+    )
+
+    expect(lane(plan, 'Verify')).toEqual(['verifying old', 'hers new', 'hers old', 'other newest', 'other old'])
+  })
+
+  test('the folded lanes show the latest cards: Todo and Done their 3 latest, Verify its 5 latest', () => {
+    const todo = [10, 40, 20, 50, 30].map(minute => timed(`todo ${minute}`, 'Todo', minute))
+    const verify = [10, 70, 20, 60, 30, 50, 40].map(minute => timed(`wait ${minute}`, 'Needs Verification', minute))
+    const lanes = lanesOf(planOf(...todo, ...verify))
+
+    expect(lanes[0]?.cards.map(card => card.row.task)).toEqual(['todo 50', 'todo 40', 'todo 30'])
+    expect(lanes[2]?.cards.map(card => card.row.task)).toEqual(['wait 70', 'wait 60', 'wait 50', 'wait 40', 'wait 30'])
+  })
+
+  test('a lane in which no card has a time (a PROGRESS.md) keeps file order, whatever the other lanes do', () => {
+    const plan = planOf(
+      timed('todo 1', 'Todo', null), timed('todo 2', 'Todo', null), timed('todo 3', 'Todo', null),
+      timed('run 1', 'In Progress', null), timed('run 2', 'In Progress', null),
+      timed('blocked 1', 'Blocked', null), timed('blocked 2', 'Blocked', null),
+      timed('wait 1', 'Needs Verification', null), timed('wait 2', 'Needs Verification', null),
+      timed('verifying 1', 'Verifying', null), timed('verifying 2', 'Verifying', null),
+      timed('done old', 'Done', 14), timed('done new', 'Done', 34),
+    )
+
+    expect(lane(plan, 'Todo')).toEqual(['todo 1', 'todo 2', 'todo 3'])
+    expect(lane(plan, 'In Progress')).toEqual(['blocked 1', 'blocked 2', 'run 1', 'run 2'])
+    expect(lane(plan, 'Verify')).toEqual(['verifying 1', 'verifying 2', 'wait 1', 'wait 2'])
+    expect(lane(plan, 'Done')).toEqual(['done new', 'done old'])
+  })
+
+  test('a PROGRESS.md board keeps its table order in every lane', () => {
+    const table = ['| task | status |', '|---|---|', '| a | Todo |', '| b | Todo |', '| c | In Progress |', '| d | In Progress |', '| e | Needs Verification |', '| f | Needs Verification |']
+    const parsed = parseProgress(`# P\n\n${table.join('\n')}\n`, '/p/PROGRESS.md', 'p')
+    const plan = 'board' in parsed ? parsed.board.plans[0]! : planOf()
+
+    expect(lane(plan, 'Todo')).toEqual(['a', 'b'])
+    expect(lane(plan, 'In Progress')).toEqual(['c', 'd'])
+    expect(lane(plan, 'Verify')).toEqual(['e', 'f'])
+  })
+})
+
 describe('the In Progress lane cap', () => {
   const rows = (blocked: number, running: number): PlanEntry => ({
     ...ALPHA,

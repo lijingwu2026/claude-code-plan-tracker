@@ -53,7 +53,8 @@ export function dayName(daysAgo: number): string {
   return `${MONTH_NAMES[at.getMonth()]} ${at.getDate()}`
 }
 
-const row = (task: string, status: PlanStatus, updated: string | null = '2026-10-08T01:00:00+09:00', route?: string, note = ''): PlanRow => ({
+// A row has no time unless a case gives one: its lane lists it in file order (the lanes list the latest updated first once a card has a time).
+const row = (task: string, status: PlanStatus, updated: string | null = null, route?: string, note = ''): PlanRow => ({
   task,
   status,
   note,
