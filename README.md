@@ -27,24 +27,24 @@ Claude Code's todo list shows a session's steps. plan-tracker shows the approved
 
 Plan state, in the header, the band and the plan list. The plan's only time is in the state word; a time from another day carries its day (`Done at Oct 11 21:40`).
 
-| State | When | Time shown |
-|---|---|---|
-| In progress | A task is In Progress or Verifying and is not marked stalled | none |
-| Stalled | Every In Progress or Verifying task is stalled: your board command marks it with `stalled_since`, meaning no session is working on it. A plain `PROGRESS.md` has no session data and never shows this | `Stalled since 19:23`, the newest `stalled_since` |
-| Idle | No task is In Progress or Verifying, including a plan nothing has started | `Idle since 19:40`, from `idle_since`; plain `Idle` without it |
-| Done | Every task is Done or Canceled (one at least Done), or your board command sends `finished` | `Done at 21:40`, from `finished`, else `updated`; plain `Done` with neither |
+| Looks like | State | When | Time shown |
+|---|---|---|---|
+| <img src="docs/states/plan-in-progress.png" alt="In progress plan header" height="16"> | In progress | A task is In Progress or Verifying and is not marked stalled | none |
+| <img src="docs/states/plan-stalled.png" alt="Stalled plan header" height="16"> | Stalled | Every In Progress or Verifying task is stalled: your board command marks it with `stalled_since`, meaning no session is working on it. A plain `PROGRESS.md` has no session data and never shows this | `Stalled since 19:23`, the newest `stalled_since` |
+| <img src="docs/states/plan-idle.png" alt="Idle plan header" height="16"> | Idle | No task is In Progress or Verifying, including a plan nothing has started | `Idle since 19:40`, from `idle_since`; plain `Idle` without it |
+| <img src="docs/states/plan-done.png" alt="Done plan header" height="16"> | Done | Every task is Done or Canceled (one at least Done), or your board command sends `finished` | `Done at 21:40`, from `finished`, else `updated`; plain `Done` with neither |
 
 What a task card shows. The tag names who does the task or takes it next, so a Done card has none; a task whose route names neither a model nor you has none either.
 
-| Card | How it looks |
-|---|---|
-| Running | In Progress or Verifying: the mascot moves; the tag is the model doing it (`Opus`, `Sonnet`, `Haiku`) or `you`; on a Verifying card it is the checker |
-| Stalled | Running but marked `stalled_since`: the mascot stands still and a grey tag, `stalled 19:23` (`stalled Oct 11` from another day), replaces the model tag; a card too narrow for the time shows the bare `stalled` |
-| Waiting for you | Needs Verification and you are its checker or its executor: `◆ needs you ·` before the name, tag `you` |
-| Waiting for a check | Needs Verification with another checker: no marker; the tag is the checker's model |
-| Blocked | Red, `⚑ Blocked ·` before the name, the mascot frozen; the tag is who runs it |
-| Todo | No mascot; the tag is who will do it: a model, or `you` |
-| Done | No tag; its page says who did it |
+| Looks like | Card | How it looks |
+|---|---|---|
+| <img src="docs/states/card-running.png" alt="Running task card" height="64"> | Running | In Progress or Verifying: the mascot moves; the tag is the model doing it (`Opus`, `Sonnet`, `Haiku`) or `you`; on a Verifying card it is the checker |
+| <img src="docs/states/card-stalled.png" alt="Stalled task card" height="64"> | Stalled | Running but marked `stalled_since`: the mascot stands still and a grey tag, `stalled 19:23` (`stalled Oct 11` from another day), replaces the model tag; a card too narrow for the time shows the bare `stalled` |
+| <img src="docs/states/card-waiting-for-you.png" alt="Waiting for you task card" height="64"> | Waiting for you | Needs Verification and you are its checker or its executor: `◆ needs you ·` before the name, tag `you` |
+| <img src="docs/states/card-waiting-for-check.png" alt="Waiting for a check task card" height="64"> | Waiting for a check | Needs Verification with another checker: no marker; the tag is the checker's model |
+| <img src="docs/states/card-blocked.png" alt="Blocked task card" height="64"> | Blocked | Red, `⚑ Blocked ·` before the name, the mascot frozen; the tag is who runs it |
+| <img src="docs/states/card-todo.png" alt="Todo task card" height="64"> | Todo | No mascot; the tag is who will do it: a model, or `you` |
+| <img src="docs/states/card-done.png" alt="Done task card" height="64"> | Done | No tag; its page says who did it |
 
 ## Board file
 
