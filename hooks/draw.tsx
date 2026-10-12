@@ -46,6 +46,7 @@ import {
   parseArtifact,
   planStatsOf,
   notStartedText,
+  recapLabel,
   planStateOf,
   progressOf,
   statusWords,
@@ -903,6 +904,14 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
               <Text dimColor wrap="truncate">
                 {notStarted}
               </Text>
+            </Box>
+          )}
+          {plan.recap === undefined ? null : (
+            <Box key="recap" flexDirection="column" marginTop={1}>
+              <Text dimColor wrap="truncate">
+                {recapLabel(plan, args.now)}
+              </Text>
+              <Text wrap="wrap">{plan.recap}</Text>
             </Box>
           )}
           <Box key="divider" marginTop={1}>

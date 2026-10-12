@@ -156,6 +156,8 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
     ...(asText(plan.started) === undefined ? {} : { started: asText(plan.started) as string }),
     ...(asText(plan.finished) === undefined ? {} : { finished: asText(plan.finished) as string }),
     ...(totalsOf(plan.usage_totals) === undefined ? {} : { usage_totals: totalsOf(plan.usage_totals) as PlanTotals }),
+    ...(asText(plan.recap) === undefined ? {} : { recap: asText(plan.recap) as string }),
+    ...(asText(plan.recap) === undefined || asText(plan.recap_updated) === undefined ? {} : { recap_updated: asText(plan.recap_updated) as string }),
     rows: (plan.rows as Record<string, unknown>[]).map((row): PlanRow => {
       const note = asText(row.note)
       const route = asText(row.route)
@@ -1148,6 +1150,28 @@ export function spanText(ms: number): string {
   return hours < 24 ? `${hours}h ${String(minutes % 60).padStart(2, '0')}m` : `${Math.floor(hours / 24)}d ${hours % 24}h`
 }
 
+/**
+ * The dim label over a plan's recap: `Recap · updated 12 min ago`, from `recap_updated` (ISO, as the tracker wrote it).
+ * Just `Recap` when there is no time, it is not an ISO time, or it lies ahead of `now`.
+ */
+export function recapLabel(plan: PlanEntry, now: number): string {
+  const minutes = Math.floor((now - Date.parse(plan.recap_updated ?? '')) / 60_000)
+
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    return 'Recap'
+  }
+
+  if (minutes < 1) {
+    return 'Recap · updated just now'
+  }
+
+  if (minutes < 60) {
+    return `Recap · updated ${minutes} min ago`
+  }
+
+  return minutes < 1440 ? `Recap · updated ${Math.floor(minutes / 60)} h ago` : `Recap · updated ${Math.floor(minutes / 1440)} d ago`
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /**
@@ -1932,7 +1956,9 @@ export function parseProgress(text: string, file: string, name: string): { board
     return { error: `plan-tracker: the table in ${where} has no rows with a task` }
   }
 
-  const plan: PlanEntry = { anchor: 'progress', name: title ?? name, goal: '', plan_file: file, rows }
+  // A `Recap: <text>` line above the table is the plan's recap; the file says when it was written nowhere, so it has no time.
+  const recap = lines.slice(0, start).map(line => /^Recap:\s*(\S.*?)\s*$/i.exec(line)?.[1]).find(one => one !== undefined)
+  const plan: PlanEntry = { anchor: 'progress', name: title ?? name, goal: '', plan_file: file, ...(recap === undefined ? {} : { recap }), rows }
 
   return { board: { selected: 'progress', message: null, plans: [plan] } }
 }

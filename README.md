@@ -80,6 +80,10 @@ figures, and under the plan name as three figures: the time (`2h 41m` over `sinc
 the time goes first, then the tokens; the cost stays. With a plain `PROGRESS.md` there is no usage and no start time: no
 figures are drawn once a step is under way, and a task page has none.
 
+A plan's recap, Claude's short summary of the plan, is drawn under that line when there is one: a dim `Recap · updated 12 min ago` and the text
+wrapped to the pane. It comes from the plan's `recap` and `recap_updated` (ISO time) in the `board_command` JSON, or from a `Recap: <text>` line
+above the table in `PROGRESS.md`, which has no time, so its label reads `Recap`. No recap, nothing drawn.
+
 ## Limits
 
 - Read-only: it never writes the board. The route skill, or whatever writes your `PROGRESS.md`, updates it.

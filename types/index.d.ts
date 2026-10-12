@@ -80,6 +80,10 @@ export type PlanEntry = {
   finished?: string
   /** Absent when the tracker is older than the plan line. */
   usage_totals?: PlanTotals
+  /** Claude's 2–3 sentence summary of the plan (what it is for, where it is now, what is next or needed from the person), drawn under the plan line. Absent when none. */
+  recap?: string
+  /** When the recap was written, ISO text. Absent when the recap has no time (one read from PROGRESS.md has none). */
+  recap_updated?: string
   rows: PlanRow[]
 }
 
