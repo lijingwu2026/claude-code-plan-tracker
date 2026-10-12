@@ -1,11 +1,11 @@
 import { describe, expect, test } from './testing'
 import type { Engine } from 'claude-code/testing'
 
-import { assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, needsYou, parseProgress, notStartedText, planStateOf, settings, whoLineOf } from '../hooks/board'
+import { RAINBOW, assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, needsYou, parseProgress, notStartedText, planStateOf, settings, whoLineOf } from '../hooks/board'
 import type { PlanEntry, PlanRow } from '../types'
 import { PROGRESS_REAL } from './fixtures/progress-real'
 import { PROGRESS_REAL_EXECUTOR } from './fixtures/progress-real-executor'
-import { HOME, PANE_ID, ROOT, SESSION, bandProps, openCard, paneProps, textIn, textOf, world } from './fixtures'
+import { BOARD, HOME, PANE_ID, ROOT, SESSION, bandProps, openCard, paneProps, promptSubmit, textIn, textOf, world } from './fixtures'
 
 /** PROGRESS.md as plan-orchestrator's route skill wrote it in a real run (a 3-step plan, `claude -p`). */
 const REAL = PROGRESS_REAL
@@ -368,5 +368,139 @@ describe('the board file: a deliverable path is read as written', () => {
 
     expect(w.logRuns.filter(run => run.argv[0] === 'open').map(run => run.argv)).toEqual([['open', path]])
     await pane.unmount()
+  })
+})
+
+describe('the board file: a row going Done is a toast, a notice and a chime', () => {
+  const table = (...rows: [string, string][]) =>
+    `# Progress\n\n| task | status | evidence |\n|---|---|---|\n${rows.map(([task, status]) => `| ${task} | ${status} | seen |`).join('\n')}\n`
+
+  /** The world with the table `text` as its PROGRESS.md; the notices the mod appends to the conversation are in `w.appended`. */
+  function watched(on: Parameters<typeof world>[0], text: string) {
+    const w = world(on, { files: { [FILE]: text } })
+
+    return { w, notices: w.appended }
+  }
+
+  /** The colours of the band's bar cells. */
+  const barColors = async (band: Awaited<ReturnType<typeof mountBand>>) => (await band.findAll({ type: 'Text', text: /^▰$/ })).map(cell => String(cell.props.color))
+
+  test('one row going Done: a toast `✅ <task> · N left`, a notice of the same text without PLAN-DONE, one chime, no rainbow while rows remain', FILE_MODE, async ($, on) => {
+    const { w, notices } = watched(on, table(['a', 'Done'], ['b', 'In Progress'], ['c', 'Todo']))
+
+    await $.session.start(SESSION)
+    const band = await mountBand($)
+
+    await w.clock.advance(3_000)
+    w.files = { [FILE]: table(['a', 'Done'], ['b', 'Done'], ['c', 'Todo']) }
+    await w.clock.advance(3_000)
+
+    expect(w.toasts).toEqual(['✅ b · 1 left'])
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toContain('✅ b · 1 left')
+    expect(notices[0]).not.toContain('PLAN-DONE')
+    expect(w.played).toEqual([{ clip: { asset: 'sounds/done.wav' }, shouldLoop: false, gain: 0.6 }])
+    expect(w.logLines().filter(line => line.stage === 'sent')).toHaveLength(1)
+    expect((await barColors(band)).some(color => RAINBOW.includes(color))).toBe(false)
+    await band.unmount()
+  })
+
+  test('the row that makes every row Done or Canceled also turns the band to a rainbow until the next prompt', FILE_MODE, async ($, on) => {
+    const { w } = watched(on, table(['a', 'Done'], ['x', 'Canceled'], ['b', 'In Progress']))
+
+    await $.session.start(SESSION)
+    const band = await mountBand($)
+
+    await w.clock.advance(3_000)
+    w.files = { [FILE]: table(['a', 'Done'], ['x', 'Canceled'], ['b', 'Done']) }
+    await w.clock.advance(3_000)
+
+    expect(w.toasts).toEqual(['✅ b · 0 left'])
+    expect(w.played).toHaveLength(1)
+
+    const colors = await barColors(band)
+
+    expect(colors.length).toBeGreaterThan(1)
+    expect(colors.every(color => RAINBOW.includes(color))).toBe(true)
+    expect(new Set(colors).size).toBeGreaterThan(1)
+
+    await $.prompt.submit(promptSubmit())
+    await w.clock.advance(500)
+    expect((await barColors(band)).some(color => RAINBOW.includes(color))).toBe(false)
+    await band.unmount()
+  })
+
+  test('two rows going Done in one read: a toast each with the count falling, one chime', FILE_MODE, async ($, on) => {
+    const { w } = watched(on, table(['a', 'In Progress'], ['b', 'In Progress'], ['c', 'Todo']))
+
+    await $.session.start(SESSION)
+    await w.clock.advance(3_000)
+    w.files = { [FILE]: table(['a', 'Done'], ['b', 'Done'], ['c', 'Todo']) }
+    await w.clock.advance(3_000)
+
+    expect(w.toasts).toEqual(['✅ a · 2 left', '✅ b · 1 left'])
+    expect(w.played).toHaveLength(1)
+  })
+
+  test('the first read is the baseline only: rows already Done give no toast, notice, chime or rainbow', FILE_MODE, async ($, on) => {
+    const { w, notices } = watched(on, table(['a', 'Done'], ['b', 'Done']))
+
+    await $.session.start(SESSION)
+    const band = await mountBand($)
+
+    await w.clock.advance(6_000)
+
+    expect(w.toasts).toEqual([])
+    expect(notices).toEqual([])
+    expect(w.played).toEqual([])
+    expect((await barColors(band)).some(color => RAINBOW.includes(color))).toBe(false)
+    await band.unmount()
+  })
+
+  test('a row that stays Done is silent on later reads, even when its text changes; a row first seen already Done is silent too', FILE_MODE, async ($, on) => {
+    const { w } = watched(on, table(['a', 'Done'], ['b', 'In Progress'], ['c', 'Todo']))
+
+    await $.session.start(SESSION)
+    await w.clock.advance(3_000)
+    w.files = { [FILE]: table(['a', 'Done'], ['b', 'Done'], ['c', 'Todo']) }
+    await w.clock.advance(3_000)
+    expect(w.toasts).toEqual(['✅ b · 1 left'])
+
+    w.files = { [FILE]: table(['a', 'Done'], ['b', 'Done'], ['c', 'Todo']).replace('| a | Done | seen |', '| a | Done | seen again |') }
+    await w.clock.advance(3_000)
+    w.files = { [FILE]: table(['a', 'Done'], ['b', 'Done'], ['c', 'Todo'], ['d', 'Done']) }
+    await w.clock.advance(3_000)
+
+    expect(w.toasts).toEqual(['✅ b · 1 left'])
+    expect(w.played).toHaveLength(1)
+  })
+
+  test('Canceled rows are not counted in N left', FILE_MODE, async ($, on) => {
+    const { w } = watched(on, table(['a', 'Todo'], ['x', 'Canceled'], ['y', 'Canceled'], ['b', 'In Progress']))
+
+    await $.session.start(SESSION)
+    await w.clock.advance(3_000)
+    w.files = { [FILE]: table(['a', 'Todo'], ['x', 'Canceled'], ['y', 'Canceled'], ['b', 'Done']) }
+    await w.clock.advance(3_000)
+
+    expect(w.toasts).toEqual(['✅ b · 1 left'])
+  })
+
+  test('with a board command set a change gives nothing (that tracker prints PLAN-DONE itself)', async ($, on) => {
+    const w = world(on, { files: { [FILE]: table(['a', 'Done'], ['b', 'In Progress']) } })
+
+    await $.session.start(SESSION)
+    await w.clock.advance(3_000)
+
+    // The tracker's board now has its In Progress row Done, and the file does too.
+    w.fixture = { ...BOARD, plans: [{ ...BOARD.plans[0]!, rows: BOARD.plans[0]!.rows.map(row => (row.status === 'In Progress' ? { ...row, status: 'Done' as const } : row)) }, ...BOARD.plans.slice(1)] }
+    w.files = { [FILE]: table(['a', 'Done'], ['b', 'Done']) }
+    await $.prompt.submit(promptSubmit())
+    await w.clock.advance(10_000)
+
+    expect(w.jsonRuns.length).toBeGreaterThan(1)
+    expect(w.toasts).toEqual([])
+    expect(w.appended).toEqual([])
+    expect(w.played).toEqual([])
   })
 })

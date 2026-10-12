@@ -143,6 +143,8 @@ export type World = {
   openRun: { exitCode: number; stderr: string } | null
   /** a reason `session.append` refuses, or null (the kit stores the row) */
   appendDenial: string | null
+  /** every message the mod appended to the conversation, in order, as JSON */
+  appended: string[]
   /** the surfaces the session draws on: `$.session.surfaces()` answers this (empty in a plain `claude -p` run) */
   surfaces: RenderSurface[]
   /** every toast shown, in order */
@@ -208,6 +210,7 @@ export function world(
     realpathRuns: [],
     openRun: null,
     appendDenial: null,
+    appended: [],
     toasts: [],
     played: [],
     toastDenial: null,
@@ -230,7 +233,15 @@ export function world(
 
     return w.registerDenial === null || e.name !== 'plan-tracker' ? { value: { command: e.name } } : { deny: w.registerDenial }
   })
-  on('session.append', ($, e, next) => (w.appendDenial === null ? next(e) : { deny: w.appendDenial }))
+  on('session.append', ($, e, next) => {
+    if (w.appendDenial !== null) {
+      return { deny: w.appendDenial }
+    }
+
+    w.appended.push(JSON.stringify(e.message))
+
+    return next(e)
+  })
   on('ui.open', async ($, e) => {
     await w.openGate()
     w.opened.push({ id: e.id, title: e.title, focus: e.focus, rows: e.rows })

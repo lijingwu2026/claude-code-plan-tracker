@@ -23,6 +23,7 @@ Claude Code's todo list shows a session's steps. plan-tracker shows the approved
 - **Plan details** under the plan name when your board command supplies them: the time, `54.8M` over `tokens` and `~$13.19` over `est. cost`; then the plan's recap, if it has one: a dim `Recap · updated 12 min ago` and Claude's short summary of the plan, wrapped to the pane.
 - **Card:** hover for the whole name and the step's goal; press for its page (goal, status, who did it, who checked it, progress, latest note, deliverable, and time, tokens and cost when your board command supplies them).
 - **Below the lanes:** Artifacts (pages made for you, linked) and Deliverables (each file and what changed).
+- **When a step goes Done in `PROGRESS.md`:** a pop-up `✅ <step> · N left`, the same line in the conversation and, in the terminal, a chime; when the last open step is Done the band's bar turns to a rainbow until your next prompt. The first read of a session only sets the starting point, so steps already Done are silent.
 
 ## Board file
 
@@ -95,6 +96,7 @@ With a plain `PROGRESS.md` there is no usage and no start time: no figures are d
   polled: the board is read at session start, on each prompt, after a Bash call that runs the command, and every 10 s
   while the pane is open.
 - Shows the first table in the file with `task` and `status` columns, as one plan.
+- Every open Claude session on the same project polls the same `PROGRESS.md`, so each one shows the pop-up and plays the chime when a step goes Done. With `board_command` set, none of this is done from the file.
 - Tested on Claude Code 2.1.296 on macOS, in the terminal. The Desktop app is shown only as seen with the private build of the same code; this plugin has not run there yet.
 - An est. cost read from Claude Code transcripts is a lower bound: they store a reply's output tokens as counted at its start and keep no thinking text, so output is estimated from the visible text.
 - In the terminal, deliverable paths are plain coloured text and artifact titles are links; a terminal without OSC 8 hyperlink support prints the address after a link.

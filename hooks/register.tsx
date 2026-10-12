@@ -11,12 +11,13 @@
  * not have attached yet); when the board cannot be drawn a toast says why. On the desktop app a deliverable is a link a press
  * opens with `open`, if it is under the project or ~/.claude; an artifact is a link too: an https one the app opens itself, a local
  * page the plugin opens with `open` (the same allowlist). A PLAN-DONE block in a Bash result becomes a toast, a chime and a
- * notice in the conversation, and one with `0 left` makes the band's bar a rainbow until the person's next prompt.
+ * notice in the conversation, and one with `0 left` makes the band's bar a rainbow until the person's next prompt. With no
+ * `board_command`, a row of the board file that goes Done does the same, with no block: the file is the only source.
  */
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { Live, PlanBoard, PlanEntry } from '../types'
+import type { Live, PlanBoard, PlanEntry, PlanStatus } from '../types'
 import {
   BAND_MASCOT_SPACE,
   MASCOT,
@@ -35,6 +36,8 @@ import {
   finishedAnchor,
   foldedPath,
   hasInProgress,
+  isComplete,
+  isOpen,
   isRainbow,
   isWebTarget,
   messageOf,
@@ -168,6 +171,49 @@ async function refreshOnce($: EngineInterface) {
 
   await update($, live, () => answer)
   shownJson = text
+
+  // Only the board file has no PLAN-DONE to say that a row went Done; a board command prints its own.
+  if (settings.boardCommand === '') {
+    await announceFileDone($, answer)
+  }
+}
+
+/** The status of each row of the board file at its last read, by task; undefined until the first read, which is the baseline. */
+let lastStatuses: Map<string, PlanStatus> | undefined
+
+/**
+ * A read of the board file that moved rows to Done: each is a toast and a notice, `✅ <task> · N left` (N: rows neither Done nor
+ * Canceled), the read as a whole one chime, and a read that leaves every row Done or Canceled turns the band to a rainbow until
+ * the person's next prompt. The first read, a row first seen already Done, and an error answer (the baseline stays) give nothing.
+ */
+async function announceFileDone($: EngineInterface, answer: Live) {
+  if (!('board' in answer)) {
+    return
+  }
+
+  const plan = answer.board.plans[0]
+  const before = lastStatuses
+
+  lastStatuses = new Map((plan?.rows ?? []).map(row => [row.task, row.status]))
+
+  if (before === undefined || plan === undefined) {
+    return
+  }
+
+  const went = plan.rows.filter(row => row.status === 'Done' && before.has(row.task) && before.get(row.task) !== 'Done')
+  const left = plan.rows.filter(isOpen).length
+
+  for (const [at, row] of went.entries()) {
+    await notify($, row.task, String(left + went.length - 1 - at))
+  }
+
+  if (went.length > 0) {
+    await chime($)
+
+    if (isComplete(plan)) {
+      await markFinished($, plan.anchor)
+    }
+  }
 }
 
 /**
@@ -348,9 +394,17 @@ export async function announce($: EngineInterface, block: string) {
     return
   }
 
-  const isToasted = await attempt($, 'toast', () => $.ui.toast(`✅ ${truncate(done.task, TOAST_COLUMNS)} · ${done.left} left`))
+  await notify($, done.task, done.left, block)
+}
+
+/**
+ * The toast `✅ <task> · <left> left` (the task cut to the toast) and the notice in the conversation: `notice` as given, else the
+ * same line with the whole task. Whatever fails is logged, never thrown; a `sent` line says both were shown.
+ */
+async function notify($: EngineInterface, task: string, left: string, notice = `✅ ${task} · ${left} left`) {
+  const isToasted = await attempt($, 'toast', () => $.ui.toast(`✅ ${truncate(task, TOAST_COLUMNS)} · ${left} left`))
   const isAppended = await attempt($, 'append', async () => {
-    const appended = await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: block }] } })
+    const appended = await $.session.append({ message: { type: 'system', content: [{ type: 'text', text: notice }] } })
 
     if (appended.deny !== undefined) {
       throw new Error(`append refused: ${appended.deny}`)
