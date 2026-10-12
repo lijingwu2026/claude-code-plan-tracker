@@ -512,9 +512,13 @@ describe('the Artifacts table folds after five rows', () => {
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop', 160)
 
-    expect((await pane.findAll({ type: 'Markdown' })).map(node => node.props.key)).toEqual(['artifact:0', 'artifact:1', 'artifact:2', 'artifact:3', 'artifact:4'])
+    // The divider under the plan details is a keyless Markdown rule on the desktop; only the artifact rows are counted here.
+    const artifactKeys = async () =>
+      (await pane.findAll({ type: 'Markdown' })).map(node => node.props.key).filter(key => typeof key === 'string' && key.startsWith('artifact:'))
+
+    expect(await artifactKeys()).toEqual(['artifact:0', 'artifact:1', 'artifact:2', 'artifact:3', 'artifact:4'])
     await pane.press({ key: 'lane:Artifacts:more' })
-    expect((await pane.findAll({ type: 'Markdown' })).map(node => node.props.key)).toHaveLength(8)
+    expect(await artifactKeys()).toHaveLength(8)
     await pane.unmount()
   })
 })

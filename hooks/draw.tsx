@@ -914,10 +914,15 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
               <Text wrap="wrap">{plan.recap}</Text>
             </Box>
           )}
-          <Box key="divider" marginTop={1}>
-            <Text dimColor wrap="truncate">
-              {'─'.repeat(columns)}
-            </Text>
+          {/* A row of ─ is `columns` cells long, but a proportional font draws ─ wider than a cell and the Text is cut to "…": the desktop gets the Markdown rule, which the surface draws as wide as the pane. */}
+          <Box key="divider" marginTop={1} {...(isProportional ? { flexDirection: 'column' as const, width: '100%' } : {})}>
+            {isProportional ? (
+              <Markdown text="---" dimColor />
+            ) : (
+              <Text dimColor wrap="truncate">
+                {'─'.repeat(columns)}
+              </Text>
+            )}
           </Box>
         </Box>
       ) : null}

@@ -399,6 +399,48 @@ describe('the board header', () => {
     expect(textOf(strip.at(-1))).toBe('─'.repeat(100))
     await pane.unmount()
   })
+
+  test('the terminal divider stays one dim Text of ─ cells, one per column of the pane, at every width', async ($, on) => {
+    world(on, { fixture: { ...WITH_ROWS, plans: [{ ...PLAN, started: '2026-10-11T20:08:00+09:00' }] } })
+    await $.session.start(SESSION)
+
+    for (const columns of [40, 100]) {
+      const pane = await mountPane($, 'terminal', columns)
+      const line = '─'.repeat(columns)
+
+      expect(await pane.find({ key: 'divider' })).toEqual({
+        type: 'Box',
+        key: 'divider',
+        props: { key: 'divider', marginTop: 1 },
+        text: line,
+        children: [{ type: 'Text', props: { dimColor: true, wrap: 'truncate' }, children: [line] }],
+      })
+      await pane.unmount()
+    }
+  })
+
+  test('the desktop divider is a rule the surface draws across the pane: no ─ text for a proportional font to cut to "…", the same at every width', async ($, on) => {
+    world(on, { fixture: { ...WITH_ROWS, plans: [{ ...PLAN, started: '2026-10-11T20:08:00+09:00' }] } })
+    await $.session.start(SESSION)
+    const drawn: string[] = []
+
+    for (const columns of [40, 140]) {
+      const pane = await mountPane($, 'desktop', columns)
+      const strip = kids(await pane.find({ key: 'strip' }))
+      const divider = strip.at(-1)
+
+      expect(divider?.props.key).toBe('divider')
+      expect(JSON.stringify(divider)).not.toContain('─')
+      expect(flat(divider).filter(node => node.type === 'Text')).toEqual([])
+      expect(flat(divider).filter(node => node.props.wrap === 'truncate')).toEqual([])
+      expect(kids(divider).map(node => [node.type, node.props.text, node.props.dimColor])).toEqual([['Markdown', '---', true]])
+      expect(divider?.props).toMatchObject({ marginTop: 1, flexDirection: 'column', width: '100%' })
+      drawn.push(JSON.stringify(divider))
+      await pane.unmount()
+    }
+
+    expect(drawn[0]).toBe(drawn[1])
+  })
 })
 
 describe('card hover and the gap between cards', () => {
