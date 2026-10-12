@@ -31,6 +31,11 @@ export type PlanRow = {
   /** When the row first went In Progress, and when it was finished (Done or Canceled); ISO text. Absent on rows written before these fields. */
   started?: string
   finished?: string
+  /**
+   * When the row last had a session working on it, ISO text: given by a board command for an In Progress or Verifying row that no session is working
+   * on. The card then shows a grey `stalled` tag and its mascot stops, and the task page says `stalled since HH:MM`. A `PROGRESS.md` never has it.
+   */
+  stalled_since?: string
   /** What the row's work cost, as the usage command wrote it; absent until computed. */
   usage?: PlanUsage
   /** The deliverable's modification time in epoch seconds; null when the path does not exist; absent on old output. */

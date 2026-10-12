@@ -171,6 +171,8 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
       const progress = asText(row.progress)
       const started = asText(row.started)
       const finished = asText(row.finished)
+      const stalledAt = asText(row.stalled_since)
+      const stalledSince = stalledAt === undefined || Number.isNaN(Date.parse(stalledAt)) ? undefined : stalledAt
       const usage = usageOf(row.usage)
 
       return {
@@ -188,6 +190,7 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
         ...(progress === undefined ? {} : { progress }),
         ...(started === undefined ? {} : { started }),
         ...(finished === undefined ? {} : { finished }),
+        ...(stalledSince === undefined ? {} : { stalled_since: stalledSince }),
         ...(usage === undefined ? {} : { usage }),
         ...(isNumber(row.deliverable_mtime) ? { deliverable_mtime: row.deliverable_mtime } : {}),
       }
@@ -220,8 +223,11 @@ export function countOf(plan: PlanEntry): { done: number; total: number } {
 /** `5/12`. */
 export const countText = (plan: PlanEntry): string => `${countOf(plan).done}/${countOf(plan).total}`
 
-/** A plan's state word: `Done` once closed, `In progress` while a row runs, else `Idle`. There is no "Todo" state: a plan nobody started is Idle. */
-export type PlanState = 'In progress' | 'Idle' | 'Done'
+/**
+ * A plan's state word: `Done` once closed, `In progress` while a row runs, `Stalled` when every running row is stalled, else `Idle`.
+ * There is no "Todo" state: a plan nobody started is Idle.
+ */
+export type PlanState = 'In progress' | 'Stalled' | 'Idle' | 'Done'
 
 /** The state words, widest first, for aligning a column of them. */
 export const STATE_COLUMNS = 'In progress'.length
@@ -229,20 +235,22 @@ export const STATE_COLUMNS = 'In progress'.length
 /** One color per state: the In Progress lane's, gray like the Todo lane, the Done lane's. */
 export const STATE_STYLE: Record<PlanState, Style> = {
   'In progress': STYLE['In Progress'],
+  Stalled: STYLE.Todo,
   Idle: STYLE.Todo,
   Done: STYLE.Done,
 }
 
 /**
  * Done = the plan is closed (the tracker gave `finished`, or every row is Done or Canceled with one Done). In progress = open,
- * with a row In Progress or Verifying. Idle = open and nothing running (rows Todo, Needs Verification or Blocked, or no row started).
+ * with a row In Progress or Verifying. Stalled = open, with running rows that are all stalled. Idle = open and nothing running (rows
+ * Todo, Needs Verification or Blocked, or no row started).
  */
 export function planStateOf(plan: PlanEntry): PlanState {
   if (plan.finished !== undefined || isComplete(plan)) {
     return 'Done'
   }
 
-  return hasInProgress(plan) ? 'In progress' : 'Idle'
+  return hasInProgress(plan) ? (hasWorking(plan) ? 'In progress' : 'Stalled') : 'Idle'
 }
 
 // ---------------------------------------------------------------- width
@@ -535,6 +543,12 @@ export const isRunning = (row: PlanRow): boolean => row.status === 'In Progress'
 
 /** Whether a row of the plan is running: In Progress or Verifying. */
 export const hasInProgress = (plan: PlanEntry): boolean => plan.rows.some(isRunning)
+
+/** Whether a running row is stalled: the board command says no session is working on it (`stalled_since`). */
+export const isStalled = (row: PlanRow): boolean => isRunning(row) && row.stalled_since !== undefined
+
+/** Whether a row of the plan is running and not stalled: what moves the band's mascot and the cards'. */
+export const hasWorking = (plan: PlanEntry): boolean => plan.rows.some(row => isRunning(row) && !isStalled(row))
 
 /** Rows of the plan still to do: not Done, not Canceled. */
 export const openCount = (plan: PlanEntry): number => plan.rows.filter(isOpen).length
@@ -848,7 +862,7 @@ export const bandPose = (plan: PlanEntry, frame: number): string => BAND_MASCOT[
 
 /** Which of the two poses the band's mascot is in: the same choice `bandPose` makes, as an index (the desktop draws the card sprite's pose of that index). */
 export const bandPoseIndex = (plan: PlanEntry, frame: number): 0 | 1 =>
-  isComplete(plan) ? 1 : hasInProgress(plan) ? (Math.floor(frame / MASCOT_EVERY) % 2 === 0 ? 0 : 1) : 0
+  isComplete(plan) ? 1 : hasWorking(plan) ? (Math.floor(frame / MASCOT_EVERY) % 2 === 0 ? 0 : 1) : 0
 
 /** Columns the mascot and the space after it take on a card. */
 export const MASCOT_SPACE = MASCOT_COLUMNS + 1
@@ -867,15 +881,15 @@ export const detailOf = (plan: PlanEntry, open: CardRef | null): number | null =
 export const isRainbow = (plan: PlanEntry, finished: string | null): boolean => finished === plan.anchor && isComplete(bandPlanOf(plan, finished))
 
 /**
- * What moves on screen: the band when it draws the rainbow of a finished plan or the plan has an In Progress row (its
- * mascot), the pane's mascots while it is up with the board and an In Progress card. A complete plan nothing finished stands still.
+ * What moves on screen: the band when it draws the rainbow of a finished plan or the plan has an In Progress row that is not stalled
+ * (its mascot), the pane's mascots while it is up with the board and such a card. A complete plan nothing finished stands still.
  */
 export function movement(plan: PlanEntry, view: { finished: string | null; isPaneUp: boolean; isBoard: boolean }): { band: boolean; pane: boolean } {
   const drawn = bandPlanOf(plan, view.finished)
 
   return {
-    band: isRainbow(plan, view.finished) || hasInProgress(drawn),
-    pane: view.isPaneUp && view.isBoard && hasInProgress(plan),
+    band: isRainbow(plan, view.finished) || hasWorking(drawn),
+    pane: view.isPaneUp && view.isBoard && hasWorking(plan),
   }
 }
 
@@ -1278,8 +1292,20 @@ export function planStatsOf(plan: PlanEntry, now: number, width: number): Stat[]
   )
 }
 
-/** The task page's status in words: `Waiting for your check`, `In progress`, `Done`. */
+/** The task page's status in words: `Waiting for your check`, `In progress`, `Done`; a stalled row adds `· stalled since 14:02` (local time). */
 export function statusWords(row: PlanRow): string {
+  const words = plainStatusWords(row)
+
+  if (!isStalled(row)) {
+    return words
+  }
+
+  const at = new Date(row.stalled_since as string)
+
+  return `${words} · stalled since ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+}
+
+function plainStatusWords(row: PlanRow): string {
   switch (row.status) {
     case 'Todo':
       return 'To do'
@@ -1397,6 +1423,9 @@ export function assigneeOf(row: PlanRow): string | undefined {
   return tier === 'Opus' || tier === 'Sonnet' || tier === 'Haiku' ? tier : undefined
 }
 
+/** The word of a card's tag: `stalled` for a stalled row, else its assignee; '' for none. */
+export const tagWordOf = (row: PlanRow): string => (isStalled(row) ? 'stalled' : (assigneeOf(row) ?? ''))
+
 /** A tag's colours as a chip: the word padded one space each side on `bg`. */
 export type Chip = { bg: string; fg: string; bold?: true }
 
@@ -1406,6 +1435,8 @@ export const CHIPS: Readonly<Record<string, Chip>> = {
   Sonnet: { bg: '#D3E2F4', fg: '#163F70' },
   Haiku: { bg: '#D6ECD9', fg: '#1E5631' },
   you: { bg: '#4B2FB8', fg: '#FFFFFF', bold: true },
+  // The grey of a deliverable's type chip: a stalled row has no model tag.
+  stalled: { bg: '#E4E2D9', fg: '#44413A' },
 }
 
 /** The grey chip of a deliverable's type. */
@@ -1492,7 +1523,7 @@ export type CardView = {
 export function cardView(row: PlanRow, cardWidth: number): CardView {
   const mascot = (isRunning(row) || row.status === 'Blocked') && hasMascot(cardWidth)
   const room = Math.max(1, cardWidth - BORDER_COLUMNS - (mascot ? MASCOT_SPACE : 0))
-  const wanted = assigneeOf(row) ?? ''
+  const wanted = tagWordOf(row)
   // The chip, two spaces and at least one column of name must fit.
   const tag = wanted !== '' && chipCols(wanted) + 3 <= room ? wanted : ''
   const marker = markerOf(row)
@@ -1667,7 +1698,7 @@ export type FullCard = {
 /** What a hover on a card shows: the marker and task name whole, the goal, then the tag. `left` is the columns of the card it leaves uncovered. */
 export function fullCard(row: PlanRow, cardWidth: number, left = 0): FullCard {
   const inner = Math.max(1, cardWidth - left - BORDER_COLUMNS)
-  const wanted = assigneeOf(row) ?? ''
+  const wanted = tagWordOf(row)
   const tag = wanted !== '' && chipCols(wanted) <= inner ? wanted : ''
 
   const goal = goalOf(row)

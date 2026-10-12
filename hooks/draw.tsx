@@ -66,6 +66,7 @@ import {
   executorOf,
   isYou,
   isRunning,
+  isStalled,
   laneWidth,
   lanesOf,
   SHOW_LESS,
@@ -583,7 +584,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
     const isStuck = isBlocked(row)
     const { color } = STYLE[row.status]
     const press = () => onCard(index)
-    const art = isStuck ? MASCOT[0] : mascotAt(frame)
+    const art = isStuck || isStalled(row) ? MASCOT[0] : mascotAt(frame)
     // A proportional font draws block glyphs at its own shapes: the desktop draws the mascot as a picture beside the card's region.
     const Svg = isProportional ? kit.Svg : undefined
     const useSprite = Svg !== undefined && view.mascot && Client !== undefined
@@ -613,11 +614,11 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
             <Box key={`card:${index}:sprite`} flexDirection="row" alignItems="center">
               <Box width={CARD_SPRITE_CELLS} flexShrink={0}>
                 <Svg
-                  source={(isDoing ? spriteSvgAnimated(MASCOT, 'claude') : spriteSvg(art, isStuck ? 'error' : 'claude')).source}
+                  source={(isDoing && !isStalled(row) ? spriteSvgAnimated(MASCOT, 'claude') : spriteSvg(art, isStuck ? 'error' : 'claude')).source}
                   alt="Claude Code's mascot"
                   width={CARD_SPRITE_PX.width}
                   height={CARD_SPRITE_PX.height}
-                  {...(isDoing ? { isInteractive: true } : {})}
+                  {...(isDoing && !isStalled(row) ? { isInteractive: true } : {})}
                 />
               </Box>
               <Client

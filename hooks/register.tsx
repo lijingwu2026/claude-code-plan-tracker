@@ -35,7 +35,7 @@ import {
   failureText,
   finishedAnchor,
   foldedPath,
-  hasInProgress,
+  hasWorking,
   isComplete,
   isOpen,
   isRainbow,
@@ -861,7 +861,7 @@ export const register: Register = (on, options) => {
     const mark = await read($, finished)
     const plan = bandPlanOf(picked, mark)
     const isRainbowUp = isRainbow(picked, mark)
-    const moves = isRainbowUp || hasInProgress(plan)
+    const moves = isRainbowUp || hasWorking(plan)
     // The desktop reads no frame: a redraw issues new button handles, and its press arrives with the old one. Its sprite animates itself.
     const isDesktop = e.surface === 'desktop'
     const now = moves && !isDesktop ? await read($, frame) : 0
@@ -882,7 +882,7 @@ export const register: Register = (on, options) => {
       pose: bandPose(plan, now),
       spritePose: MASCOT[bandPoseIndex(plan, now)],
       isProportional: isDesktop,
-      isMoving: isDesktop && hasInProgress(plan),
+      isMoving: isDesktop && hasWorking(plan),
       onBar: () => void pressByKey($, 'band:bar', false, e.surface),
       onMenu: () => void pressByKey($, 'band:plans', false, e.surface),
       onPick: anchor => void pressByKey($, `band:plan:${anchor}`, false, e.surface),
@@ -983,7 +983,7 @@ export const register: Register = (on, options) => {
       file: isFile ? await loadFile($, plan) : null,
       home: await $.env.get('HOME'),
       // Only a board with an In Progress card reads the frame, so only that is redrawn at each one.
-      frame: e.surface !== 'desktop' && !isFile && detail === null && hasInProgress(plan) ? await read($, frame) : 0,
+      frame: e.surface !== 'desktop' && !isFile && detail === null && hasWorking(plan) ? await read($, frame) : 0,
       isOpen: await read($, menu),
       hasClient: e.surface === 'terminal' || e.surface === 'desktop',
       surface: e.surface,

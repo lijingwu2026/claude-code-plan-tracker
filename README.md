@@ -86,6 +86,7 @@ The JSON `board_command` prints is typed in [types/index.d.ts](types/index.d.ts)
 - `matches` and `message`: a query that finds several plans lists them, each pressable, and a press opens that plan. A `PROGRESS.md` board is one plan, so it has no list.
 - `started` / `finished` and `usage_totals` per plan, `usage` per task: the time, tokens and est. cost.
 - `recap` and `recap_updated` (ISO time) per plan: the recap and when it was written.
+- `stalled_since` (ISO time) per task: set on an In Progress or Verifying task that no session is working on. Its card shows a grey `stalled` tag in place of the model tag and its mascot stops, its page reads `In progress · stalled since 14:02` (local time), and when every running task is stalled the plan's state word reads `Stalled` and the band stops moving. A plain `PROGRESS.md` has no session data, so it never shows this.
 
 With a plain `PROGRESS.md` there is no usage and no start time: no figures are drawn once a step is under way, and a task page has none.
 
