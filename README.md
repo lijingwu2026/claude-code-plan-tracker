@@ -24,7 +24,7 @@ them are done, running or waiting on you.
    The state is a coloured word after the plan name in the band, the pane header and the plan dropdown: `In progress`
    while a step is In Progress or Verifying, `Done` once every step is Done or Canceled, otherwise `Idle`. Both also draw
    in the Claude Desktop app.
-3. Press a card to open its page: the task name, a row of big figures (`9m` over `working time`, `16.5M` over `tokens`, `~$3.89` over `est. cost`, and `medium` over `effort` when the work ran at one effort) when usage is recorded, then a
+3. Hover a card to see its whole name and, when the step has a `goal`, what it is for. Press a card to open its page: the task name, a row of big figures (`9m` over `working time`, `16.5M` over `tokens`, `~$3.89` over `est. cost`, and `medium` over `effort` when the work ran at one effort) when usage is recorded, then a
    table of labelled rows. `Goal` (the step's `goal` cell), `Status`, `Done by` (the model as a chip), `Checked by` (once
    the step is Done), `Progress` (a bar, when the step reports one), `Latest note` and `Deliverable` (the path and what
    it changed). A row with nothing to show is left out. Below the lanes, `Deliverables` lists every file the steps

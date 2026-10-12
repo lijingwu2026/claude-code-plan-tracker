@@ -58,6 +58,7 @@ import {
   chipCols,
   displayWidth,
   fullCard,
+  hasReveal,
   markerOf,
   noteLinesOf,
   isBlocked,
@@ -554,7 +555,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   // tag) with the mascot frozen on one pose; the tag is right-aligned on the last line.
   // The card is a keyed Box, so it is a hover scope. Only the Buttons are pressable, and a Button inverts under the
   // pointer, so the mascot is plain Text beside the Button of its row and never sits under that bar. A card whose name is
-  // cut holds a hidden absolute Box over itself that its hover reveals: the name whole and the executor.
+  // cut, or whose row has a goal, holds a hidden absolute Box over itself that its hover reveals: the name whole, the goal and the executor.
   const card = ({ row, index }: Card) => {
     const view = cardView(row, width)
     const isDoing = isRunning(row)
@@ -693,6 +694,18 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
           ...tagFields('', 0),
         }
       }),
+      // The goal: dim words after the name, never red.
+      ...full.goal.map(line => ({
+        art: '',
+        artColor: 'claude',
+        marker: '',
+        markerColor: '',
+        name: isProportional ? line : padTo(line, inner),
+        isRed: false,
+        isBold: false,
+        isDim: true,
+        ...tagFields('', 0),
+      })),
       ...(full.tag === ''
         ? []
         : [
@@ -743,6 +756,9 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
                 </Box>
               )
             })}
+            {full.goal.map(line => (
+              <Box flexDirection="row">{text(padTo(line, inner), { dimColor: true })}</Box>
+            ))}
             {full.tag === '' ? null : (
               <Box flexDirection="row">
                 {text(' '.repeat(full.pad))}
@@ -765,7 +781,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
     const out: RenderElement[] = []
 
     for (const { row, index } of one.cards) {
-      if (cardView(row, width).isCut) {
+      if (hasReveal(row, width)) {
         out.push(revealed(row, index, top))
       }
 
@@ -786,7 +802,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
         {[...one.cards].reverse().map(entry => (
           <Box key={`slot:${entry.index}`} position="relative" flexDirection="column" width={width}>
             {card(entry)}
-            {cardView(entry.row, width).isCut ? revealed(entry.row, entry.index, 0) : null}
+            {hasReveal(entry.row, width) ? revealed(entry.row, entry.index, 0) : null}
           </Box>
         ))}
       </Box>

@@ -16,6 +16,8 @@ export type CardRow = {
   name: string
   isRed: boolean
   isBold: boolean
+  /** Drawn dim: the goal in a hover box. */
+  isDim?: boolean
   /** The progress bar that starts the row (`name` is then its count), or undefined: filled cells in `color`, the empty ones dim. */
   bar?: { filled: number; empty: number; color: string; track: string }
   /** The word of the tag's chip, or ''; `tagPad` spaces go before it (the terminal aligns it right; a proportional font does it with a Box). */
@@ -99,12 +101,12 @@ const Card: ClientModule<CardProps, State> = (props, surface) => {
                   </Box>
                 )
               }
-              <Text {...(row.isRed ? { color: 'error' } : {})} {...(row.isBold ? { bold: true } : {})} {...bg}>
+              <Text {...(row.isRed ? { color: 'error' } : {})} {...(row.isBold ? { bold: true } : {})} {...(row.isDim === true ? { dimColor: true } : {})} {...bg}>
                 {row.name}
               </Text>
             </Box>
           ) : (
-            <Text {...(row.isRed ? { color: 'error' } : {})} {...(row.isBold ? { bold: true } : {})} {...bg}>
+            <Text {...(row.isRed ? { color: 'error' } : {})} {...(row.isBold ? { bold: true } : {})} {...(row.isDim === true ? { dimColor: true } : {})} {...bg}>
               {name(row)}
             </Text>
           )}

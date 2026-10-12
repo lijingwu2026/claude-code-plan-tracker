@@ -1633,18 +1633,22 @@ export function shortPath(path: string, cols: number): string {
 export type FullCard = {
   /** The name whole, in lines of the card's inside width. */
   lines: string[]
+  /** The row's goal in lines of the same width, drawn dim after the name; empty for none. */
+  goal: string[]
   /** The executor tag on a line of its own after the name, right-aligned with `pad` spaces before it; empty for none. */
   tag: string
   pad: number
 }
 
-/** What a hover on a cut card shows: the marker and task name whole, then the tag. `left` is the columns of the card it leaves uncovered. */
+/** What a hover on a card shows: the marker and task name whole, the goal, then the tag. `left` is the columns of the card it leaves uncovered. */
 export function fullCard(row: PlanRow, cardWidth: number, left = 0): FullCard {
   const inner = Math.max(1, cardWidth - left - BORDER_COLUMNS)
   const wanted = assigneeOf(row) ?? ''
   const tag = wanted !== '' && chipCols(wanted) <= inner ? wanted : ''
 
-  return { lines: wrap(`${markerOf(row)}${row.task}`, inner), tag, pad: Math.max(0, inner - chipCols(tag)) }
+  const goal = goalOf(row)
+
+  return { lines: wrap(`${markerOf(row)}${row.task}`, inner), goal: goal === '' ? [] : wrap(goal, inner), tag, pad: Math.max(0, inner - chipCols(tag)) }
 }
 
 /** The hover scope that links a card to its revealed box: 1 to 64 characters, so a long anchor is cut. */
@@ -1653,6 +1657,12 @@ export function scopeOf(anchor: string, index: number): string {
 
   return `${`card:${anchor}`.slice(0, 64 - tail.length)}${tail}`
 }
+
+/** The row's goal as one line of words, or '' for none. */
+export const goalOf = (row: PlanRow): string => (row.goal ?? '').replace(/\s+/g, ' ').trim()
+
+/** Whether the card of `row` has a hover box: its name is cut, or its row has a goal to show. */
+export const hasReveal = (row: PlanRow, cardWidth: number): boolean => cardView(row, cardWidth).isCut || goalOf(row) !== ''
 
 /** Rows a card takes: its border, its text lines, its border. */
 export const cardRows = (row: PlanRow, cardWidth: number): number => 2 + cardView(row, cardWidth).lines.length
