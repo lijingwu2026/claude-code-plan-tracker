@@ -3,6 +3,7 @@ import type { BoxProps, ButtonProps, ClientProps, ElementConstructor, LinkProps,
 
 import type { PlanEntry, PlanRow } from '../types'
 import {
+  ARTIFACTS_SHOWN,
   BAND_MASCOT_SPACE,
   BAND_SPRITE_CELLS,
   BAND_SPRITE_PX,
@@ -36,9 +37,13 @@ import {
   countText,
   STATE_COLUMNS,
   STATE_STYLE,
+  artifactHref,
+  artifactsOf,
   deliverableGroups,
   deliverableHref,
   isInsideProject,
+  isWebTarget,
+  parseArtifact,
   planStatsOf,
   notStartedText,
   planStateOf,
@@ -75,7 +80,7 @@ import {
   worstStatus,
 } from './board'
 import type { CardRow } from './card'
-import type { Card, Chip, Deliverable, DeliverableGroup, Lane, LaneKey, Pose, Progress, Stat } from './board'
+import type { Artifact, ArtifactLink, Card, Chip, Deliverable, DeliverableGroup, Lane, LaneKey, Pose, Progress, Stat } from './board'
 
 /** The elements both drawings use; every surface's table has them. */
 export type Kit = {
@@ -456,7 +461,7 @@ type PaneArgs = {
   onLane: (key: LaneKey) => void
 }
 
-/** The pane: the plan dropdown, "Plan file ›" and the plan line on top, then the four lanes and the deliverables (or one card's page, or the plan file). */
+/** The pane: the plan dropdown, "Plan file ›" and the plan line on top, then the four lanes, the artifacts and the deliverables (or one card's page, or the plan file). */
 export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   const { Box, Text, Button, Markdown } = kit
   // Only the terminal and the desktop draw a Client; another surface's table has the name but drops the element.
@@ -779,6 +784,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
 
   const row = detail === null ? undefined : plan.rows[detail]
   const groups = deliverableGroups(plan)
+  const artifacts = artifactsOf(plan)
 
   if (file !== null) {
     return (
@@ -833,6 +839,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
       ) : (
         drawDetail(kit, { row, columns, home, onBack, isProportional })
       )}
+      {row === undefined && artifacts.length > 0 ? drawArtifacts(kit, { artifacts, columns, home, isProportional, isOpen: expanded.includes('Artifacts'), onLane: () => onLane('Artifacts') }) : null}
       {row === undefined && groups.length > 0 ? drawDeliverables(kit, { groups, columns, home, isProportional, isOpen: expanded.includes('Deliverables'), onLane: () => onLane('Deliverables') }) : null}
     </Box>
   )
@@ -1018,6 +1025,138 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, isO
   )
 }
 
+type ArtifactsArgs = {
+  artifacts: readonly Artifact[]
+  columns: number
+  home: string | undefined
+  isProportional: boolean
+  /** Whether every row shows, not only the first `ARTIFACTS_SHOWN`. */
+  isOpen: boolean
+  /** The overflow button's press. */
+  onLane: () => void
+}
+
+/** The narrowest ABOUT column the terminal table keeps when it has to cut; a narrower one stacks each artifact (title over note). */
+const MIN_ABOUT_COLUMNS = 24
+
+/** Columns a stacked terminal note is indented under its title. */
+const ABOUT_INDENT = 2
+
+/** The desktop pane width from which the artifacts table has an ABOUT column: the deliverables' CHANGE column's, so both tables change layout at one width. */
+const DESKTOP_ABOUT_FROM = DESKTOP_CHANGE_FROM
+
+/** The share of the desktop table the ARTIFACT column takes. */
+const DESKTOP_TITLE_SHARE = '38%'
+
+/**
+ * `Artifacts`, then a table of Artifact and About with a dim header and no ruled lines: the title as a link (never the URL), the
+ * note dim. An `https://` artifact is the surface's own link to open; a local page is a link the plugin answers (`artifact:N`), which
+ * opens it in the browser. Wide, one line a row (the terminal cuts to its column); narrow, each artifact is a block, its title
+ * and its note dim under it. Past `ARTIFACTS_SHOWN` rows a `+N more` button unfolds the rest.
+ */
+function drawArtifacts(kit: Kit, { artifacts, columns, home, isProportional, isOpen, onLane }: ArtifactsArgs): RenderElement {
+  const { Box, Text, Link, Markdown, Button } = kit
+  const hidden = Math.max(0, artifacts.length - ARTIFACTS_SHOWN)
+  const rows = isOpen ? artifacts : artifacts.slice(0, ARTIFACTS_SHOWN)
+  const hasAbout = isProportional && columns >= DESKTOP_ABOUT_FROM
+
+  // `at` is the artifact's place in the whole list, which `artifact:N` names to the plugin: a folded table does not renumber it.
+  const desktopTitle = (item: Artifact, at: number) => {
+    const href = artifactHref(item, home)
+
+    return href === null ? (
+      <Text wrap="wrap">{item.title}</Text>
+    ) : (
+      <Markdown key={`artifact:${at}`} text={markdownLink(item.title, href)} {...(isWebTarget(item.target) ? {} : { onLinkPress: () => undefined })} />
+    )
+  }
+
+  const desktopRow = (item: Artifact, at: number) =>
+    hasAbout ? (
+      <Box key={`artifact:${at}:item`} flexDirection="row" gap={1} alignItems="flex-start">
+        <Box width={DESKTOP_TITLE_SHARE} flexShrink={0}>
+          {desktopTitle(item, at)}
+        </Box>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text dimColor wrap="wrap">{item.note ?? '—'}</Text>
+        </Box>
+      </Box>
+    ) : (
+      <Box key={`artifact:${at}:item`} flexDirection="column">
+        {desktopTitle(item, at)}
+        {item.note === undefined ? null : <Text dimColor wrap="wrap">{item.note}</Text>}
+      </Box>
+    )
+
+  const titleNatural = Math.max(displayWidth('ARTIFACT'), ...artifacts.map(item => displayWidth(item.title)))
+  const aboutNatural = Math.max(displayWidth('ABOUT'), ...artifacts.map(item => displayWidth(item.note ?? '—')))
+  const avail = columns - TABLE_GAP
+  const fits = titleNatural + aboutNatural <= avail
+  // Too wide for the pane: the title keeps its width up to half of it, the note the rest; a note left with less than MIN_ABOUT_COLUMNS stacks.
+  const titleCols = fits ? titleNatural : Math.min(titleNatural, Math.floor(avail / 2))
+  const aboutCols = fits ? aboutNatural : avail - titleCols
+  const isStacked = isProportional ? !hasAbout : !fits && aboutCols < MIN_ABOUT_COLUMNS
+  const gap = ' '.repeat(TABLE_GAP)
+
+  const titleLine = (item: Artifact, cols: number) => {
+    const href = artifactHref(item, home)
+    const label = truncate(item.title, cols)
+
+    return href === null ? label : (
+      <Text color={LINK_COLOR}>
+        <Link href={href} label={label} />
+      </Text>
+    )
+  }
+
+  const line = (item: Artifact) => {
+    const label = truncate(item.title, titleCols)
+
+    return (
+      <Text wrap="truncate">
+        {titleLine(item, titleCols)}
+        <Text dimColor>{`${' '.repeat(titleCols - displayWidth(label))}${gap}${truncate(item.note ?? '—', aboutCols)}`}</Text>
+      </Text>
+    )
+  }
+
+  const stacked = (item: Artifact, at: number) => (
+    <Box key={`artifact:${at}:item`} flexDirection="column">
+      <Text wrap="truncate">{titleLine(item, columns)}</Text>
+      {wrap(item.note ?? '', Math.max(1, columns - ABOUT_INDENT)).filter(text => text !== '').map(text => (
+        <Text dimColor wrap="truncate">{`${' '.repeat(ABOUT_INDENT)}${text}`}</Text>
+      ))}
+    </Box>
+  )
+
+  const fold =
+    hidden === 0 ? null : (
+      <Button key="lane:Artifacts:more" label={overflowLabel({ moreLabel: isOpen ? SHOW_LESS : `+${hidden} more`, more: hidden }, columns)} onPress={onLane} />
+    )
+
+  return (
+    <Box key="artifacts" flexDirection="column" marginTop={1}>
+      <Text bold>Artifacts</Text>
+      {isStacked ? null : isProportional ? (
+        <Box key="artifacts:head" flexDirection="row" gap={1}>
+          <Box width={DESKTOP_TITLE_SHARE} flexShrink={0}>
+            <Text dimColor>ARTIFACT</Text>
+          </Box>
+          <Box flexGrow={1} flexShrink={1}>
+            <Text dimColor>ABOUT</Text>
+          </Box>
+        </Box>
+      ) : (
+        <Text dimColor wrap="truncate">
+          {`${padTo('ARTIFACT', titleCols)}${gap}ABOUT`}
+        </Text>
+      )}
+      {isProportional ? rows.map(desktopRow) : isStacked ? rows.map(stacked) : rows.map(line)}
+      {fold}
+    </Box>
+  )
+}
+
 type DetailArgs = Pick<PaneArgs, 'columns' | 'home' | 'onBack'> & { row: PlanRow; isProportional: boolean }
 
 
@@ -1032,7 +1171,7 @@ const MIN_VALUE_COLUMNS = 12
 type Part = { text: string; color?: string; bold?: boolean; dim?: true; href?: string | null; /** Drawn as this chip: the text padded one space each side. */ chip?: Chip; /** Drawn as a solid bar of Boxes (the desktop). */ bar?: { fraction: number; color: string } }
 
 /** One row of the table: the label and its lines, each a list of parts. */
-type TableRow = { key: string; label: string; isRed?: boolean; lines: Part[][]; /** The deliverable's path as the tracker wrote it: on the desktop a `Markdown` link above `lines`. */ path?: string }
+type TableRow = { key: string; label: string; isRed?: boolean; lines: Part[][]; /** The deliverable's path as the tracker wrote it: on the desktop a `Markdown` link above `lines`. */ path?: string; /** The artifact's title and target: on the desktop a `Markdown` link above `lines`. */ artifact?: ArtifactLink }
 
 /** Columns a desktop cell wraps at: none, since its Box wraps the text itself. */
 const UNWRAPPED_COLUMNS = 100_000
@@ -1048,8 +1187,8 @@ const chipParts = (words: string): Part[] =>
  * work ran at one: bold values over dim labels), left out for a row with no usage and for her own rows; then a bordered table of labelled
  * rows, each left out when the tracker records nothing for it: Goal, Status (in words and its color), Done by (the tier a chip
  * and the executor, or the you chip), Checked by (once the row is Done), Progress (a bar), "Latest note" (the reason, on a
- * Blocked row; its date, then one bulleted point per line, its file paths links) and Deliverable (the path as a link, the
- * change in dim text under it). The frame is box characters on the terminal: a label cell and a value cell, a rule between rows;
+ * Blocked row; its date, then one bulleted point per line, its file paths links), Deliverable (the path as a link, the
+ * change in dim text under it) and Artifact (the title as a link, the note in dim text under it). The frame is box characters on the terminal: a label cell and a value cell, a rule between rows;
  * values wrap inside their cell. On the desktop each row is a round-bordered Box, a label Box of fixed width and a value Box that
  * wraps its text; the path is a `Markdown` link.
  */
@@ -1081,6 +1220,9 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional }: De
         ? [{ text: '', bar: { fraction: bar.done / bar.total, color: HEX[color] ?? HEX.inactive ?? '#8A8A85' } }, { text: ` ${bar.count}` }]
         : [{ text: '▰'.repeat(bar.filled), color }, { text: '▱'.repeat(bar.empty), dim: true }, { text: ` ${bar.count}` }]
   const changeLines: Part[][] = row.change === undefined || row.change === '' ? [] : wrap(row.change, valueWidth).map((text): Part[] => [{ text, dim: true }])
+  const artifact = row.artifact === undefined ? undefined : parseArtifact(row.artifact)
+  const artifactLink = artifact === undefined ? null : artifactHref(artifact, home)
+  const artifactNote: Part[][] = row.artifact_note === undefined || row.artifact_note === '' ? [] : wrap(row.artifact_note, valueWidth).map((text): Part[] => [{ text, dim: true }])
 
   const rows: TableRow[] = [
     ...(row.goal === undefined || row.goal === '' ? [] : [{ key: 'goal', label: 'Goal', lines: plain(row.goal) }]),
@@ -1120,6 +1262,19 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional }: De
             lines: [
               ...(isProportional && deliverableHref(deliverable, home) !== null ? [] : wrap(deliverable, valueWidth).map((text): Part[] => [{ text, color: LINK_COLOR, href: deliverableHref(deliverable, home) }])),
               ...changeLines,
+            ],
+          },
+        ]),
+    ...(artifact === undefined
+      ? []
+      : [
+          {
+            key: 'artifact',
+            label: 'Artifact',
+            artifact,
+            lines: [
+              ...(isProportional && artifactLink !== null ? [] : wrap(artifact.title, valueWidth).map((text): Part[] => [{ text, color: LINK_COLOR, href: artifactLink }])),
+              ...artifactNote,
             ],
           },
         ]),
@@ -1228,6 +1383,8 @@ function drawTable(kit: Kit, { rows, columns, home, isProportional }: TableArgs)
   const field = (one: TableRow) => {
     const href = one.path === undefined ? null : deliverableHref(one.path, home)
     const path = one.path
+    const artifact = one.artifact
+    const artifactLink = artifact === undefined ? null : artifactHref(artifact, home)
 
     return (
       <Box key={`field:${one.key}`} flexDirection="row" borderStyle="round" borderDimColor paddingX={1}>
@@ -1238,6 +1395,7 @@ function drawTable(kit: Kit, { rows, columns, home, isProportional }: TableArgs)
         </Box>
         <Box flexGrow={1} flexShrink={1} flexDirection="column">
           {path !== undefined && href !== null ? <Markdown key="detail:deliverable" text={markdownLink(path, href)} {...(isInsideProject(path, home) ? {} : { onLinkPress: () => undefined })} /> : null}
+          {artifact !== undefined && artifactLink !== null ? <Markdown key="detail:artifact" text={markdownLink(artifact.title, artifactLink)} {...(isWebTarget(artifact.target) ? {} : { onLinkPress: () => undefined })} /> : null}
           {one.lines.map(valueLine)}
         </Box>
       </Box>

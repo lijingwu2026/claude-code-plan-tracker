@@ -2,14 +2,15 @@
  * The plan board for a terminal: a one-row band above the prompt (`● <plan> ▾ <bar> n/m  Plan file ›`: "▾" opens the plan
  * list above the prompt, the bar opens or closes the board, "Plan file ›" opens the board on the plan file) and a pane with
  * the plan dropdown, the plan line, four lanes (Todo, In Progress, Verify, Done) of bordered cards (press one for its page) and the
- * plan's deliverables. Picking a plan in the band or in the pane switches both.
+ * plan's artifacts and deliverables. Picking a plan in the band or in the pane switches both.
  *
  * The data is the board file (PROGRESS.md, read again every 1.5 s, so the board follows the file) or, with the setting
  * `board_command`, that command's JSON; read on session.start, on each prompt, after a Bash call that runs the command, and every
  * 10 s while the pane is open; one run is in flight at a time, and none holds a prompt or a Bash
  * result. `/plans [anchor or name]` opens the board on that plan, with no text, whatever the surface says (a Desktop client may
  * not have attached yet); when the board cannot be drawn a toast says why. On the desktop app a deliverable is a link a press
- * opens with `open`, if it is under the project or ~/.claude. A PLAN-DONE block in a Bash result becomes a toast, a chime and a
+ * opens with `open`, if it is under the project or ~/.claude; an artifact is a link too: an https one the app opens itself, a local
+ * page the plugin opens with `open` (the same allowlist). A PLAN-DONE block in a Bash result becomes a toast, a chime and a
  * notice in the conversation, and one with `0 left` makes the band's bar a rainbow until the person's next prompt.
  */
 import { atom, read, update } from 'claude-code'
@@ -20,6 +21,7 @@ import {
   BAND_MASCOT_SPACE,
   MASCOT,
   absolutePath,
+  artifactsOf,
   bandPlanOf,
   bandPose,
   bandPoseIndex,
@@ -33,11 +35,13 @@ import {
   foldedPath,
   hasInProgress,
   isRainbow,
+  isWebTarget,
   messageOf,
   movement,
   openMode,
   openRefusal,
   noBoardFile,
+  parseArtifact,
   parseBoard,
   parseProgress,
   planOf,
@@ -499,6 +503,7 @@ let loggedSurfaces = ''
 export function actionFor($: EngineInterface, element: string, isLink: boolean, surface: string): (() => Promise<unknown>) | undefined {
   const lane = /^lane:(.+):(?:more|less)$/.exec(element)?.[1]
   const at = /^deliverable:(\d+)$/.exec(element)?.[1]
+  const artifactAt = /^artifact:(\d+)$/.exec(element)?.[1]
 
   if (element === 'band:bar' || element === 'band:head') {
     return () => toggleBoard($)
@@ -559,6 +564,26 @@ export function actionFor($: EngineInterface, element: string, isLink: boolean, 
 
       if (path !== undefined) {
         await openDeliverable($, path).catch(() => undefined)
+      }
+    }
+  }
+
+  // An artifact's link that reaches the plugin is a local page (an https one is the surface's own): `open` shows it in the browser.
+  if (isLink && (artifactAt !== undefined || element === 'detail:artifact')) {
+    return async () => {
+      const plan = await shownPlan($)
+      let target: string | undefined
+
+      if (plan !== undefined && artifactAt !== undefined) {
+        target = artifactsOf(plan)[Number(artifactAt)]?.target
+      } else if (plan !== undefined) {
+        const text = plan.rows[detailOf(plan, await read($, card)) ?? -1]?.artifact
+
+        target = text === undefined ? undefined : parseArtifact(text)?.target
+      }
+
+      if (target !== undefined && !isWebTarget(target)) {
+        await openDeliverable($, target).catch(() => undefined)
       }
     }
   }

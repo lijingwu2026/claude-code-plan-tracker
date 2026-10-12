@@ -144,6 +144,9 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
       const route = asText(row.route)
       const who = asText(row.who)
       const deliverable = asText(row.deliverable)
+      const artifactText = asText(row.artifact)
+      const artifact = artifactText !== undefined && parseArtifact(artifactText) !== undefined ? artifactText : undefined
+      const artifactNote = asText(row.artifact_note)
       const change = asText(row.change)
       const goal = asText(row.goal)
       const progress = asText(row.progress)
@@ -159,6 +162,8 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
         ...(route === undefined ? {} : { route }),
         ...(who === undefined ? {} : { who }),
         ...(deliverable === undefined ? {} : { deliverable }),
+        ...(artifact === undefined ? {} : { artifact }),
+        ...(artifactNote === undefined ? {} : { artifact_note: artifactNote }),
         ...(change === undefined ? {} : { change }),
         ...(goal === undefined ? {} : { goal }),
         ...(progress === undefined ? {} : { progress }),
@@ -525,7 +530,7 @@ export const rainbowAt = (cell: number, frame: number): string => RAINBOW[(cell 
 /** A row on a lane; `index` is its place in the plan's `rows`, which names the card. */
 export type Card = { row: PlanRow; index: number }
 
-export type LaneKey = 'Todo' | 'In Progress' | 'Verify' | 'Done' | 'Other' | 'Deliverables'
+export type LaneKey = 'Todo' | 'In Progress' | 'Verify' | 'Done' | 'Other' | 'Artifacts' | 'Deliverables'
 
 /** `more` is how many cards the lane does not show; `moreLabel` the line that says so (`+2 more`, `+1 blocked · 12 running`). */
 export type Lane = { key: LaneKey; header: string; color: string; cards: Card[]; more: number; moreLabel: string }
@@ -541,6 +546,9 @@ export const CAPPED = 3
 
 /** The deliverables table shows this many rows, then `+N more`; the same press that unfolds a lane unfolds it. */
 export const DELIVERABLES_SHOWN = 5
+
+/** The artifacts table shows this many rows, then `+N more`, as the deliverables table does. */
+export const ARTIFACTS_SHOWN = 5
 
 /** In Progress shows this many cards, Blocked ones first, then a line counting the rest. */
 export const DOING_SHOWN = 5
@@ -1021,6 +1029,59 @@ export function deliverableGroups(plan: PlanEntry): DeliverableGroup[] {
   return [...groups.entries()]
     .map(([type, items]) => ({ type, items: [...items].sort(newer) }))
     .sort((a, b) => newer(a.items[0] as Deliverable, b.items[0] as Deliverable))
+}
+
+// ---------------------------------------------------------------- artifacts
+
+/** An artifact's title and where it is: the two parts of the markdown link `[Title](target)`. */
+export type ArtifactLink = { title: string; target: string }
+
+/** `target` is an `https://` URL, which the drawing surface opens itself, as opposed to a local path, which the plugin opens. */
+export const isWebTarget = (target: string): boolean => /^https:\/\//i.test(target)
+
+/**
+ * The title and target of an artifact written as the markdown link `[Title](target)`, or undefined when it is not one. A target is an
+ * `https://` URL (no whitespace) or a local path (absolute, `~/` or relative to the project root); a target with any other scheme
+ * (`http:`, `file:`, `javascript:`) is malformed.
+ */
+export function parseArtifact(text: string): ArtifactLink | undefined {
+  const match = /^\[(.+?)\]\((.+)\)$/.exec(text.trim())
+  const title = match?.[1]?.trim()
+  const target = match?.[2]?.trim()
+
+  if (title === undefined || title === '' || target === undefined || target === '') {
+    return undefined
+  }
+
+  if (isWebTarget(target)) {
+    return /\s/.test(target) ? undefined : { title, target }
+  }
+
+  return /^[a-z][a-z0-9+.-]*:/i.test(target) ? undefined : { title, target }
+}
+
+/** The link of an artifact: an `https://` target as it is, a local path as its `file://` link (null for a `~` path when the home directory is not known). */
+export const artifactHref = (artifact: ArtifactLink, home: string | undefined): string | null =>
+  isWebTarget(artifact.target) ? artifact.target : deliverableHref(artifact.target, home)
+
+/** `task` is the first row that names the artifact; `note` is that row's one line on it. */
+export type Artifact = ArtifactLink & { task: string; note?: string }
+
+/** The plan's artifacts in row order, each target once, with the title and note of the first row that names it; a Canceled row names none. */
+export function artifactsOf(plan: PlanEntry): Artifact[] {
+  const seen = new Set<string>()
+  const out: Artifact[] = []
+
+  for (const row of plan.rows.filter(one => one.status !== 'Canceled')) {
+    const link = row.artifact === undefined ? undefined : parseArtifact(row.artifact)
+
+    if (link !== undefined && !seen.has(link.target)) {
+      seen.add(link.target)
+      out.push({ ...link, task: row.task, ...(row.artifact_note === undefined || row.artifact_note === '' ? {} : { note: row.artifact_note }) })
+    }
+  }
+
+  return out
 }
 
 // ---------------------------------------------------------------- usage on the task page
@@ -1750,7 +1811,7 @@ const plainCell = (cell: string): string => cell.replace(/[*_`]/g, '').trim()
 /**
  * The board file's markdown as a board, or one line saying why it cannot be read. The first table with `task` and `status`
  * columns is the board; the columns are found by their header (any case), so their order does not matter. `evidence` is the
- * note; `executor`, `check`, `route`, `deliverable`, `change`, `goal` and `progress` are read when present. A status the reader does not know keeps its
+ * note; `executor`, `check`, `route`, `deliverable`, `change`, `artifact`, `artifact_note`, `goal` and `progress` are read when present. A status the reader does not know keeps its
  * own text on a row of status `Other`, which has its own lane. `file` is the board file's absolute path; `name` the plan's name
  * unless the file's first `# ` heading gives one.
  */
@@ -1809,6 +1870,10 @@ export function parseProgress(text: string, file: string, name: string): { board
     const check = cell(cells, 'check')
     const note = raw(cells, 'evidence')
     const deliverable = cell(cells, 'deliverable')
+    // The artifact is read raw: `_`, `*` and backticks in its title and path are part of them.
+    const artifactText = raw(cells, 'artifact')
+    const artifact = artifactText !== undefined && parseArtifact(artifactText) !== undefined ? artifactText : undefined
+    const artifactNote = raw(cells, 'artifact_note')
     const change = raw(cells, 'change')
     const goal = raw(cells, 'goal')
     const progress = cell(cells, 'progress')
@@ -1822,6 +1887,8 @@ export function parseProgress(text: string, file: string, name: string): { board
       ...(route === undefined ? {} : { route }),
       ...(check === undefined ? {} : { check }),
       ...(deliverable === undefined ? {} : { deliverable }),
+      ...(artifact === undefined ? {} : { artifact }),
+      ...(artifactNote === undefined ? {} : { artifact_note: artifactNote }),
       ...(change === undefined ? {} : { change }),
       ...(goal === undefined ? {} : { goal }),
       ...(progress === undefined ? {} : { progress }),

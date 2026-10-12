@@ -35,6 +35,10 @@ export type PlanRow = {
   usage?: PlanUsage
   /** The deliverable's modification time in epoch seconds; null when the path does not exist; absent on old output. */
   deliverable_mtime?: number | null
+  /** An artifact made for the person to view, as a markdown link `[Title](target)`: target an `https://` URL or a local path. Absent when not given or not a link. */
+  artifact?: string
+  /** One line on what the artifact is; absent when not given. */
+  artifact_note?: string
 }
 
 /** Time, effort, tokens and cost of one row's work. `effort` holds shares that sum to 1; `cost_usd` is null when a model has no price. */

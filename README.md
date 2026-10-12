@@ -33,7 +33,10 @@ them are done, running or waiting on you.
 It also works without plan-orchestrator: any `PROGRESS.md` with a markdown table that has `task` and `status` columns.
 Columns are found by header name, in any order. Statuses read: `Todo`, `In Progress`, `Needs Verification`, `Blocked`,
 `Done`, `Canceled`; any other status gets its own lane. Optional columns: `executor`, `check`, `deliverable`, `change`
-(one line on what the deliverable changed), `goal` (one sentence on what the step is for) and `progress`.
+(one line on what the deliverable changed), `artifact` (a page made for you, as a markdown link `[Title](https://… or a path)`),
+`artifact_note` (one line on it), `goal` (one sentence on what the step is for) and `progress`. Artifacts get their own
+table above `Deliverables`: the title as a link and the note dim; a local `.html` opens in your browser. A `board_command`
+returns the same two keys, `artifact` and `artifact_note`, on each row.
 
 ```markdown
 | task | status | executor | check | evidence |
@@ -79,7 +82,8 @@ figures are drawn once a step is under way, and a task page has none.
 - Shows the first table in the file with `task` and `status` columns, as one plan.
 - Needs a Claude Code version that loads plugin hooks modules (mods). No minimum version is declared.
 - In the terminal the deliverables table shows each path as coloured text, not a link: a terminal without OSC 8
-  hyperlink support would print the address after every link.
+  hyperlink support would print the address after every link. An artifact title is a link, since opening it is the point;
+  such a terminal prints the address after it.
 - In the Desktop app, a deliverable link (from an optional `deliverable` column) is a plain `file:` link. Inside the
   project root the Desktop opens it itself, in its own viewer; the plugin does not intercept the click. Outside the
   project root the Desktop opens nothing, so the click goes to the plugin, which runs macOS `open` (the file's default
