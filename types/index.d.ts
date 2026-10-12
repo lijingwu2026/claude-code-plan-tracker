@@ -83,11 +83,25 @@ export type PlanEntry = {
   rows: PlanRow[]
 }
 
-/** What the board command prints as JSON (or the board file, read as one), read: the plans of the session and the one the band and the board show. */
+/** One plan the words of a query found, when several did: the light line the list in the pane draws. */
+export type PlanMatch = {
+  anchor: string
+  name: string
+  state: 'In progress' | 'Idle' | 'Done'
+  done: number
+  total: number
+}
+
+/**
+ * What the board command prints as JSON (or the board file, read as one), read: the plans of the session and the one the band and
+ * the board show. `matches` is present only when a query found several plans (then `message` says how many); `plans` and `selected`
+ * are then what they are without a query.
+ */
 export type PlanBoard = {
   selected: string | null
   message: string | null
   plans: PlanEntry[]
+  matches?: PlanMatch[]
 }
 
 /** The tracker's answer: a board, or one line saying why there is none. */
@@ -101,7 +115,7 @@ declare module 'claude-code' {
     'plan-tracker': {
       /** The tracker's last answer; null until the first one is in. */
       live: Live | null
-      /** The `--query` the refreshes pass: the argument of the last `/plans`, or the plan that just finished; '' for none. */
+      /** The `--query` the refreshes pass: the argument of the last `/plan-tracker`, or the plan that just finished; '' for none. */
       query: string
       /** The anchor picked in the band or the pane; null until one is picked (the tracker's `selected` stands). */
       selected: string | null

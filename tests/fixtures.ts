@@ -96,7 +96,7 @@ export type Run = { exitCode: number; stdout: string; stderr: string; doesThrow:
 
 /** What the engine beneath the plugin does; a test changes it as it goes. */
 export type World = {
-  /** the board command's plain text (`--view`, what /plans answers) */
+  /** the board command's plain text (`--view`, what /plan-tracker answers) */
   script: Run
   /** what `--view --json` prints: a board, or raw text */
   fixture: PlanBoard | string
@@ -125,7 +125,7 @@ export type World = {
   logRuns: { argv: readonly string[]; stdin: string | undefined }[]
   /** every `command.register`, in order */
   registered: { name: string; argumentHint: string | undefined }[]
-  /** a reason `command.register` refuses /plans (a command of that name exists), or null */
+  /** a reason `command.register` refuses /plan-tracker (a command of that name exists), or null */
   registerDenial: string | null
   /** a reason `ui.open` answers `{ isPlaced: false }` (the pane waits undrawn), or null */
   openDenial: string | null
@@ -225,7 +225,7 @@ export function world(
   on('command.register', ($, e) => {
     w.registered.push({ name: e.name, argumentHint: e.argumentHint })
 
-    return w.registerDenial === null || e.name !== 'plans' ? { value: { command: e.name } } : { deny: w.registerDenial }
+    return w.registerDenial === null || e.name !== 'plan-tracker' ? { value: { command: e.name } } : { deny: w.registerDenial }
   })
   on('session.append', ($, e, next) => (w.appendDenial === null ? next(e) : { deny: w.appendDenial }))
   on('ui.open', async ($, e) => {
@@ -400,7 +400,7 @@ export const paneProps = (bodyColumns: number): RenderInput<'Pane'>['props'] => 
 })
 
 export const plans = (args = ''): CommandRunInput => ({
-  command: 'plans',
+  command: 'plan-tracker',
   args,
   origin: { kind: 'composer' },
   presentation: { isFullscreen: true, columns: 160 },

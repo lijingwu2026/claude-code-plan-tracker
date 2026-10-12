@@ -1,7 +1,7 @@
 /** The two drawings of the mod, as trees: the band above the prompt and the pane. */
 import type { BoxProps, ButtonProps, ClientProps, ElementConstructor, LinkProps, MarkdownProps, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
 
-import type { PlanEntry, PlanRow } from '../types'
+import type { PlanEntry, PlanMatch, PlanRow } from '../types'
 import {
   ARTIFACTS_SHOWN,
   BAND_MASCOT_SPACE,
@@ -80,7 +80,7 @@ import {
   worstStatus,
 } from './board'
 import type { CardRow } from './card'
-import type { Artifact, ArtifactLink, Card, Chip, Deliverable, DeliverableGroup, Lane, LaneKey, Pose, Progress, Stat } from './board'
+import type { Artifact, ArtifactLink, Card, Chip, Deliverable, DeliverableGroup, Lane, LaneKey, PlanState, Pose, Progress, Stat } from './board'
 
 /** The elements both drawings use; every surface's table has them. */
 export type Kit = {
@@ -172,22 +172,34 @@ type PlanListArgs = {
   onPick: (anchor: string) => void
 }
 
+/** One row of a plan list: a plan, or one of the plans a query found. */
+type ListItem = { anchor: string; name: string; state: PlanState; count: string }
+
+type RowsArgs = {
+  items: readonly ListItem[]
+  /** The anchor of the open plan: its row is marked ▶ and drawn inverse; null for a list with no open plan. */
+  activeAnchor: string | null
+  columns: number
+  listKey: string
+  pickKey: string
+  onPick: (anchor: string) => void
+}
+
 /**
- * The plan list both the board's dropdown and the band's open: one row per plan (`▶` for the open one, the name, its state word
- * in the state's color, n/m), the open row inverse and bold. The name is cut first (to 1 column at the least); if even then the
- * state word has no room, it is dropped whole.
+ * The rows of a plan list: one per plan (`▶` for the open one, the name, its state word in the state's color, n/m), the open row
+ * inverse and bold. The name is cut first (to 1 column at the least); if even then the state word has no room, it is dropped whole.
  */
-function drawPlanList(kit: Kit, { plans, plan, columns, listKey, pickKey, onPick }: PlanListArgs): RenderElement {
+function drawListRows(kit: Kit, { items, activeAnchor, columns, listKey, pickKey, onPick }: RowsArgs): RenderElement {
   const { Box, Text, Button } = kit
   const room = columns - 1
-  const countCols = Math.max(0, ...plans.map(one => displayWidth(countText(one))))
+  const countCols = Math.max(0, ...items.map(one => displayWidth(one.count)))
   const nameRoom = (hasState: boolean) => room - 2 - 1 - countCols - (hasState ? STATE_COLUMNS + 2 : 0)
   const hasState = nameRoom(true) >= 4
-  const names = plans.map(one => truncate(one.name, Math.max(1, nameRoom(hasState))))
+  const names = items.map(one => truncate(one.name, Math.max(1, nameRoom(hasState))))
   const nameCols = Math.max(0, ...names.map(displayWidth))
 
-  const option = (one: PlanEntry, at: number) => {
-    const isOn = one.anchor === plan.anchor
+  const option = (one: ListItem, at: number) => {
+    const isOn = one.anchor === activeAnchor
     const text = `${isOn ? '▶' : ' '} ${padTo(names[at] ?? '', nameCols)}`
 
     return (
@@ -195,17 +207,44 @@ function drawPlanList(kit: Kit, { plans, plan, columns, listKey, pickKey, onPick
         <Button plain key={`${pickKey}${one.anchor}`} label={text} onPress={() => onPick(one.anchor)}>
           <Text {...(isOn ? { bold: true, inverse: true } : {})}>{text}</Text>
         </Button>
-        {hasState ? <Text color={STATE_STYLE[planStateOf(one)].color} {...(isOn ? { inverse: true } : {})}>{`  ${padTo(planStateOf(one), STATE_COLUMNS)}`}</Text> : null}
-        <Text color="suggestion" {...(isOn ? { inverse: true } : {})}>{` ${countText(one)}`}</Text>
+        {hasState ? <Text color={STATE_STYLE[one.state].color} {...(isOn ? { inverse: true } : {})}>{`  ${padTo(one.state, STATE_COLUMNS)}`}</Text> : null}
+        <Text color="suggestion" {...(isOn ? { inverse: true } : {})}>{` ${one.count}`}</Text>
       </Box>
     )
   }
 
   return (
     <Box key={listKey} flexDirection="column" marginLeft={1}>
-      {plans.map(option)}
+      {items.map(option)}
     </Box>
   )
+}
+
+/** The plan list both the board's dropdown and the band's open: every plan of the session, the open one marked. */
+function drawPlanList(kit: Kit, { plans, plan, columns, listKey, pickKey, onPick }: PlanListArgs): RenderElement {
+  return drawListRows(kit, {
+    items: plans.map(one => ({ anchor: one.anchor, name: one.name, state: planStateOf(one), count: countText(one) })),
+    activeAnchor: plan.anchor,
+    columns,
+    listKey,
+    pickKey,
+    onPick,
+  })
+}
+
+/**
+ * The plans a query found, listed under the pane's message in the plan list's row style with no plan marked: a press picks one
+ * (keys `match:<anchor>`).
+ */
+export function drawMatches(kit: Kit, { matches, columns, onPick }: { matches: readonly PlanMatch[]; columns: number; onPick: (anchor: string) => void }): RenderElement {
+  return drawListRows(kit, {
+    items: matches.map(one => ({ anchor: one.anchor, name: one.name, state: one.state, count: `${one.done}/${one.total}` })),
+    activeAnchor: null,
+    columns,
+    listKey: 'matches',
+    pickKey: 'match:',
+    onPick,
+  })
 }
 
 /** Columns the band's frame takes from the row: two border columns and one padding column each side. */
@@ -433,6 +472,10 @@ type PaneArgs = {
   /** `e.props.bodyColumns` */
   columns: number
   message: string | null
+  /** The plans a query found, when it found several: listed under the message. Empty for none. */
+  matches: readonly PlanMatch[]
+  /** The pick of one of them. */
+  onMatch: (anchor: string) => void
   /** The index in `plan.rows` of the card whose page replaces the board; null shows the board. */
   detail: number | null
   /** The plan file view replaces the board (and the page): its text, or why it cannot be read. */
@@ -466,8 +509,8 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   const { Box, Text, Button, Markdown } = kit
   // Only the terminal and the desktop draw a Client; another surface's table has the name but drops the element.
   const Client = args.hasClient ? kit.Client : undefined
-  const { plans, plan, columns, message, detail, file, home, frame, isOpen, expanded } = args
-  const { onMenu, onPick, onCard, onBack, onFile, onLane, bodyRows } = args
+  const { plans, plan, columns, message, matches, detail, file, home, frame, isOpen, expanded } = args
+  const { onMenu, onPick, onMatch, onCard, onBack, onFile, onLane, bodyRows } = args
   const isProportional = args.surface === 'desktop'
   // A Client's props: the terminal's stay as they were.
   const proportional = isProportional ? ({ isProportional: true } as const) : {}
@@ -812,6 +855,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   return (
     <Box flexDirection="column">
       {message === null ? null : <Text dimColor>{message}</Text>}
+      {matches.length === 0 ? null : drawMatches(kit, { matches, columns, onPick: onMatch })}
       {row === undefined ? (
         <Box key="strip" flexDirection="column">
           {header}

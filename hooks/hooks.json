@@ -1,4 +1,4 @@
 {
-  "description": "The plan tracker: a one-row band above the prompt and a pane of lanes, read from PROGRESS.md (or a command) and redrawn when it changes, in the terminal and the Claude Desktop app; /plans opens it",
+  "description": "The plan tracker: a one-row band above the prompt and a pane of lanes, read from PROGRESS.md (or a command) and redrawn when it changes, in the terminal and the Claude Desktop app; /plan-tracker opens it",
   "modules": ["./register.tsx"]
 }

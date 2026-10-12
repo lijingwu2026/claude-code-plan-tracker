@@ -207,7 +207,7 @@ describe('plan-tracker animation timer', () => {
     const w = world(on, { fixture: stuck })
     const writes = countFrames(on)
     await $.session.start(SESSION)
-    await $.command.run({ command: 'plans', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+    await $.command.run({ command: 'plan-tracker', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
 
     await w.clock.advance(FRAME_MS * 10)
 

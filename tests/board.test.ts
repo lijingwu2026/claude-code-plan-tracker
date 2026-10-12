@@ -501,8 +501,8 @@ describe('parseBoard', () => {
 })
 
 describe('the tracker\'s empty-state message', () => {
-  test('keeps the script\'s own words: /plans <anchor> is the one command that opens a plan', () => {
-    const message = 'This session has not written any plan row yet. Use `/plans <anchor>` to open a plan.'
+  test('keeps the script\'s own words: /plan-tracker <anchor> is the one command that opens a plan', () => {
+    const message = 'This session has not written any plan row yet. Use `/plan-tracker <anchor>` to open a plan.'
     const parsed = parseBoard(JSON.stringify({ selected: null, message, plans: [] }))
 
     expect('board' in parsed && parsed.board.message).toBe(message)

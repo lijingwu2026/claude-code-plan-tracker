@@ -87,13 +87,13 @@ describe('one run of the script at a time', () => {
 
     await w.clock.settle()
 
-    const run = $.command.run({ command: 'plans', args: 'gamma', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+    const run = $.command.run({ command: 'plan-tracker', args: 'gamma', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
 
     await w.clock.advance(SLOW_MS * 2)
     await started
     await run
 
-    // (the pane /plans opened then keeps refreshing, so only the first two runs are the ones in question)
+    // (the pane /plan-tracker opened then keeps refreshing, so only the first two runs are the ones in question)
     expect(w.jsonRuns.slice(0, 2).map(one => one.argv.filter(arg => arg.startsWith('--query')))).toEqual([[], ['--query=gamma']])
   })
 })

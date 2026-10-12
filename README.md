@@ -52,8 +52,9 @@ returns the same two keys, `artifact` and `artifact_note`, on each row.
 /plugin install plan-tracker@plan-tracker
 ```
 
-Open the board with `/plans`, or press the bar in the band. If you already have a `/plans` command of your own,
-yours is kept and plan-tracker does not register its own; the band and the board still work.
+Open the board with `/plan-tracker`, or press the bar in the band; `/plan-tracker <words from a plan name>` opens one plan.
+If you already have a `/plan-tracker` command of your own, yours is kept and plan-tracker does not register its own;
+the band and the board still work.
 
 ## Settings
 
@@ -62,9 +63,14 @@ Claude Code asks for these when you enable the plugin.
 | Setting | Default | What it does |
 |---|---|---|
 | `board_location` | `PROGRESS.md` | The board file, relative to the project root. Same meaning as plan-orchestrator's `board_location`. |
-| `board_command` | empty | A command that prints the board as JSON, used instead of the file. `{session}` is the session id, `{query}` the `/plans` argument; `[ ... ]` keeps its words only when every placeholder inside is non-empty. No shell runs it. |
+| `board_command` | empty | A command that prints the board as JSON, used instead of the file. `{session}` is the session id, `{query}` the `/plan-tracker` argument; `[ ... ]` keeps its words only when every placeholder inside is non-empty. No shell runs it. |
 | `usage_command` | empty | A command that records a step's time and cost when its page opens; `board_command` then returns them. |
 | `your_name` | empty | A row whose executor or checker is this name is shown as `you`. `you` itself always counts. |
+
+With `board_command`, a query that finds several plans can answer with `matches` (a list of `anchor`, `name`, `state`:
+`In progress`, `Idle` or `Done`, `done` and `total`) and a `message`; the pane draws the message, then the list in the style
+of the plan list, each plan pressable, and a press opens that plan. `plans` and `selected` stay what they are with no
+query. A `PROGRESS.md` board is one plan, so it has no list: `/plan-tracker <words>` opens that plan.
 
 Time, tokens and estimated cost appear only when `usage_command` is set and your `board_command` returns them: on a
 task page as a row of figures, and under the plan name as three figures: the time (`2h 41m` over `since 20:08`, or
@@ -88,7 +94,9 @@ figures are drawn once a step is under way, and a task page has none.
   project root the Desktop opens it itself, in its own viewer; the plugin does not intercept the click. Outside the
   project root the Desktop opens nothing, so the click goes to the plugin, which runs macOS `open` (the file's default
   app) only for a file under `~/.claude` or a regular file under your home directory outside hidden folders (a path
-  with a segment starting with `.` is refused, except `~/.claude`); any other path gets a "Not opened" toast.
+  with a segment starting with `.` is refused, except `~/.claude`); any other path gets a "Not opened" toast. A local
+  artifact page (the `artifact` column) is opened the same way, and also from `/tmp` and `/private/tmp`, where a session
+  leaves its scratch pages.
 
 ## License
 

@@ -610,6 +610,106 @@ describe('the Artifact row of a task page', () => {
   })
 })
 
+describe('a local artifact under /tmp or /private/tmp opens; a deliverable there does not', () => {
+  const PRIVATE = '/private/tmp/x/index.html'
+  const SHORT = '/tmp/x/index.html'
+
+  test('a /private/tmp page opens with plain `open <path>`', async ($, on) => {
+    const w = world(on, { fixture: boardOf(art('a1', 'Page', PRIVATE, 'n')), present: [PRIVATE] })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 160)
+
+    await pane.press({ key: 'artifact:0', link: { href: `file://${PRIVATE}` } })
+    await settle(w.clock)
+
+    expect(opens(w)).toEqual([['open', PRIVATE]])
+    expect(w.toasts).toEqual([])
+    await pane.unmount()
+  })
+
+  test('a /tmp page opens through its real path under /private/tmp', async ($, on) => {
+    const w = world(on, { fixture: boardOf(art('a1', 'Page', SHORT, 'n')), present: [SHORT], realpaths: { [SHORT]: PRIVATE } })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 160)
+
+    await pane.press({ key: 'artifact:0', link: { href: `file://${SHORT}` } })
+    await settle(w.clock)
+
+    expect(opens(w)).toEqual([['open', PRIVATE]])
+    await pane.unmount()
+  })
+
+  test('a /tmp page whose real path leaves /tmp is refused', async ($, on) => {
+    const w = world(on, { fixture: boardOf(art('a1', 'Page', SHORT, 'n')), present: [SHORT], realpaths: { [SHORT]: '/srv/elsewhere/index.html' } })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 160)
+
+    await pane.press({ key: 'artifact:0', link: { href: `file://${SHORT}` } })
+    await settle(w.clock)
+
+    expect(opens(w)).toEqual([])
+    expect(w.toasts).toHaveLength(1)
+    await pane.unmount()
+  })
+
+  test('the task page opens a /private/tmp artifact too', async ($, on) => {
+    const w = world(on, { fixture: boardOf(art('a1', 'Page', PRIVATE, 'n')), present: [PRIVATE] })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 96)
+
+    await openCard(pane, 0)
+    await pane.press({ key: 'detail:artifact', link: { href: `file://${PRIVATE}` } })
+    await settle(w.clock)
+
+    expect(opens(w)).toEqual([['open', PRIVATE]])
+    await pane.unmount()
+  })
+
+  test('a folder under /tmp is not an artifact page: refused, not revealed', async ($, on) => {
+    const w = world(on, { fixture: boardOf(art('a1', 'Folder', '/private/tmp/x', 'n')), present: ['/private/tmp/x'], dirs: ['/private/tmp/x'] })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 160)
+
+    await pane.press({ key: 'artifact:0', link: { href: 'file:///private/tmp/x' } })
+    await settle(w.clock)
+
+    expect(opens(w)).toEqual([])
+    expect(w.toasts).toEqual(['Not opened: not a regular file'])
+    await pane.unmount()
+  })
+
+  for (const path of ['/tmpfoo/x.html', '/private/tmpfoo/x.html']) {
+    test(`a name that only starts with tmp is outside it: ${path} is refused`, async ($, on) => {
+      const w = world(on, { fixture: boardOf(art('a1', 'Page', path, 'n')), present: [path] })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, 'desktop', 160)
+
+      await pane.press({ key: 'artifact:0', link: { href: `file://${path}` } })
+      await settle(w.clock)
+
+      expect(opens(w)).toEqual([])
+      expect(w.toasts).toHaveLength(1)
+      await pane.unmount()
+    })
+  }
+
+  for (const path of [PRIVATE, SHORT]) {
+    test(`a deliverable at ${path} is still refused with a toast and no \`open\``, async ($, on) => {
+      const w = world(on, { fixture: boardOf({ task: 'r0', status: 'Done', updated: null, deliverable: path }), present: [path] })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, 'desktop', 160)
+
+      await pane.press({ key: 'deliverable:0', link: { href: `file://${path}` } })
+      await settle(w.clock)
+
+      expect(opens(w)).toEqual([])
+      expect(w.toasts).toHaveLength(1)
+      expect(w.toasts[0]).toStartWith('Not opened: ')
+      await pane.unmount()
+    })
+  }
+})
+
 describe('pressing an artifact link', () => {
   const OUT = `${HOME}/code/x/page.html`
   const OUT_HREF = 'file:///home/tester/code/x/page.html'

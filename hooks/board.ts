@@ -4,7 +4,7 @@
  * screen, and what the band and the board show. Nothing here draws or touches `$`.
  * It shows only what the tracker records.
  */
-import type { CardRef, PlanBoard, PlanEntry, PlanRow, PlanStatus, PlanTotals, PlanUsage } from '../types'
+import type { CardRef, PlanBoard, PlanEntry, PlanMatch, PlanRow, PlanStatus, PlanTotals, PlanUsage } from '../types'
 
 export const STATUSES: readonly PlanStatus[] = ['Todo', 'In Progress', 'Verifying', 'Needs Verification', 'Blocked', 'Done', 'Canceled']
 
@@ -102,6 +102,23 @@ function totalsOf(value: unknown): PlanTotals | undefined {
   }
 }
 
+const MATCH_STATES: readonly PlanMatch['state'][] = ['In progress', 'Idle', 'Done']
+
+/** The plans a query found, when the board command lists them: an entry of another shape is dropped; none left is no list. */
+function matchesOf(value: unknown): PlanMatch[] | undefined {
+  const out = (Array.isArray(value) ? value : []).flatMap((one: Record<string, unknown> | null): PlanMatch[] => {
+    const anchor = asText(one?.anchor)
+    const name = asText(one?.name)
+    const state = MATCH_STATES.find(word => word === one?.state)
+    const done = one?.done
+    const total = one?.total
+
+    return anchor !== undefined && name !== undefined && state !== undefined && isNumber(done) && isNumber(total) ? [{ anchor, name, state, done, total }] : []
+  })
+
+  return out.length === 0 ? undefined : out
+}
+
 /**
  * The script's `--view --json` output as a board, or one line saying what is wrong with it. A field the tracker leaves null
  * is dropped, so the drawing code reads an absent field, never a null.
@@ -176,8 +193,9 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
   }))
 
   const message = asText(raw.message)
+  const matches = matchesOf((raw as { matches?: unknown }).matches)
 
-  return { board: { selected: asText(raw.selected) ?? null, message: message ?? null, plans } }
+  return { board: { selected: asText(raw.selected) ?? null, message: message ?? null, plans, ...(matches === undefined ? {} : { matches }) } }
 }
 
 /** The plan the person picked, else the tracker's own choice, else the first. */
@@ -549,6 +567,9 @@ export const DELIVERABLES_SHOWN = 5
 
 /** The artifacts table shows this many rows, then `+N more`, as the deliverables table does. */
 export const ARTIFACTS_SHOWN = 5
+
+/** Folders besides the project root and ~/.claude from which a press opens an artifact (a regular file only): where a session leaves its scratch pages. */
+export const ARTIFACT_EXTRA_ROOTS: readonly string[] = ['/tmp', '/private/tmp']
 
 /** In Progress shows this many cards, Blocked ones first, then a line counting the rest. */
 export const DOING_SHOWN = 5

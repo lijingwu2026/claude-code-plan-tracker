@@ -7,7 +7,7 @@
  * The data is the board file (PROGRESS.md, read again every 1.5 s, so the board follows the file) or, with the setting
  * `board_command`, that command's JSON; read on session.start, on each prompt, after a Bash call that runs the command, and every
  * 10 s while the pane is open; one run is in flight at a time, and none holds a prompt or a Bash
- * result. `/plans [anchor or name]` opens the board on that plan, with no text, whatever the surface says (a Desktop client may
+ * result. `/plan-tracker [words from a plan name]` opens the board on that plan, with no text, whatever the surface says (a Desktop client may
  * not have attached yet); when the board cannot be drawn a toast says why. On the desktop app a deliverable is a link a press
  * opens with `open`, if it is under the project or ~/.claude; an artifact is a link too: an https one the app opens itself, a local
  * page the plugin opens with `open` (the same allowlist). A PLAN-DONE block in a Bash result becomes a toast, a chime and a
@@ -20,6 +20,7 @@ import type { Live, PlanBoard, PlanEntry } from '../types'
 import {
   BAND_MASCOT_SPACE,
   MASCOT,
+  ARTIFACT_EXTRA_ROOTS,
   absolutePath,
   artifactsOf,
   bandPlanOf,
@@ -54,9 +55,9 @@ import {
 } from './board'
 import type { LaneKey } from './board'
 import type { FileView } from './draw'
-import { drawBand, drawPane } from './draw'
+import { drawBand, drawMatches, drawPane } from './draw'
 
-const COMMAND = 'plans'
+const COMMAND = 'plan-tracker'
 const PANE_ID = 'plan-tracker'
 const PANE_TITLE = 'Plans'
 const REFRESH_MS = 10_000
@@ -74,7 +75,7 @@ const OPEN = { id: PANE_ID, title: PANE_TITLE, focus: true, rows: 60 } as const
 
 /** The tracker's last answer: a board, or the one line saying why there is none; null until the first answer. */
 const live = atom({ plugin: 'plan-tracker', key: 'live' } as const, null)
-/** The `--query` the refreshes pass: the argument of the last `/plans`, or the plan that just finished. */
+/** The `--query` the refreshes pass: the argument of the last `/plan-tracker`, or the plan that just finished. */
 const query = atom({ plugin: 'plan-tracker', key: 'query' } as const, '')
 /** The anchor picked in the band or the pane; null until one is picked, when the tracker's own `selected` stands. */
 const selected = atom({ plugin: 'plan-tracker', key: 'selected' } as const, null)
@@ -439,6 +440,24 @@ async function pickPlan($: EngineInterface, anchor: string) {
 }
 
 /**
+ * Picks one of the plans a query found: the plan becomes both the query (every refresh asks the tracker for it, which brings its
+ * entry) and the plan shown, and the board is read again at once so that the message and the list go.
+ */
+async function pickMatch($: EngineInterface, anchor: string) {
+  await Promise.all([
+    update($, query, () => anchor),
+    update($, selected, () => anchor),
+    update($, card, () => null),
+    update($, file, () => false),
+    update($, menu, () => false),
+    update($, bandMenu, () => false),
+  ])
+  await refreshQuietly($)
+  await syncAnimation($)
+  await refocus($, true)
+}
+
+/**
  * Whether anything on screen moves: the band (the rainbow of a complete plan, the mascot while the plan has a row In
  * Progress) or the open pane (the mascot of an In Progress card).
  */
@@ -536,6 +555,10 @@ export function actionFor($: EngineInterface, element: string, isLink: boolean, 
     return () => pickPlan($, element.slice('plan:'.length))
   }
 
+  if (element.startsWith('match:')) {
+    return () => pickMatch($, element.slice('match:'.length))
+  }
+
   if (lane !== undefined) {
     return async () => {
       const plan = await shownPlan($)
@@ -583,7 +606,7 @@ export function actionFor($: EngineInterface, element: string, isLink: boolean, 
       }
 
       if (target !== undefined && !isWebTarget(target)) {
-        await openDeliverable($, target).catch(() => undefined)
+        await openDeliverable($, target, true).catch(() => undefined)
       }
     }
   }
@@ -635,8 +658,8 @@ async function markFinished($: EngineInterface, anchor: string) {
 }
 
 /**
- * `/plans` opens the board on the plan the argument names and answers no text. It opens whatever `$.session.surfaces()`
- * says: a Desktop client joins that list only once it attaches, and `/plans` can be a session's first input. When the pane
+ * `/plan-tracker` opens the board on the plan the argument names and answers no text. It opens whatever `$.session.surfaces()`
+ * says: a Desktop client joins that list only once it attaches, and `/plan-tracker` can be a session's first input. When the pane
  * waits undrawn, a toast says why. One log line per run records the surfaces seen and whether the pane was placed.
  */
 async function runCommand($: EngineInterface, e: { args: string }) {
@@ -663,13 +686,15 @@ async function runCommand($: EngineInterface, e: { args: string }) {
  * file has to exist and, both as written (`..` folded) and as it really is (`realpath`, symlinks followed), sit under the
  * project root or ~/.claude, or be a regular file under the home directory outside hidden folders. Its real path is then opened with `open` when its
  * type is one that is only viewed and it is a regular file, and revealed in Finder with `open -R` for anything else. A refusal is logged and shown
- * as a toast.
+ * as a toast. An artifact (`isArtifact`) is a page for the browser that a session leaves in a scratch folder: `/tmp` and `/private/tmp`
+ * also count, for a regular file only.
  */
-export async function openDeliverable($: EngineInterface, path: string) {
+export async function openDeliverable($: EngineInterface, path: string, isArtifact = false) {
   const home = await $.env.get('HOME')
   const absolute = absolutePath(path, home)
   const root = await projectRoot($)
-  const roots = [root, ...(home === undefined || home === '' ? [] : [`${home.replace(/\/+$/, '')}/.claude`])].filter(one => one !== '')
+  const projectRoots = [root, ...(home === undefined || home === '' ? [] : [`${home.replace(/\/+$/, '')}/.claude`])].filter(one => one !== '')
+  const roots = isArtifact ? [...projectRoots, ...ARTIFACT_EXTRA_ROOTS] : projectRoots
   const refusal = absolute === null ? 'cannot place that path' : openRefusal(absolute, roots, home)
 
   if (absolute === null || refusal !== null) {
@@ -702,7 +727,7 @@ export async function openDeliverable($: EngineInterface, path: string) {
   const isFile = (await $.fs.stat(resolved).catch(() => undefined))?.kind === 'file'
 
   // Only a regular file is opened from the home directory at large; a folder is shown only inside the project and ~/.claude.
-  if (!isFile && openRefusal(resolved, roots) !== null) {
+  if (!isFile && openRefusal(resolved, projectRoots) !== null) {
     await log($, 'open-path', 'not a regular file', { path })
     $.ui.toast('Not opened: not a regular file')
 
@@ -725,7 +750,8 @@ export const register: Register = (on, options) => {
     try {
       await $.command.register({
         name: COMMAND,
-        description: "Show this session's plans; /plans <anchor or name> shows one plan",
+        description: "Show this session's plans; /plan-tracker <words from a plan name> shows one plan",
+        argumentHint: '<words from a plan name>',
       })
     } catch (error) {
       // The engine refuses a name another command already defines: the band and the board still work.
@@ -896,7 +922,17 @@ export const register: Register = (on, options) => {
     const plan = await shownPlan($)
 
     if (plan === undefined) {
-      return <Text dimColor>{board.message ?? 'No plans in this session.'}</Text>
+      const { Box } = $.ui.resolve(e)
+
+      // Several plans match a query in a session with no plan of its own: the message still comes with its list.
+      return board.matches === undefined ? (
+        <Text dimColor>{board.message ?? 'No plans in this session.'}</Text>
+      ) : (
+        <Box flexDirection="column">
+          <Text dimColor>{board.message ?? 'No plans in this session.'}</Text>
+          {drawMatches($.ui.resolve(e), { matches: board.matches, columns: e.props.bodyColumns, onPick: anchor => void pressByKey($, `match:${anchor}`, false, e.surface) })}
+        </Box>
+      )
     }
 
     const open = await read($, card)
@@ -909,6 +945,8 @@ export const register: Register = (on, options) => {
       columns: e.props.bodyColumns,
       bodyRows: e.props.scroll.bodyRows,
       message: board.message,
+      matches: board.matches ?? [],
+      onMatch: anchor => void pressByKey($, `match:${anchor}`, false, e.surface),
       detail: isFile ? null : detail,
       now: Date.now(),
       file: isFile ? await loadFile($, plan) : null,

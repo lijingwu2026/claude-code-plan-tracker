@@ -3,8 +3,8 @@ import { describe, expect, test } from './testing'
 
 import { SESSION, SESSION_ID, bandProps, jsonArgv, plans, world } from './fixtures'
 
-describe('/plans opens the board, never text', () => {
-  // A Desktop client joins the surface list only once it attaches, and `/plans` can be a session's first input: whatever the
+describe('/plan-tracker opens the board, never text', () => {
+  // A Desktop client joins the surface list only once it attaches, and `/plan-tracker` can be a session's first input: whatever the
   // list says, the pane is asked for.
   for (const surfaces of [[], ['desktop'], ['terminal'], ['terminal', 'mobile'], ['vscode']] as const) {
     test(`surfaces [${surfaces.join(', ')}]: the pane opens, no text, the text script never runs`, async ($, on) => {
@@ -113,7 +113,7 @@ describe('/plans opens the board, never text', () => {
     await $.session.start(SESSION)
     await $.command.run(plans())
     expect(scriptRuns.length, 'the board opened, so no text view ran').toBe(0)
-    // the session start read the board, and /plans read it again
+    // the session start read the board, and /plan-tracker read it again
     const base = jsonRuns.length
 
     expect(base).toBe(2)
@@ -124,7 +124,7 @@ describe('/plans opens the board, never text', () => {
     await $.command.run(plans())
     expect(jsonRuns.length).toBe(base + 4)
     await clock.advance(10_000)
-    expect(jsonRuns.length, 'a second /plans starts no second timer').toBe(base + 5)
+    expect(jsonRuns.length, 'a second /plan-tracker starts no second timer').toBe(base + 5)
 
     await $.command.run({ ...plans(), command: 'close-plans' })
     await clock.advance(30_000)
@@ -132,7 +132,7 @@ describe('/plans opens the board, never text', () => {
     expect(scriptRuns.length, 'the refresh never runs the text view').toBe(0)
   })
 
-  test('the refresh keeps the query of the last /plans', async ($, on) => {
+  test('the refresh keeps the query of the last /plan-tracker', async ($, on) => {
     const { clock, scriptRuns, jsonRuns } = world(on, ['terminal'])
     await $.session.start(SESSION)
     await $.command.run(plans('alpha'))
@@ -143,7 +143,7 @@ describe('/plans opens the board, never text', () => {
     expect(jsonRuns.map(r => r.argv)).toEqual([jsonArgv(), jsonArgv('alpha'), jsonArgv('alpha')])
   })
 
-  test('a /plans without arguments after /plans <name> goes back to this session\'s plans', async ($, on) => {
+  test('a /plan-tracker without arguments after /plan-tracker <name> goes back to this session\'s plans', async ($, on) => {
     const { jsonRuns } = world(on, ['terminal'])
     await $.session.start(SESSION)
     await $.command.run(plans('alpha'))
@@ -153,26 +153,33 @@ describe('/plans opens the board, never text', () => {
   })
 })
 
-describe('one command: /plans', () => {
-  test('only /plans is registered; /plan-tracker is not, and running it reaches no hook of the mod', async ($, on) => {
+describe('one command: /plan-tracker', () => {
+  test('only /plan-tracker is registered, named like the plugin; the old name plans is not, and running it reaches no hook of the plugin', async ($, on) => {
     const { registered, opened } = world(on)
     await $.session.start(SESSION)
 
-    expect(registered.map(one => one.name)).toEqual(['plans'])
-    await expect($.command.run({ ...plans('gamma'), command: 'plan-tracker' })).rejects.toThrow('no implementation for command.run')
+    expect(registered.map(one => one.name)).toEqual(['plan-tracker'])
+    await expect($.command.run({ ...plans('gamma'), command: 'plans' })).rejects.toThrow('no implementation for command.run')
     expect(opened).toEqual([])
+  })
+
+  test('its description and hint say it takes words from a plan name', async ($, on) => {
+    const { registered } = world(on)
+    await $.session.start(SESSION)
+
+    expect(registered).toEqual([{ name: 'plan-tracker', argumentHint: '<words from a plan name>' }])
   })
 })
 
-describe('/plans refused', () => {
-  const REFUSAL = "/plans refused: it is the user's /plans"
+describe('/plan-tracker refused', () => {
+  const REFUSAL = "/plan-tracker refused: it is the user's own command"
 
   test('the refusal is logged as one line, session.start still goes through and the band and the board read the tracker', async ($, on) => {
     const { logLines, jsonRuns, registered } = world(on, ['terminal'], { registerDenial: REFUSAL })
 
     await $.session.start(SESSION)
 
-    expect(registered.map(one => one.name)).toEqual(['plans'])
+    expect(registered.map(one => one.name)).toEqual(['plan-tracker'])
     expect(logLines()).toMatchObject([{ session_id: SESSION_ID, stage: 'command', error: expect.stringContaining('refused') }])
     expect(Object.keys(logLines()[0] ?? {})).toEqual(['ts', 'session_id', 'stage', 'error'])
     expect(jsonRuns).toHaveLength(1)

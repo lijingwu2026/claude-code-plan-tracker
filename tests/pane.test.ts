@@ -144,7 +144,7 @@ describe('plan-tracker pane: the header', () => {
     await ui.unmount()
   })
 
-  test('/plans opens the pane titled Plans, with no text', async ($, on) => {
+  test('/plan-tracker opens the pane titled Plans, with no text', async ($, on) => {
     const w = world(on)
     await $.session.start(SESSION)
 
@@ -163,12 +163,12 @@ describe('plan-tracker pane: the header', () => {
     await ui.unmount()
   })
 
-  test('the empty-state line sent by the script is shown as it is, naming /plans', async ($, on) => {
-    world(on, { fixture: { selected: null, message: 'No plan yet. Use `/plans <anchor>` to open a plan.', plans: [] } })
+  test('the empty-state line sent by the script is shown as it is, naming /plan-tracker', async ($, on) => {
+    world(on, { fixture: { selected: null, message: 'No plan yet. Use `/plan-tracker <anchor>` to open a plan.', plans: [] } })
     await $.session.start(SESSION)
     const ui = await mountPane($, 'terminal')
 
-    expect(textOf(await ui.drawn())).toBe('No plan yet. Use `/plans <anchor>` to open a plan.')
+    expect(textOf(await ui.drawn())).toBe('No plan yet. Use `/plan-tracker <anchor>` to open a plan.')
     await ui.unmount()
   })
 
