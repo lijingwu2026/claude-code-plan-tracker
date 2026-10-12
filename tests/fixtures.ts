@@ -29,6 +29,30 @@ settings.root = ROOT
 /** The period of the mod's one animation timer. */
 export const FRAME_MS = 120
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * An ISO time `daysAgo` days before today at `hour:minute`, written on this machine's clock with its offset as the tracker writes
+ * it. The screen tests read the real clock, so a fixture that has to be "today" or "another day" is made relative to it.
+ */
+export function localTime(daysAgo: number, hour: number, minute: number): string {
+  const today = new Date()
+  const at = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysAgo, hour, minute, 30)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const offset = -at.getTimezoneOffset()
+  const zone = `${offset < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`
+
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(hour)}:${pad(minute)}:30${zone}`
+}
+
+/** `Oct 9` for the day `daysAgo` days before today. */
+export function dayName(daysAgo: number): string {
+  const today = new Date()
+  const at = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysAgo)
+
+  return `${MONTH_NAMES[at.getMonth()]} ${at.getDate()}`
+}
+
 const row = (task: string, status: PlanStatus, updated: string | null = '2026-10-08T01:00:00+09:00', route?: string, note = ''): PlanRow => ({
   task,
   status,

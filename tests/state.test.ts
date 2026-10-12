@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 
 import { STATE_STYLE, STYLE, bandLine, displayWidth, notStartedText, planStateOf, planStatsOf } from '../hooks/board'
 import type { PlanBoard, PlanEntry, PlanRow, PlanStatus } from '../types'
-import { PANE_ID, SESSION, bandProps, kids, paneProps, textOf, world } from './fixtures'
+import { PANE_ID, SESSION, bandProps, dayName, kids, localTime, paneProps, textOf, world } from './fixtures'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -82,9 +82,60 @@ describe('"Not started yet" under the header', () => {
 })
 
 describe('the plan stats have no state', () => {
-  test('a never-started plan reads "Not started yet" and has no stats; a started one has stats with no state word', () => {
+  test('a never-started plan reads "Not started yet" and has no stats; a started one has stats with no state word and no running time', () => {
+    const started = '2026-10-11T20:08:00+09:00'
+    const now = Date.parse('2026-10-11T21:00:00+09:00')
+
     expect(notStartedText(plan('a', 'A', ['Todo']))).toBe('Not started yet')
     expect(planStatsOf(plan('a', 'A', ['Todo']), Date.now(), 100)).toEqual([])
-    expect(planStatsOf(plan('a', 'A', ['Todo'], { started: '2026-10-11T20:08:00+09:00' }), Date.parse('2026-10-11T21:00:00+09:00'), 100).map(stat => stat.label)).toEqual(['since 20:08'])
+    expect(planStatsOf(plan('a', 'A', ['Todo'], { started, updated: '2026-10-11T20:40:00+09:00' }), now, 100).map(stat => [stat.value, stat.label])).toEqual([['20:40', 'updated']])
+    expect(planStatsOf(plan('a', 'A', ['Todo'], { started }), now, 100)).toEqual([])
+  })
+})
+
+describe('the state word says since when the plan is idle', () => {
+  const IDLE_AT = localTime(0, 19, 40)
+  const board = (idle: string | undefined) => boardOf(plan('a', 'Alpha', ['Done', 'Todo'], idle === undefined ? {} : { idle_since: idle }), plan('b', 'Beta', ['Done', 'Todo']))
+
+  for (const surface of SURFACES) {
+    test(`${surface}: the header, the band and the plan dropdown read Idle since 19:40; a plan with no idle_since reads Idle`, async ($, on) => {
+      world(on, { surfaces: [surface], fixture: board(IDLE_AT) })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, surface)
+      const band = await mountBand($, surface)
+
+      expect(textOf(await pane.find({ key: 'menu' }))).toContain('Alpha  Idle since 19:40  1/2')
+      expect(textOf(await band.drawn())).toContain('Idle since 19:40')
+
+      await pane.press({ key: 'menu:name' })
+
+      const list = textOf(await pane.find({ key: 'menu:list' }))
+
+      expect(list).toMatch(/Alpha\s+Idle since 19:40\s+1\/2/)
+      expect(list).toMatch(/Beta\s+Idle\s+1\/2/)
+      await pane.unmount()
+      await band.unmount()
+    })
+  }
+
+  test('terminal: another day reads the day and the time; a plan with no idle_since reads plain Idle', async ($, on) => {
+    world(on, { fixture: board(localTime(2, 19, 40)) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal')
+
+    expect(textOf(await pane.find({ key: 'menu' }))).toContain(`Alpha  Idle since ${dayName(2)} 19:40  1/2`)
+    await pane.unmount()
+  })
+
+  test('terminal: no idle_since reads plain Idle in the header and the band', async ($, on) => {
+    world(on, { fixture: board(undefined) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal')
+    const band = await mountBand($, 'terminal')
+
+    expect(textOf(await pane.find({ key: 'menu' }))).toContain('Alpha  Idle  1/2')
+    expect(textOf(await band.drawn())).not.toContain('since')
+    await pane.unmount()
+    await band.unmount()
   })
 })

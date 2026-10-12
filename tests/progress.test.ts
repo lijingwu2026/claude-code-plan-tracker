@@ -1,7 +1,7 @@
 import { describe, expect, test } from './testing'
 import type { Engine } from 'claude-code/testing'
 
-import { RAINBOW, assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, needsYou, parseProgress, notStartedText, planStateOf, settings, whoLineOf } from '../hooks/board'
+import { RAINBOW, assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, needsYou, parseProgress, notStartedText, planStateOf, planStatsOf, settings, whoLineOf } from '../hooks/board'
 import type { PlanEntry, PlanRow } from '../types'
 import { PROGRESS_REAL } from './fixtures/progress-real'
 import { PROGRESS_REAL_EXECUTOR } from './fixtures/progress-real-executor'
@@ -89,6 +89,14 @@ describe('the board file: a real PROGRESS.md', () => {
     expect(settings.yourName).toBe('Sam')
     expect(executorOf(row)).toBe('Sam')
   })
+
+  test('a plain PROGRESS.md has no updated and no idle_since, even with such columns, so no time figure', () => {
+    const plan = planOf('| task | status | updated | idle_since |\n|---|---|---|---|\n| a | Todo | 2026-10-12T14:02:00+09:00 | 2026-10-12T14:02:00+09:00 |\n')
+
+    expect(plan).not.toHaveProperty('updated')
+    expect(plan).not.toHaveProperty('idle_since')
+    expect(planStatsOf(plan, Date.parse('2026-10-12T15:00:00+09:00'), 100)).toEqual([])
+  })
 })
 
 describe('the board file: the kit\'s executor and check columns', () => {
@@ -99,7 +107,8 @@ describe('the board file: the kit\'s executor and check columns', () => {
 
     expect(done.check).toBe('script (grep)')
     expect(whoLineOf(done)).toEqual({ tier: 'Sonnet', executor: 'main session' })
-    expect(assigneeOf(done)).toBe('Sonnet')
+    // a Done card has no tag: the page says who did it
+    expect(assigneeOf(done)).toBeUndefined()
     expect(checkerOf(done)).toBe('script (grep)')
     expect(checkerOf(verify)).toBe('you')
     expect(lanesOf(plan()).map(lane => lane.header)).toEqual(['Todo 0', 'In Progress 0', 'Verify 1', 'Done 1'])
@@ -139,7 +148,7 @@ describe('the board file: the kit\'s executor and check columns', () => {
   })
 
   test('header case is ignored for the two columns', () => {
-    const row = planOf('| Task | Status | EXECUTOR | Check |\n|---|---|---|---|\n| t | Done | subagent · Haiku | You |\n').rows[0]!
+    const row = planOf('| Task | Status | EXECUTOR | Check |\n|---|---|---|---|\n| t | Todo | subagent · Haiku | You |\n').rows[0]!
 
     expect(assigneeOf(row)).toBe('Haiku')
     expect(checkerOf(row)).toBe('you')

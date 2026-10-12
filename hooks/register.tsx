@@ -880,6 +880,8 @@ export const register: Register = (on, options) => {
       isFile,
       frame: isRainbowUp ? now : null,
       pose: bandPose(plan, now),
+      // `now` above is the animation frame; this one is the time the state word's `since` is compared with.
+      now: Date.now(),
       spritePose: MASCOT[bandPoseIndex(plan, now)],
       isProportional: isDesktop,
       isMoving: isDesktop && hasWorking(plan),

@@ -155,6 +155,8 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
     ...(asText(plan.created_at) === undefined ? {} : { created_at: asText(plan.created_at) as string }),
     ...(asText(plan.started) === undefined ? {} : { started: asText(plan.started) as string }),
     ...(asText(plan.finished) === undefined ? {} : { finished: asText(plan.finished) as string }),
+    ...(asText(plan.updated) === undefined ? {} : { updated: asText(plan.updated) as string }),
+    ...(asText(plan.idle_since) === undefined ? {} : { idle_since: asText(plan.idle_since) as string }),
     ...(totalsOf(plan.usage_totals) === undefined ? {} : { usage_totals: totalsOf(plan.usage_totals) as PlanTotals }),
     ...(asText(plan.recap) === undefined ? {} : { recap: asText(plan.recap) as string }),
     ...(asText(plan.recap) === undefined || asText(plan.recap_updated) === undefined ? {} : { recap_updated: asText(plan.recap_updated) as string }),
@@ -251,6 +253,28 @@ export function planStateOf(plan: PlanEntry): PlanState {
   }
 
   return hasInProgress(plan) ? (hasWorking(plan) ? 'In progress' : 'Stalled') : 'Idle'
+}
+
+/**
+ * The state word as the header, the band and the plan list write it: `Stalled since 19:23` (the newest `stalled_since` of its running
+ * rows), `Idle since 19:40` (the plan's `idle_since`); a time on another day reads `Oct 11 19:23`. Plain `Stalled` or `Idle` when the
+ * time is not there or not a clock time (a `PROGRESS.md` has no `idle_since`); `In progress` and `Done` are the bare words. Colors
+ * follow the bare state (`planStateOf`); the room it takes is this text's.
+ */
+export function planStateText(plan: PlanEntry, now: number = Date.now()): string {
+  const state = planStateOf(plan)
+
+  if (state === 'Stalled') {
+    const times = plan.rows.flatMap(row => (isStalled(row) ? [row.stalled_since as string] : []))
+    const newest = times.reduce((latest, one) => (Date.parse(one) > Date.parse(latest) ? one : latest))
+    const at = sinceText(newest, now)
+
+    return at === undefined ? state : `${state} since ${at}`
+  }
+
+  const at = state === 'Idle' && plan.idle_since !== undefined ? sinceText(plan.idle_since, now) : undefined
+
+  return at === undefined ? state : `${state} since ${at}`
 }
 
 // ---------------------------------------------------------------- width
@@ -435,7 +459,7 @@ const BAND_FIXED = 2 + 2 + 2 + 1 + 2 + displayWidth(FILE_LABEL)
 /** Columns of name the band keeps before the bar starts to shrink. */
 const MIN_BAND_NAME = 8
 
-export type BandLine = { name: string; state: PlanState; filled: number; empty: number; count: string }
+export type BandLine = { name: string; state: PlanState; /** The state word as written (`Stalled since 19:23`): the room it takes. */ stateText: string; filled: number; empty: number; count: string }
 
 /** Cells of a `width`-cell bar that are filled for `done` of `total`: at least 1 once started, all of them only when complete. */
 export function filledOf(done: number, total: number, width: number): number {
@@ -447,26 +471,30 @@ export function filledOf(done: number, total: number, width: number): number {
 }
 
 /**
- * The band's one row without the mascot, cut to `cols` columns: the name (cut first), the state word (never cut), the 12-cell bar (shrunk to 4 cells at
- * the least, and only when the name would keep under 8 columns) and `done/total`.
+ * The band's one row without the mascot, cut to `cols` columns: the name (cut first), the state word (never cut; its whole text, `Stalled
+ * since 19:23` and `Idle since 19:40` included, takes room from the name), the 12-cell bar (shrunk to 4 cells at the least, and only when
+ * the name would keep under 8 columns) and `done/total`. `now` decides whether a state time is today's.
  */
-export function bandLine(plan: PlanEntry, cols: number): BandLine {
+export function bandLine(plan: PlanEntry, cols: number, now: number = Date.now()): BandLine {
   const { done, total } = countOf(plan)
   const count = `${done}/${total}`
   const state = planStateOf(plan)
+  const stateText = planStateText(plan, now)
   // The state word is never cut: it takes a space and its width from the name's room.
-  const rest = cols - BAND_FIXED - displayWidth(count) - 1 - displayWidth(state)
+  const rest = cols - BAND_FIXED - displayWidth(count) - 1 - displayWidth(stateText)
   // The bar keeps its 12 cells and the name is cut; only when less than 8 columns would be left for the name does the bar shrink.
   const bar = Math.min(BAR_COLUMNS, Math.max(4, rest - MIN_BAND_NAME))
   const filled = filledOf(done, total, bar)
 
-  return { name: truncate(plan.name, Math.max(4, rest - bar)), state, filled, empty: bar - filled, count }
+  return { name: truncate(plan.name, Math.max(4, rest - bar)), state, stateText, filled, empty: bar - filled, count }
 }
 
 /** What the terminal band draws in the room its column leaves (`bandFit`). */
 export type BandFit = {
   name: string
   state: PlanState
+  /** The state word as written (`Stalled since 19:23`). */
+  stateText: string
   /** Whether the state word shows: it is dropped whole, never cut. */
   hasState: boolean
   filled: number
@@ -483,16 +511,18 @@ const MIN_FIT_NAME = 4
 
 /**
  * The terminal band's parts for a row of `cols` columns after the mascot and its space. The name is cut first (to 4 columns at
- * the least, the bar shrinking to 4 cells before the name goes under 8); then the state word is dropped whole, then the right end,
- * then the bar; when even the name and the count do not fit one row, the progress goes to a second row of `cols` plus the
- * mascot's columns. Nothing is ever cut mid-word or left wider than `cols`.
+ * the least, the bar shrinking to 4 cells before the name goes under 8); then the state word (its whole text, `Stalled since 19:23`
+ * included) is dropped whole, then the right end, then the bar; when even the name and the count do not fit one row, the progress goes
+ * to a second row of `cols` plus the mascot's columns. Nothing is ever cut mid-word or left wider than `cols`. `now` decides whether
+ * a state time is today's.
  */
-export function bandFit(plan: PlanEntry, cols: number, hasChoice: boolean, fileWidth: number): BandFit {
+export function bandFit(plan: PlanEntry, cols: number, hasChoice: boolean, fileWidth: number, now: number = Date.now()): BandFit {
   const { done, total } = countOf(plan)
   const count = `${done}/${total}`
   const state = planStateOf(plan)
+  const stateText = planStateText(plan, now)
   const countCols = displayWidth(count)
-  const stateBit = 1 + displayWidth(state) + 2
+  const stateBit = 1 + displayWidth(stateText) + 2
   // The columns of every part but the name and the bar's cells: the dot, the arrow, the state, the bar's trailing space, the count, the right end.
   const fixed = (hasState: boolean, hasBar: boolean, hasFile: boolean) =>
     2 + (hasChoice ? 2 : 0) + (hasState ? stateBit : 1) + (hasBar ? 1 : 0) + countCols + (hasFile ? 2 + fileWidth : 0)
@@ -510,7 +540,7 @@ export function bandFit(plan: PlanEntry, cols: number, hasChoice: boolean, fileW
       const bar = stage.hasBar ? Math.min(BAR_COLUMNS, Math.max(4, rest - MIN_BAND_NAME)) : 0
       const filled = filledOf(done, total, bar)
 
-      return { name: truncate(plan.name, rest - bar), state, hasState: stage.hasState, filled, empty: bar - filled, count, hasFile: stage.hasFile, isStacked: false }
+      return { name: truncate(plan.name, rest - bar), state, stateText, hasState: stage.hasState, filled, empty: bar - filled, count, hasFile: stage.hasFile, isStacked: false }
     }
   }
 
@@ -523,7 +553,7 @@ export function bandFit(plan: PlanEntry, cols: number, hasChoice: boolean, fileW
   const filled = filledOf(done, total, barCells)
   const name = truncate(plan.name, Math.max(1, cols - 2 - (hasChoice ? 2 : 0)))
 
-  return { name, state, hasState, filled, empty: barCells - filled, count, hasFile: false, isStacked: true }
+  return { name, state, stateText, hasState, filled, empty: barCells - filled, count, hasFile: false, isStacked: true }
 }
 
 /** A plan with nothing left to do: each row Done or Canceled, at least one of them Done (an all-Canceled plan was not completed). */
@@ -1147,23 +1177,6 @@ export function durationText(ms: number): string {
 
 // ---------------------------------------------------------------- the plan line and the task page's lines
 
-/** `42m`, `1h 05m`, `2d 3h`: a span for the plan line (days and hours from 24 hours on). */
-export function spanText(ms: number): string {
-  const minutes = Math.max(0, Math.round(ms / 60_000))
-
-  if (minutes < 1) {
-    return ms > 0 ? '<1m' : '0m'
-  }
-
-  if (minutes < 60) {
-    return `${minutes}m`
-  }
-
-  const hours = Math.floor(minutes / 60)
-
-  return hours < 24 ? `${hours}h ${String(minutes % 60).padStart(2, '0')}m` : `${Math.floor(hours / 24)}d ${hours % 24}h`
-}
-
 /**
  * The dim label over a plan's recap: `Recap · updated 12 min ago`, from `recap_updated` (ISO, as the tracker wrote it).
  * Just `Recap` when there is no time, it is not an ISO time, or it lies ahead of `now`.
@@ -1188,29 +1201,38 @@ export function recapLabel(plan: PlanEntry, now: number): string {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+
+/** `YYYY-MM-DDTHH:MM` of an instant on this machine's clock. */
+function localMinute(ms: number): string {
+  const at = new Date(ms)
+
+  return `${at.getFullYear()}-${pad2(at.getMonth() + 1)}-${pad2(at.getDate())}T${pad2(at.getHours())}:${pad2(at.getMinutes())}`
+}
+
 /**
- * `20:08 today` or `Oct 9 20:08` from a tracker ISO time as written (its own clock, no timezone shift); "today" is `now` on
- * that clock (the time's own offset, else this machine's). Undefined when the text is not an ISO time.
+ * A tracker ISO time as the clock time when it is today (`19:23`) and as the day and the clock time on another day (`Oct 11 19:23`):
+ * the one way the board writes a time (the plan's `updated`, the state word's `since`, a stalled task's tag and page). A time with an
+ * offset reads as written, on its own clock, and "today" is `now` on that clock; a time ending in Z, or with no offset, reads on this
+ * machine's clock. Undefined when the text is not an ISO time with a clock time.
  */
-function startedText(iso: string, now: number): string | undefined {
+export function sinceText(iso: string, now: number): string | undefined {
   if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(iso)) {
     return undefined
   }
 
-  const offset = /([+-])(\d\d):(\d\d)$/.exec(iso)
-  const shifted = offset !== null ? new Date(now + (offset[1] === '-' ? -1 : 1) * (Number(offset[2]) * 60 + Number(offset[3])) * 60_000) : /Z$/.test(iso) ? new Date(now) : undefined
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const today =
-    shifted !== undefined
-      ? shifted.toISOString().slice(0, 10)
-      : (() => {
-          const local = new Date(now)
+  const instant = /Z$/.test(iso) ? Date.parse(iso) : undefined
 
-          return `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())}`
-        })()
-  const time = iso.slice(11, 16)
+  if (instant !== undefined && Number.isNaN(instant)) {
+    return undefined
+  }
 
-  return iso.slice(0, 10) === today ? `${time} today` : `${MONTHS[Number(iso.slice(5, 7)) - 1] ?? iso.slice(5, 7)} ${Number(iso.slice(8, 10))} ${time}`
+  const written = instant === undefined ? iso : localMinute(instant)
+  const offset = /([+-])(\d\d):(\d\d)$/.exec(written)
+  const today = offset === null ? localMinute(now).slice(0, 10) : new Date(now + (offset[1] === '-' ? -1 : 1) * (Number(offset[2]) * 60 + Number(offset[3])) * 60_000).toISOString().slice(0, 10)
+  const time = written.slice(11, 16)
+
+  return written.slice(0, 10) === today ? time : `${MONTHS[Number(written.slice(5, 7)) - 1] ?? written.slice(5, 7)} ${Number(written.slice(8, 10))} ${time}`
 }
 
 /**
@@ -1264,10 +1286,11 @@ export function statLines(stats: readonly Stat[]): { values: string; labels: str
 }
 
 /**
- * The stats under the plan name: the time (`56m` over `since 20:08`, `Oct 9 20:08` on another day; a closed plan `3h 05m` over
- * `total time`), the tokens (in + out, in already holds the cached) and the cost. Tokens and cost are left out when none is
- * measured, the cost alone when it has no price. Narrower than `width`: the time goes first, then the tokens; the cost stays.
- * Empty for a plan with neither a start nor a finish time.
+ * The stats under the plan name: when the plan was last updated (`updated`: `19:40` today, `Oct 11 19:40` on another day; no running
+ * time), the tokens (in + out, in already holds the cached) and the cost. The first is left out when the plan has no `updated` or it
+ * is no clock time (a `PROGRESS.md` has none); tokens and cost when none is measured, the cost alone when it has no price.
+ * Narrower than `width`: the update time goes first, then the tokens; the cost stays. Empty for a plan with neither a start nor a
+ * finish time.
  */
 export function planStatsOf(plan: PlanEntry, now: number, width: number): Stat[] {
   if (plan.started === undefined && plan.finished === undefined) {
@@ -1275,16 +1298,12 @@ export function planStatsOf(plan: PlanEntry, now: number, width: number): Stat[]
   }
 
   const totals = plan.usage_totals
-  const isClosed = plan.finished !== undefined
-  const begin = plan.started === undefined ? NaN : Date.parse(plan.started)
-  const end = plan.finished === undefined ? now : Date.parse(plan.finished)
-  const span = Number.isNaN(begin) || Number.isNaN(end) ? undefined : spanText(end - begin)
-  const started = plan.started === undefined ? undefined : startedText(plan.started, now)
+  const updated = plan.updated === undefined ? undefined : sinceText(plan.updated, now)
   const measured = totals !== undefined && totals.measured > 0
 
   return fitStats(
     [
-      ...(span === undefined ? [] : [{ value: span, label: isClosed || started === undefined ? 'total time' : `since ${started.replace(/ today$/, '')}`, drop: 1 }]),
+      ...(updated === undefined ? [] : [{ value: updated, label: 'updated', drop: 1 }]),
       ...(measured ? [{ value: compactCount(totals.tokens_in + totals.tokens_out), label: 'tokens', drop: 2 }] : []),
       ...(measured && totals.cost !== null ? [{ value: `~$${totals.cost.toFixed(2)}`, label: 'est. cost', drop: 3 }] : []),
     ],
@@ -1292,17 +1311,20 @@ export function planStatsOf(plan: PlanEntry, now: number, width: number): Stat[]
   )
 }
 
-/** The task page's status in words: `Waiting for your check`, `In progress`, `Done`; a stalled row adds `· stalled since 14:02` (local time). */
-export function statusWords(row: PlanRow): string {
+/**
+ * The task page's status in words: `Waiting for your check`, `In progress`, `Done`; a stalled row adds `· stalled since 14:02`, or
+ * `· stalled since Oct 11 14:02` when that was another day than `now`'s (just `· stalled` when the time is no clock time).
+ */
+export function statusWords(row: PlanRow, now: number = Date.now()): string {
   const words = plainStatusWords(row)
 
   if (!isStalled(row)) {
     return words
   }
 
-  const at = new Date(row.stalled_since as string)
+  const at = sinceText(row.stalled_since as string, now)
 
-  return `${words} · stalled since ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  return `${words} · ${at === undefined ? 'stalled' : `stalled since ${at}`}`
 }
 
 function plainStatusWords(row: PlanRow): string {
@@ -1366,16 +1388,35 @@ export const usageArgv = (anchor: string, index: number, task: string, sessionId
 
 // ---------------------------------------------------------------- who, and the card's text
 
-/** `<split> × <executor> · <tier>` and then ` — <why>`; the tier can be `—` itself. The first two parts hold no `—`. */
-const ROUTE = /^[^—]+? × ([^—]+?) · (\S+)(?: — (.*))?$/
+/**
+ * `[<split> × ]<executor> · <tier>` and then ` — <why>`. The split is optional (`inline · Opus — x`). The tier is the first word after
+ * the dot, up to a space, a comma or a bracket, so `Sonnet (fork worker) — …` and `Sonnet, note — …` read `Sonnet`; any note after it,
+ * up to the first ` — `, is skipped. The tier can be `—` itself. The split and the executor hold no `—`.
+ */
+const ROUTE = /^(?:[^—]+? × )?([^—]+?) · ([^\s,(]+)[^—]*?(?: — (.*))?$/
 
 /** The route as the tracker recorded it: `route`, else `who` (which says `unrouted` for none). */
 const routeSource = (row: PlanRow): string => row.route ?? (row.who === undefined || row.who === 'unrouted' ? '' : row.who)
 
 const routeOf = (row: PlanRow) => ROUTE.exec(routeSource(row).replace(/\s+/g, ' ').trim())
 
-/** The executor of the route (your name, `inline`, `subagent(harness-author)`); undefined for no route or one not in the format. */
-export const executorOf = (row: PlanRow): string | undefined => routeOf(row)?.[1]?.trim() || undefined
+/** The first word of `text` when it is the user (`you`, or the setting `your_name`, in any case), else undefined. */
+const youWordIn = (text: string | undefined): string | undefined => {
+  const first = text?.trim().split(/\s+/)[0]
+
+  return first !== undefined && isYou(first) ? first : undefined
+}
+
+/**
+ * The executor of the route (your name, `inline`, `subagent(harness-author)`); undefined for no route or one not in the format. It is
+ * the user's name word alone (`Sam`, or `you`) when the route starts with that word (`Sam ★ — check: …`, `Sam — direction choice …`)
+ * or the executor does (`Sam publishes, inline`): such a task is the user's to do.
+ */
+export const executorOf = (row: PlanRow): string | undefined => {
+  const executor = routeOf(row)?.[1]?.trim() || undefined
+
+  return youWordIn(routeText(row)) ?? youWordIn(executor) ?? executor
+}
 
 /**
  * Who checks the work: the board's `check` column when the row has one, else `check by <who>:` in the route (your name,
@@ -1403,11 +1444,16 @@ export const needsYou = (row: PlanRow): boolean =>
   row.status === 'Needs Verification' && (checkerOf(row) === 'you' || isYou(executorOf(row)))
 
 /**
- * The tag on a card: in the Verify lanes (Needs Verification, Verifying) the checker's when the route names one (`you`, else
- * the checker's tier; none for a `script`); otherwise `you` when you are the executor, else the tier (`Opus`, `Sonnet`,
- * `Haiku`); undefined for no route, a route not in the format, or a tier that is none of those (`—`, `default`).
+ * The tag on a card, which names who does the task or is about to take it: none on a Done or Canceled card; in the Verify lanes
+ * (Needs Verification, Verifying) the checker's when the route names one (`you`, else the checker's tier; none for a `script`);
+ * otherwise `you` when you are the executor, else the tier (`Opus`, `Sonnet`, `Haiku`); undefined for no route, a route not in the
+ * format, or a tier that is none of those (`—`, `default`).
  */
 export function assigneeOf(row: PlanRow): string | undefined {
+  if (row.status === 'Done' || row.status === 'Canceled') {
+    return undefined
+  }
+
   const route = routeOf(row)
   const tier = route?.[2]
   const checker = checkerOf(row)
@@ -1423,8 +1469,20 @@ export function assigneeOf(row: PlanRow): string | undefined {
   return tier === 'Opus' || tier === 'Sonnet' || tier === 'Haiku' ? tier : undefined
 }
 
-/** The word of a card's tag: `stalled` for a stalled row, else its assignee; '' for none. */
-export const tagWordOf = (row: PlanRow): string => (isStalled(row) ? 'stalled' : (assigneeOf(row) ?? ''))
+/**
+ * The word of a card's tag: for a stalled row `stalled` and the time it stalled, the clock time today (`stalled 19:23`) or only the day
+ * on another one (`stalled Oct 11`, to keep the card narrow), plain `stalled` when the time is no clock time; else its assignee;
+ * '' for none. `now` decides whether the time is today's.
+ */
+export function tagWordOf(row: PlanRow, now: number = Date.now()): string {
+  if (!isStalled(row)) {
+    return assigneeOf(row) ?? ''
+  }
+
+  const at = sinceText(row.stalled_since as string, now)
+
+  return at === undefined ? 'stalled' : `stalled ${at.replace(/ \d\d:\d\d$/, '')}`
+}
 
 /** A tag's colours as a chip: the word padded one space each side on `bg`. */
 export type Chip = { bg: string; fg: string; bold?: true }
@@ -1438,6 +1496,9 @@ export const CHIPS: Readonly<Record<string, Chip>> = {
   // The grey of a deliverable's type chip: a stalled row has no model tag.
   stalled: { bg: '#E4E2D9', fg: '#44413A' },
 }
+
+/** The chip of a card tag's word: `you`, a model, or the grey one of `stalled` with its time (`stalled 19:23`, `stalled Oct 11`); undefined for none. */
+export const chipOf = (word: string): Chip | undefined => CHIPS[word] ?? (/^stalled( |$)/.test(word) ? CHIPS.stalled : undefined)
 
 /** The grey chip of a deliverable's type. */
 export const TYPE_CHIP: Chip = { bg: '#E4E2D9', fg: '#44413A' }
@@ -1519,11 +1580,11 @@ export type CardView = {
   isCut: boolean
 }
 
-/** How the card of `row`, `cardWidth` wide, is laid out. */
-export function cardView(row: PlanRow, cardWidth: number): CardView {
+/** How the card of `row`, `cardWidth` wide, is laid out; `now` decides whether a stalled card's tag reads a time or a day. */
+export function cardView(row: PlanRow, cardWidth: number, now: number = Date.now()): CardView {
   const mascot = (isRunning(row) || row.status === 'Blocked') && hasMascot(cardWidth)
   const room = Math.max(1, cardWidth - BORDER_COLUMNS - (mascot ? MASCOT_SPACE : 0))
-  const wanted = tagWordOf(row)
+  const wanted = tagWordOf(row, now)
   // The chip, two spaces and at least one column of name must fit.
   const tag = wanted !== '' && chipCols(wanted) + 3 <= room ? wanted : ''
   const marker = markerOf(row)
@@ -1696,9 +1757,9 @@ export type FullCard = {
 }
 
 /** What a hover on a card shows: the marker and task name whole, the goal, then the tag. `left` is the columns of the card it leaves uncovered. */
-export function fullCard(row: PlanRow, cardWidth: number, left = 0): FullCard {
+export function fullCard(row: PlanRow, cardWidth: number, left = 0, now: number = Date.now()): FullCard {
   const inner = Math.max(1, cardWidth - left - BORDER_COLUMNS)
-  const wanted = tagWordOf(row)
+  const wanted = tagWordOf(row, now)
   const tag = wanted !== '' && chipCols(wanted) <= inner ? wanted : ''
 
   const goal = goalOf(row)
@@ -1717,16 +1778,16 @@ export function scopeOf(anchor: string, index: number): string {
 export const goalOf = (row: PlanRow): string => (row.goal ?? '').replace(/\s+/g, ' ').trim()
 
 /** Whether the card of `row` has a hover box: its name is cut, or its row has a goal to show. */
-export const hasReveal = (row: PlanRow, cardWidth: number): boolean => cardView(row, cardWidth).isCut || goalOf(row) !== ''
+export const hasReveal = (row: PlanRow, cardWidth: number, now: number = Date.now()): boolean => cardView(row, cardWidth, now).isCut || goalOf(row) !== ''
 
 /** Rows a card takes: its border, its text lines, its border. */
-export const cardRows = (row: PlanRow, cardWidth: number): number => 2 + cardView(row, cardWidth).lines.length
+export const cardRows = (row: PlanRow, cardWidth: number, now: number = Date.now()): number => 2 + cardView(row, cardWidth, now).lines.length
 
 /** Columns of a mascot card left uncovered by its revealed box: its border and padding, the mascot, and the space after it. */
 export const REVEAL_LEFT = 2 + MASCOT_SPACE - 1
 
 /** Where the revealed box of the card of `row` starts: right of the mascot when the card has one, else at the card's own edge. */
-export const revealLeft = (row: PlanRow, cardWidth: number): number => (cardView(row, cardWidth).mascot ? REVEAL_LEFT : 0)
+export const revealLeft = (row: PlanRow, cardWidth: number, now: number = Date.now()): number => (cardView(row, cardWidth, now).mascot ? REVEAL_LEFT : 0)
 
 /**
  * The overflow button's label (a Button draws its own `[ ]`, 4 columns): the line as it is when it fits `width`, else the

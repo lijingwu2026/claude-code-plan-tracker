@@ -33,7 +33,8 @@ export type PlanRow = {
   finished?: string
   /**
    * When the row last had a session working on it, ISO text: given by a board command for an In Progress or Verifying row that no session is working
-   * on. The card then shows a grey `stalled` tag and its mascot stops, and the task page says `stalled since HH:MM`. A `PROGRESS.md` never has it.
+   * on. The card then shows a grey `stalled` tag with the time (`stalled 14:02`, or the day, `stalled Oct 11`, when it was not today) and its mascot
+   * stops, and the task page says `stalled since 14:02` (`stalled since Oct 11 14:02`). A `PROGRESS.md` never has it.
    */
   stalled_since?: string
   /** What the row's work cost, as the usage command wrote it; absent until computed. */
@@ -83,6 +84,16 @@ export type PlanEntry = {
   /** The earliest row `started`; the latest row `finished`, given only once the plan is closed. */
   started?: string
   finished?: string
+  /**
+   * When the plan last changed, ISO text: the newest row `updated`. The details line shows it as `updated` (`19:40` today, `Oct 11 19:40` on another
+   * day). A `PROGRESS.md` never has it, and then no time is shown.
+   */
+  updated?: string
+  /**
+   * Since when the plan has had no row In Progress or Verifying, ISO text: given by a board command for an idle plan. The state word then reads
+   * `Idle since 19:40` (`Idle since Oct 11 19:40`); without it, plain `Idle`.
+   */
+  idle_since?: string
   /** Absent when the tracker is older than the plan line. */
   usage_totals?: PlanTotals
   /** Claude's 2–3 sentence summary of the plan (what it is for, where it is now, what is next or needed from the person), drawn under the plan line. Absent when none. */

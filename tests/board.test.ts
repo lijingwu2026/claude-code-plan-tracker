@@ -6,6 +6,7 @@ import {
   STYLE,
   asksForYou,
   assigneeOf,
+  checkerOf,
   bandLine,
   cardLines,
   cardView,
@@ -14,6 +15,7 @@ import {
   displayWidth,
   doneBlocks,
   doneHeader,
+  fullCard,
   executorOf,
   failureText,
   finishedAnchor,
@@ -33,6 +35,7 @@ import {
   pointsOf,
   piecesOf,
   segmentsOf,
+  settings,
   shortPath,
   boardArgv,
   commandMarkOf,
@@ -44,7 +47,7 @@ import {
   wrap,
 } from '../hooks/board'
 import type { LaneKey } from '../hooks/board'
-import type { PlanEntry, PlanRow } from '../types'
+import type { PlanEntry, PlanRow, PlanStatus } from '../types'
 import { ALPHA_ROWS, BOARD, ROOT, SCRIPT } from './fixtures'
 
 const ALPHA = BOARD.plans[0] as PlanEntry
@@ -382,6 +385,87 @@ describe('who', () => {
     expect(executorOf(row)).toBe('subagent(harness-author)')
     expect(assigneeOf(row)).toBeUndefined()
     expect(whoLineOf(row)).toEqual({ tier: 'default', executor: 'subagent(harness-author)' })
+  })
+})
+
+describe('who: the tag names who does the task next', () => {
+  const routed = (status: PlanStatus, route: string): PlanRow => ({ task: 'a task', status, updated: null, route })
+
+  test('a Done or Canceled card has no tag, whoever did it; its page still says who did it', () => {
+    for (const status of ['Done', 'Canceled'] as const) {
+      expect(assigneeOf(routed(status, 'spawn × subagent · Sonnet — x'))).toBeUndefined()
+      expect(assigneeOf(routed(status, 'serial × Sam · — — x'))).toBeUndefined()
+      expect(assigneeOf(routed(status, 'serial × inline · Opus — x — check by Sam: y'))).toBeUndefined()
+      expect(cardView(routed(status, 'spawn × subagent · Sonnet — x'), 40).tag).toBe('')
+      expect(fullCard(routed(status, 'spawn × subagent · Sonnet — x'), 40).tag).toBe('')
+    }
+
+    expect(whoLineOf(routed('Done', 'spawn × subagent · Sonnet — x'))).toEqual({ tier: 'Sonnet', executor: 'subagent' })
+    expect(assigneeOf(routed('Todo', 'spawn × subagent · Sonnet — x'))).toBe('Sonnet')
+    expect(assigneeOf(routed('Needs Verification', 'serial × inline · Opus — x — check by Sam: y'))).toBe('you')
+  })
+
+  test('a tier followed by a note is read: the first word after the dot, up to a space, a comma or a bracket', () => {
+    const noted = routed('In Progress', 'serial × subagent · Sonnet (fork worker, own branch) — why — check by Sam: x')
+
+    expect(assigneeOf(noted)).toBe('Sonnet')
+    expect(executorOf(noted)).toBe('subagent')
+    expect(whoLineOf(noted)).toEqual({ tier: 'Sonnet', executor: 'subagent' })
+    expect(cardView(noted, 40).tag).toBe('Sonnet')
+    expect(assigneeOf(routed('In Progress', 'serial × inline · Sonnet, note — why'))).toBe('Sonnet')
+    expect(assigneeOf(routed('In Progress', 'serial × inline · Opus (1M) note'))).toBe('Opus')
+    expect(checkerOf(noted)).toBe('you')
+  })
+
+  test('a route with no split reads too: `inline · Opus — x`', () => {
+    const bare = routed('Todo', 'inline · Opus — x')
+
+    expect(executorOf(bare)).toBe('inline')
+    expect(assigneeOf(bare)).toBe('Opus')
+    expect(whoLineOf(bare)).toEqual({ tier: 'Opus', executor: 'main session' })
+  })
+
+  test('a route that starts with your name is yours: `Sam ★ — check: y` waits for you, `Sam publishes, inline` is you', () => {
+    const check = routed('Needs Verification', 'Sam ★ — check: y')
+
+    expect(assigneeOf(check)).toBe('you')
+    expect(needsYou(check)).toBe(true)
+    expect(markerOf(check)).toBe('◆ needs you · ')
+    expect(whoLineOf(check)).toEqual({ executor: 'you' })
+
+    const publishes = routed('Blocked', 'serial × Sam publishes, inline · Opus — z')
+
+    expect(assigneeOf(publishes)).toBe('you')
+    expect(whoLineOf(publishes)).toEqual({ executor: 'you' })
+    expect(assigneeOf(routed('Todo', 'Sam — pick one of the two'))).toBe('you')
+    expect(assigneeOf(routed('Todo', 'You decide · Opus — x'))).toBe('you')
+  })
+
+  test('only the whole word counts: a longer name, or your name later in the route, is not you; with no name set only `you` is', () => {
+    expect(assigneeOf(routed('Todo', 'Samuel reviews · Opus — x'))).toBe('Opus')
+    expect(assigneeOf(routed('Todo', 'serial × inline · Opus — Sam decides later'))).toBe('Opus')
+    expect(assigneeOf(routed('Todo', 'serial × Samuel · Opus — x'))).toBe('Opus')
+
+    const name = settings.yourName
+
+    settings.yourName = ''
+    expect(assigneeOf(routed('Needs Verification', 'Sam ★ — check: y'))).toBeUndefined()
+    expect(assigneeOf(routed('Needs Verification', 'You ★ — check: y'))).toBe('you')
+    settings.yourName = name
+  })
+
+  test('a route that reads the same as before still does: executor, tier and note of the formats in use', () => {
+    const cases: [string, string | undefined, string | undefined][] = [
+      ['serial × Sam · — — a', 'Sam', undefined],
+      ['spawn × subagent(harness-author) · default — system files', 'subagent(harness-author)', undefined],
+      ['serial × inline · Opus — a — check by main session · Opus: x', 'inline', 'Opus'],
+      ['parallel × subagent · Haiku', 'subagent', 'Haiku'],
+    ]
+
+    for (const [route, executor, tier] of cases) {
+      expect(executorOf(routed('Todo', route))).toBe(executor)
+      expect(assigneeOf(routed('Todo', route))).toBe(tier === undefined ? (executor === 'Sam' ? 'you' : undefined) : tier)
+    }
   })
 })
 

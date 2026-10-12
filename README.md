@@ -4,7 +4,7 @@ A live board of your plan's steps in Claude Code: which are done, which are runn
 
 ![plan-tracker board: four lanes of task cards, an Artifacts table and a Deliverables list below them, and a band above the prompt showing the plan's done/total](docs/board.png)
 
-*Shown with a board command that also supplies time, tokens and cost, and several plans (the `▾` after the plan name). From a plain `PROGRESS.md` you get the lanes, cards, Artifacts and Deliverables (with those columns), without the figures and with one plan.*
+*Shown with a board command that also supplies last-updated time, tokens and cost, and several plans (the `▾` after the plan name). From a plain `PROGRESS.md` you get the lanes, cards, Artifacts and Deliverables (with those columns), without the figures and with one plan.*
 
 plan-tracker draws the `PROGRESS.md` board that [plan-orchestrator](https://github.com/lijingwu2026/claude-code-plan-orchestrator)'s route skill keeps (or any `PROGRESS.md` with a `task | status` table) as a band above the prompt and a pane of lanes, in the terminal and the Claude Desktop app.
 
@@ -84,9 +84,9 @@ Claude Code asks for these when you enable the plugin. Leave `board_command` and
 The JSON `board_command` prints is typed in [types/index.d.ts](types/index.d.ts). What it adds to the board file:
 
 - `matches` and `message`: a query that finds several plans lists them, each pressable, and a press opens that plan. A `PROGRESS.md` board is one plan, so it has no list.
-- `started` / `finished` and `usage_totals` per plan, `usage` per task: the time, tokens and est. cost.
+- `updated` and `idle_since` (ISO times) per plan: the details line shows `updated`, when the plan last changed (`19:40` today, `Oct 11 19:40` on another day), and an idle plan's state word reads `Idle since 19:40` (plain `Idle` without it). Send `started` too (and `finished` once the plan is closed): the details line appears once the plan has started. `usage_totals` per plan and `usage` per task: the tokens and est. cost. A time is shown on the clock it was written in, "today" being today on that clock.
 - `recap` and `recap_updated` (ISO time) per plan: the recap and when it was written.
-- `stalled_since` (ISO time) per task: set on an In Progress or Verifying task that no session is working on. Its card shows a grey `stalled` tag in place of the model tag and its mascot stops, its page reads `In progress · stalled since 14:02` (local time), and when every running task is stalled the plan's state word reads `Stalled` and the band stops moving. A plain `PROGRESS.md` has no session data, so it never shows this.
+- `stalled_since` (ISO time) per task: set on an In Progress or Verifying task that no session is working on. Its card shows a grey tag with the time, `stalled 14:02` (`stalled Oct 11` when that was another day), in place of the model tag and its mascot stops, its page reads `In progress · stalled since 14:02` (`… since Oct 11 14:02`), and when every running task is stalled the plan's state word reads `Stalled since 14:02` (the newest of them) and the band stops moving. A plain `PROGRESS.md` has no session data, so it never shows this.
 
 With a plain `PROGRESS.md` there is no usage and no start time: no figures are drawn once a step is under way, and a task page has none.
 
