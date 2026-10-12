@@ -337,7 +337,7 @@ describe('the deliverables table', () => {
     const [title, header, ...lines] = kids(section)
 
     expect(textOf(title)).toBe('Deliverables')
-    expect(textOf(header)).toMatch(/^TYPE\s+DELIVERABLE\s+CHANGE$/)
+    expect(textOf(header)).toMatch(/^TYPE\s+DELIVERABLE\s+WHAT CHANGED$/)
     expect(header?.props.dimColor).toBe(true)
     expect(lines.map(line => textOf(line).replace(/\s+/g, ' ').trim())).toEqual([
       '.py automation/b.py —',
@@ -377,7 +377,7 @@ describe('the deliverables table', () => {
     const section = await pane.find({ key: 'deliverables' })
     const [, header, first] = kids(section)
 
-    expect(kids(header).map(textOf)).toEqual(['TYPE', 'DELIVERABLE', 'CHANGE'])
+    expect(kids(header).map(textOf)).toEqual(['TYPE', 'DELIVERABLE', 'WHAT CHANGED'])
     expect(kids(first).map(node => node.type)).toEqual(['Box', 'Box', 'Box'])
     // a proportional font makes ' .py ' wider than its cells: a breaking space lets the Text wrap and the word falls a line down
     expect(textOf(kids(first)[0])).toBe('\u00A0.py\u00A0')
@@ -894,7 +894,7 @@ describe('opening a task page asks the tracker for its usage', () => {
   })
 })
 
-describe('the deliverables table: the CHANGE column', () => {
+describe('the deliverables table: the WHAT CHANGED column', () => {
   const CHANGE = 'adds the CHANGE column to the table'
   const board = (change: string | undefined): PlanBoard => ({
     ...WITH_ROWS,
@@ -907,7 +907,7 @@ describe('the deliverables table: the CHANGE column', () => {
     const pane = await mountPane($, 'terminal')
     const [, header, ...lines] = kids(await pane.find({ key: 'deliverables' }))
 
-    expect(textOf(header).trimEnd()).toMatch(/^TYPE\s+DELIVERABLE\s+CHANGE$/)
+    expect(textOf(header).trimEnd()).toMatch(/^TYPE\s+DELIVERABLE\s+WHAT CHANGED$/)
     expect(lines.map(line => textOf(line).replace(/\s+/g, ' ').trim())).toEqual([`.md knowledge/a.md ${CHANGE}`, 'knowledge/b.md —'])
     await pane.unmount()
   })
@@ -938,25 +938,66 @@ describe('the deliverables table: the CHANGE column', () => {
     await pane.unmount()
   })
 
-  test('terminal: wide enough, the three columns stay (header and a CHANGE cell on every row)', async ($, on) => {
+  test('terminal: wide enough, the three columns stay (header and a change cell on every row)', async ($, on) => {
     world(on, { fixture: board(CHANGE) })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal', 100)
     const [, header, ...lines] = kids(await pane.find({ key: 'deliverables' }))
 
-    expect(textOf(header)).toMatch(/^TYPE\s+DELIVERABLE\s+CHANGE/)
+    expect(textOf(header)).toMatch(/^TYPE\s+DELIVERABLE\s+WHAT CHANGED/)
     expect(lines.every(line => line.type === 'Text')).toBe(true)
     await pane.unmount()
   })
 
-  test('desktop: a CHANGE Box after the deliverable, "—" when none; a narrow pane stacks instead: path row, then the change dim under it', async ($, on) => {
+  // Type column 6, path 14, gap 2 + 2 (the pane takes the rest): at 36 columns the change column is 12 wide, the width of its header.
+  test('terminal: at the narrowest width that keeps the change column, the header reads WHAT CHANGED whole', async ($, on) => {
+    world(on, { fixture: board(CHANGE) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 36)
+    const [, header, ...lines] = kids(await pane.find({ key: 'deliverables' }))
+
+    expect(textOf(header).trimEnd()).toMatch(/^TYPE\s+DELIVERABLE\s+WHAT CHANGED$/)
+    expect(lines.every(line => line.type === 'Text')).toBe(true)
+    await pane.unmount()
+  })
+
+  test('terminal: one column narrower the change column is dropped and each deliverable stacks: no header, never a cut WHAT CHA…', async ($, on) => {
+    world(on, { fixture: board(CHANGE) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 35)
+    const section = await pane.find({ key: 'deliverables' })
+
+    expect(textOf(section)).not.toMatch(/TYPE|DELIVERABLE|WHAT/)
+    expect(textOf(section)).toContain('knowledge/a.md')
+    await pane.unmount()
+  })
+
+  test('terminal: at no width is the header wider than the pane (the pane would cut it): it reads WHAT CHANGED whole inside the width, or there is no header', async ($, on) => {
+    world(on, { fixture: board(CHANGE) })
+    await $.session.start(SESSION)
+
+    for (const columns of [30, 33, 34, 35, 36, 37, 40, 48, 58, 59, 60]) {
+      const pane = await mountPane($, 'terminal', columns)
+      const [, header] = kids(await pane.find({ key: 'deliverables' }))
+      const text = textOf(header).trimEnd()
+
+      if (text.startsWith('TYPE')) {
+        expect(text).toMatch(/WHAT CHANGED$/)
+        expect(displayWidth(text), `${columns} columns`).toBeLessThanOrEqual(columns)
+      }
+
+      await pane.unmount()
+    }
+  })
+
+  test('desktop: a change Box after the deliverable, "—" when none; a narrow pane stacks instead: path row, then the change dim under it', async ($, on) => {
     world(on, { fixture: board(CHANGE) })
     await $.session.start(SESSION)
 
     const wide = await mountPane($, 'desktop', 140)
     const [, header, first, second] = kids(await wide.find({ key: 'deliverables' }))
 
-    expect(kids(header).map(textOf)).toEqual(['TYPE', 'DELIVERABLE', 'CHANGE'])
+    expect(kids(header).map(textOf)).toEqual(['TYPE', 'DELIVERABLE', 'WHAT CHANGED'])
     expect(textOf(kids(first)[2])).toBe(CHANGE)
     expect(textOf(kids(second)[2])).toBe('—')
     await wide.unmount()

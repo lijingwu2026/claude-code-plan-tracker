@@ -28,7 +28,7 @@ them are done, running or waiting on you.
    table of labelled rows. `Goal` (the step's `goal` cell), `Status`, `Done by` (the model as a chip), `Checked by` (once
    the step is Done), `Progress` (a bar, when the step reports one), `Latest note` and `Deliverable` (the path and what
    it changed). A row with nothing to show is left out. Below the lanes, `Deliverables` lists every file the steps
-   produced: type, path and the `change` cell. More than five rows fold into a `+N more` button (press it again for `Show less`); a pane too narrow for three columns stacks each file, its path first and its `change` dim under it.
+   produced: type, path and a `WHAT CHANGED` column (the `change` cell). More than five rows fold into a `+N more` button (press it again for `Show less`); a pane too narrow for three columns stacks each file, its path first and its `change` dim under it.
 
 It also works without plan-orchestrator: any `PROGRESS.md` with a markdown table that has `task` and `status` columns.
 Columns are found by header name, in any order. Statuses read: `Todo`, `In Progress`, `Needs Verification`, `Blocked`,
@@ -72,8 +72,9 @@ With `board_command`, a query that finds several plans can answer with `matches`
 of the plan list, each plan pressable, and a press opens that plan. `plans` and `selected` stay what they are with no
 query. A `PROGRESS.md` board is one plan, so it has no list: `/plan-tracker <words>` opens that plan.
 
-Time, tokens and estimated cost appear only when `usage_command` is set and your `board_command` returns them: on a
-task page as a row of figures, and under the plan name as three figures: the time (`2h 41m` over `since 20:08`, or
+Time, tokens and estimated cost appear when your `board_command` returns them (the plan's time from `started` or
+`finished`, its tokens and cost from `usage_totals`, a task's figures from its `usage`): on a task page as a row of
+figures, and under the plan name as three figures: the time (`2h 41m` over `since 20:08`, or
 `since Oct 9 20:08` on another day; `total time` once the plan is closed), `54.8M` over `tokens` and `~$13.19` over
 `est. cost`. Each figure is a bold value over a dim label; `Not started yet` shows before any step runs. On a narrow pane
 the time goes first, then the tokens; the cost stays. With a plain `PROGRESS.md` there is no usage and no start time: no

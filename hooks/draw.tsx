@@ -929,10 +929,10 @@ const TABLE_GAP = 2
 /** The narrowest path column the terminal table keeps before it drops the change column. */
 const MIN_PATH_COLUMNS = 12
 
-/** The narrowest the terminal's CHANGE column is kept at; a narrower one is dropped. */
-const MIN_CHANGE_COLUMNS = 8
+/** The narrowest the terminal's WHAT CHANGED column is kept at: its header's width, so the header is never cut; a narrower column is dropped and each change stacks under its path. */
+const MIN_CHANGE_COLUMNS = displayWidth('WHAT CHANGED')
 
-/** The desktop pane width from which the deliverables table has a CHANGE column. */
+/** The desktop pane width from which the deliverables table has a WHAT CHANGED column. */
 const DESKTOP_CHANGE_FROM = 100
 
 /** A no-break space: the desktop's type chip is padded with it, so the Text cannot wrap between the padding and the word. */
@@ -999,7 +999,7 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, isO
   }
 
   const pathNatural = Math.max(0, ...all.map(({ item }) => displayWidth(item.path)))
-  const changeNatural = Math.max(displayWidth('CHANGE'), ...all.map(({ item }) => displayWidth(item.change ?? '—')))
+  const changeNatural = Math.max(displayWidth('WHAT CHANGED'), ...all.map(({ item }) => displayWidth(item.change ?? '—')))
   const avail = columns - typeCols - TABLE_GAP
   let pathCols = avail
   let changeCols = 0
@@ -1008,7 +1008,7 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, isO
     pathCols = pathNatural
     changeCols = changeNatural
   } else {
-    // The path keeps its whole width up to two thirds of the table, CHANGE the rest; CHANGE is the first to go.
+    // The path keeps its whole width up to two thirds of the table, WHAT CHANGED the rest; WHAT CHANGED is the first to go.
     pathCols = Math.min(pathNatural, Math.floor(avail * 0.65))
     changeCols = avail - TABLE_GAP - pathCols
 
@@ -1051,7 +1051,7 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, isO
 
   const header = (
     <Text dimColor wrap="truncate">
-      {`${padTo('TYPE', typeCols)}${gap}${changeCols === 0 ? 'DELIVERABLE' : `${padTo('DELIVERABLE', pathCols)}${gap}${padTo('CHANGE', changeCols)}`}`}
+      {`${padTo('TYPE', typeCols)}${gap}${changeCols === 0 ? 'DELIVERABLE' : `${padTo('DELIVERABLE', pathCols)}${gap}${padTo('WHAT CHANGED', changeCols)}`}`}
     </Text>
   )
 
@@ -1073,7 +1073,7 @@ function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, isO
             <Text dimColor>DELIVERABLE</Text>
           </Box>
           <Box width="34%" flexShrink={0}>
-            <Text dimColor>CHANGE</Text>
+            <Text dimColor>WHAT CHANGED</Text>
           </Box>
         </Box>
       ) : (
@@ -1102,7 +1102,7 @@ const MIN_ABOUT_COLUMNS = 24
 /** Columns a stacked terminal note is indented under its title. */
 const ABOUT_INDENT = 2
 
-/** The desktop pane width from which the artifacts table has an ABOUT column: the deliverables' CHANGE column's, so both tables change layout at one width. */
+/** The desktop pane width from which the artifacts table has an ABOUT column: the deliverables' WHAT CHANGED column's, so both tables change layout at one width. */
 const DESKTOP_ABOUT_FROM = DESKTOP_CHANGE_FROM
 
 /** The share of the desktop table the ARTIFACT column takes. */
