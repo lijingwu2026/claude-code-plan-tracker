@@ -1,7 +1,7 @@
 {
   "name": "plan-tracker",
   "version": "0.6.17",
-  "description": "Your approved plan, live: which step is done, running, or waiting on you. A one-row band above the prompt (plan, state word, progress bar, Plan file) and a pane with lanes of task cards (hover one for its whole name and its goal), a state word (In progress, Idle, Done) after the plan name in the header, the plan dropdown and the band, big figures under the plan name (time, tokens, cost) and on each task page, task pages (a labelled table: goal, status, who, progress, note, deliverable, artifact), an artifacts table (a linked title and a dim note) and a deliverables table (long lists fold into +N more, a narrow pane stacks each file with its change, or each artifact with its note, under its path or title), in the terminal and the Claude Desktop app. It reads PROGRESS.md (or the output of a command you set) and redraws whenever it changes. Read-only.",
+  "description": "Your approved plan, live: which step is done, running, or waiting on you. A one-row band above the prompt (plan, state word, progress bar, Plan file) and a pane with lanes of task cards (hover one for its whole name and its goal), a state word (In progress, Idle, Done) after the plan name in the header, the plan dropdown and the band, big figures under the plan name (time, tokens, cost) and on each task page, task pages (a labelled table: goal, status, who, progress, note, deliverable, artifact), an artifacts table (a linked title and a dim note) and a deliverables table (long lists fold into +N more, a narrow pane stacks each file with its change, or each artifact with its note, under its path or title), in the terminal and the Claude Desktop app. It reads PROGRESS.md (or the output of a command you set) and redraws whenever it changes. Read-only for your board.",
   "types": "./types/index.d.ts",
   "author": {
     "name": "lijingwu2026"
@@ -19,19 +19,19 @@
     "board_command": {
       "type": "string",
       "title": "Board command (optional)",
-      "description": "A command that prints the board as JSON, used instead of the file. Placeholders: {session} is the session id, {query} the /plan-tracker argument; [ ... ] around words keeps them only when every placeholder inside is non-empty, e.g. mytool --view {session} --json [--query={query}]. No shell runs it.",
+      "description": "A command that prints the board as JSON, used instead of the file. Placeholders: {session} is the session id, {query} the /plan-tracker argument; [ ... ] around words keeps them only when every placeholder inside is non-empty, e.g. mytool --view {session} --json [--query={query}]. No shell runs it. Leave it empty unless you have your own tracker.",
       "default": ""
     },
     "usage_command": {
       "type": "string",
       "title": "Usage command (optional)",
-      "description": "A command that records a task's time and cost when its page opens; the board command then returns them. Placeholders: {session} {anchor} {index} {task}. Empty: cost and time are hidden.",
+      "description": "A command that records a task's time and cost when its page opens; the board command then returns them. Placeholders: {session} {anchor} {index} {task}. Empty: cost and time are hidden. Leave it empty unless you have your own tracker.",
       "default": ""
     },
     "your_name": {
       "type": "string",
       "title": "Your name (optional)",
-      "description": "A row whose executor or checker equals this name is shown as 'you', and its cost is hidden. Empty: nothing is shown as you.",
+      "description": "A row whose executor or checker equals this name is shown as 'you', and the page of a row it executes has no time, tokens or cost. The word you always counts too.",
       "default": ""
     }
   }
