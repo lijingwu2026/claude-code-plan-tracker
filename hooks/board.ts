@@ -1900,7 +1900,9 @@ export function parseProgress(text: string, file: string, name: string): { board
     const route = raw(cells, 'route') ?? (executor === undefined ? undefined : `step × ${executor.includes(' · ') ? executor : `${executor} · —`}`)
     const check = cell(cells, 'check')
     const note = raw(cells, 'evidence')
-    const deliverable = cell(cells, 'deliverable')
+    // The deliverable is read raw, as the artifact is: `_` and `*` are part of the path. A path wrapped in one code span is its inside.
+    const deliverableText = raw(cells, 'deliverable')
+    const deliverable = deliverableText === undefined ? undefined : asText(/^`([^`]+)`$/.exec(deliverableText)?.[1]?.trim() ?? deliverableText)
     // The artifact is read raw: `_`, `*` and backticks in its title and path are part of them.
     const artifactText = raw(cells, 'artifact')
     const artifact = artifactText !== undefined && parseArtifact(artifactText) !== undefined ? artifactText : undefined

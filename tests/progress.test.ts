@@ -5,7 +5,7 @@ import { assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, needsYou, 
 import type { PlanEntry, PlanRow } from '../types'
 import { PROGRESS_REAL } from './fixtures/progress-real'
 import { PROGRESS_REAL_EXECUTOR } from './fixtures/progress-real-executor'
-import { PANE_ID, ROOT, SESSION, bandProps, openCard, paneProps, textIn, textOf, world } from './fixtures'
+import { HOME, PANE_ID, ROOT, SESSION, bandProps, openCard, paneProps, textIn, textOf, world } from './fixtures'
 
 /** PROGRESS.md as plan-orchestrator's route skill wrote it in a real run (a 3-step plan, `claude -p`). */
 const REAL = PROGRESS_REAL
@@ -311,5 +311,52 @@ describe('the board file: the plan state', () => {
   test('the plan summary: nothing started reads "Not started yet"; work under way has no times, so no line', () => {
     expect(notStartedText(planOf(withStatus('Todo')))).toBe('Not started yet')
     expect(notStartedText(planOf(withStatus('In Progress')))).toBe('')
+  })
+})
+
+describe('the board file: a deliverable path is read as written', () => {
+  const rowsOf = (...cells: string[]) =>
+    planOf(`| task | status | deliverable |\n|---|---|---|\n${cells.map((cell, at) => `| t${at} | Done | ${cell} |`).join('\n')}\n`).rows
+
+  test('`_`, `*` and `~` in the path survive; a path wrapped in one code span is its inside', () => {
+    const rows = rowsOf('docs/a_b_c.md', '`docs/a_b_c.md`', 'docs/*final*_v2.md', '`~/code/x/a_b.html`', ' docs/plain.md ')
+
+    expect(rows.map(row => row.deliverable)).toEqual(['docs/a_b_c.md', 'docs/a_b_c.md', 'docs/*final*_v2.md', '~/code/x/a_b.html', 'docs/plain.md'])
+  })
+
+  for (const cell of ['docs/a_b_c.md', '`docs/a_b_c.md`']) {
+    test(`desktop: ${cell} is listed with the exact path, not docs/abc.md`, FILE_MODE, async ($, on) => {
+      world(on, { surfaces: ['desktop'], files: { [FILE]: `| task | status | deliverable |\n|---|---|---|\n| one | Done | ${cell} |\n` } })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, 'desktop')
+
+      expect((await pane.find({ type: 'Markdown', key: 'deliverable:0' }))?.props.text).toBe(`[docs/a\\_b\\_c.md](file://${ROOT}/docs/a_b_c.md)`)
+      await pane.unmount()
+    })
+  }
+
+  test('terminal: the path is drawn as written', FILE_MODE, async ($, on) => {
+    world(on, { surfaces: ['terminal'], files: { [FILE]: '| task | status | deliverable |\n|---|---|---|\n| one | Done | `docs/a_b_c.md` |\n' } })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal')
+
+    expect(textOf(await pane.find({ key: 'deliverables' }))).toContain('docs/a_b_c.md')
+    await pane.unmount()
+  })
+
+  test('a press on a path outside the project root opens that exact path', FILE_MODE, async ($, on) => {
+    const path = `${HOME}/code/x/a_b_c.html`
+    const w = world(on, { surfaces: ['desktop'], files: { [FILE]: '| task | status | deliverable |\n|---|---|---|\n| one | Done | `~/code/x/a_b_c.html` |\n' }, present: [path] })
+
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop')
+
+    await pane.press({ key: 'deliverable:0', link: { href: `file://${path}` } })
+    for (let at = 0; at < 20; at += 1) {
+      await w.clock.advance(10)
+    }
+
+    expect(w.logRuns.filter(run => run.argv[0] === 'open').map(run => run.argv)).toEqual([['open', path]])
+    await pane.unmount()
   })
 })
