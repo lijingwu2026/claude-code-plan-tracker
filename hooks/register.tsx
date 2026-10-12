@@ -487,26 +487,6 @@ async function animates($: EngineInterface): Promise<boolean> {
   return band || pane
 }
 
-/** What each hook's redraws look like: when the last one was logged and how many came since. */
-const redraws = new Map<string, { at: number; n: number }>()
-
-/** Counts a draw of `hook` on `surface` and logs the count at most once a second: what still redraws the desktop shows here. */
-function noteRedraw($: EngineInterface, hook: string, surface: string) {
-  const key = `${hook}:${surface}`
-  const seen = redraws.get(key) ?? { at: 0, n: 0 }
-  const now = Date.now()
-
-  seen.n += 1
-
-  if (now - seen.at >= 1000) {
-    void log($, 'redraw', null, { hook, surface, count: seen.n })
-    seen.at = now
-    seen.n = 0
-  }
-
-  redraws.set(key, seen)
-}
-
 /** The rows the pane last said it shows (`scroll.bodyRows`): logged with a lane press, for the Show less rule. */
 let paneRows: number | undefined
 
@@ -816,8 +796,6 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
-    noteRedraw($, 'band', e.surface)
-
     const picked = await shownPlan($)
     const below = await next(e)
 
@@ -904,7 +882,6 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
-    noteRedraw($, 'pane', e.surface)
     paneRows = e.props.scroll.bodyRows
 
     const { Text } = $.ui.resolve(e)

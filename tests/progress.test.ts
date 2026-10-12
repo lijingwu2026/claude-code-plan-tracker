@@ -259,13 +259,23 @@ describe('the board file: live refresh', () => {
   test('a file that did not change is read again but redraws nothing', FILE_MODE, async ($, on) => {
     const w = world(on, { files: { [FILE]: REAL } })
     await $.session.start(SESSION)
+    const band = await mountBand($)
+    const pane = await mountPane($)
+
+    await band.drawn()
+    await pane.drawn()
+
     const reads = () => w.reads.filter(path => path === FILE).length
     const before = reads()
+    const drawnBefore = w.bandDraws
 
     await w.clock.advance(6_000)
 
     expect(reads()).toBeGreaterThan(before)
-    expect(w.diagnostics().filter(line => line.stage === 'redraw')).toEqual([])
+    expect(drawnBefore).toBeGreaterThan(0)
+    expect(w.bandDraws).toBe(drawnBefore)
+    await band.unmount()
+    await pane.unmount()
   })
 
   test('with a board command set the file is not polled', async ($, on) => {

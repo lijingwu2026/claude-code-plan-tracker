@@ -155,6 +155,8 @@ export type World = {
   /** a reason `$.session.surfaces()` fails, or null */
   surfacesDenial: string | null
   clock: MockClock
+  /** How many times the band was drawn: counted here, where the draw reaches the world beneath the plugin, in memory, with no file. */
+  bandDraws: number
   /** The lines the mod appended to its log file, parsed. */
   logLines: () => Record<string, unknown>[]
   diagnostics: () => Record<string, unknown>[]
@@ -162,8 +164,8 @@ export type World = {
 
 export const SURVEY: RenderElement = { type: 'Text', children: ['SURVEY'] }
 
-/** The log stages that only measure (how often a hook is drawn, what the timer saw, which key was pressed). */
-export const DIAGNOSTIC_STAGES = ['redraw', 'timer', 'press']
+/** The log stages that only measure (what the timer saw, which key was pressed). */
+export const DIAGNOSTIC_STAGES = ['timer', 'press']
 
 const FINISHED_RUN = { isStdoutTruncated: false, isStderrTruncated: false }
 
@@ -212,7 +214,8 @@ export function world(
     audioDenial: null,
     surfacesDenial: null,
     clock: mock.clock(on, { now: 0 }),
-    /** The log lines of the mod's events; the diagnostics (`redraw`, `timer`, `press`) are in `diagnostics`. */
+    bandDraws: 0,
+    /** The log lines of the mod's events; the diagnostics (`timer`, `press`) are in `diagnostics`. */
     logLines: () => w.diagnostics().filter(l => !DIAGNOSTIC_STAGES.includes(String(l.stage))),
     diagnostics: () => w.logRuns.flatMap(r => (r.stdin ?? '').split('\n').filter(Boolean)).map(l => JSON.parse(l) as Record<string, unknown>),
     ...setup,
@@ -259,7 +262,11 @@ export function world(
   })
   on('fs.exists', ($, e) => ({ value: w.present.includes(e.path) || w.files[e.path] !== undefined }))
   on('fs.stat', ($, e) => ({ value: { kind: w.dirs.includes(e.path) ? ('dir' as const) : ('file' as const), size: 0, mtimeMs: 0, isLink: false } }))
-  on('ui.render', () => w.below)
+  on('ui.render', () => {
+    w.bandDraws += 1
+
+    return w.below
+  })
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('process.run', async ($, e) => {
     if (e.argv[0] === 'python3') {

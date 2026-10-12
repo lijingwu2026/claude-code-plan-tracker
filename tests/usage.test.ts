@@ -551,7 +551,21 @@ describe('the band is one target, and presses are handled by key', () => {
     }
   })
 
-  test('a draw of the band or the pane is logged with its surface and a count, at most once a second per hook', async ($, on) => {
+  test('a draw of the band is counted in memory, on each surface', async ($, on) => {
+    const w = world(on)
+    await $.session.start(SESSION)
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const before = w.bandDraws
+      const band = await mountBand($, surface)
+
+      await band.drawn()
+      expect(w.bandDraws).toBeGreaterThan(before)
+      await band.unmount()
+    }
+  })
+
+  test('a draw of the band or the pane writes no line to the log file', async ($, on) => {
     const w = world(on)
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop')
@@ -559,11 +573,12 @@ describe('the band is one target, and presses are handled by key', () => {
 
     await pane.drawn()
     await band.drawn()
+    await w.clock.advance(3_000)
+    await pane.drawn()
+    await band.drawn()
 
-    const redraws = w.diagnostics().filter(line => line.stage === 'redraw')
-
-    expect(redraws.map(line => `${line.hook}:${line.surface}`).sort()).toEqual(['band:desktop', 'pane:desktop'])
-    expect(redraws.every(line => typeof line.count === 'number')).toBe(true)
+    expect(w.diagnostics().filter(line => line.stage === 'redraw')).toEqual([])
+    expect(w.bandDraws).toBeGreaterThan(0)
     await pane.unmount()
     await band.unmount()
   })
