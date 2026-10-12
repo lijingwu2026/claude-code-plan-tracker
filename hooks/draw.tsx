@@ -538,7 +538,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   const state = planStateOf(plan)
   // The state text (`Idle since 19:40`) is drawn in the bare state's color; its width is what the header gives it.
   const stateText = planStateText(plan, now)
-  const stats = planStatsOf(plan, now, columns)
+  const stats = planStatsOf(plan, columns)
   const notStarted = notStartedText(plan)
   // The state text and n/m are never cut: the name is shortened to leave them room. Beside "Plan file ›" the name has the old
   // budget (two gaps and the ▾ besides the three; at least MIN_HEAD_NAME columns, else it would be cut to nothing). A name that

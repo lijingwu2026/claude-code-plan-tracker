@@ -16,7 +16,7 @@ const PLAN: PlanEntry = {
   plan_file: '/plans/csv.md',
   started: '2026-10-11T20:08:00+09:00',
   finished: '2026-10-11T21:04:00+09:00',
-  updated: '2026-10-11T21:04:00+09:00',
+  usage_totals: { working_ms: 0, tokens_in: 1_000, tokens_cached: 0, tokens_out: 0, cost: 0.5, measured: 2, total: 2 },
   rows: [
     { task: 'build it', status: 'Done', updated: null },
     { task: 'review the copy', status: 'Needs Verification', updated: null },

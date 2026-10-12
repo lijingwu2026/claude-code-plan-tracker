@@ -82,14 +82,15 @@ describe('"Not started yet" under the header', () => {
 })
 
 describe('the plan stats have no state', () => {
-  test('a never-started plan reads "Not started yet" and has no stats; a started one has stats with no state word and no running time', () => {
-    const started = '2026-10-11T20:08:00+09:00'
-    const now = Date.parse('2026-10-11T21:00:00+09:00')
+  const totals = { working_ms: 0, tokens_in: 1_000, tokens_cached: 0, tokens_out: 0, cost: 0.5, measured: 1, total: 1 }
+  const started = '2026-10-11T20:08:00+09:00'
+  const now = Date.parse('2026-10-11T21:00:00+09:00')
 
+  test('a never-started plan reads "Not started yet" and has no stats; a started one has stats with no state word and no time figure', () => {
     expect(notStartedText(plan('a', 'A', ['Todo']))).toBe('Not started yet')
-    expect(planStatsOf(plan('a', 'A', ['Todo']), Date.now(), 100)).toEqual([])
-    expect(planStatsOf(plan('a', 'A', ['Todo'], { started, updated: '2026-10-11T20:40:00+09:00' }), now, 100).map(stat => [stat.value, stat.label])).toEqual([['20:40', 'updated']])
-    expect(planStatsOf(plan('a', 'A', ['Todo'], { started }), now, 100)).toEqual([])
+    expect(planStatsOf(plan('a', 'A', ['Todo']), 100)).toEqual([])
+    expect(planStatsOf(plan('a', 'A', ['Todo'], { started, updated: '2026-10-11T20:40:00+09:00', usage_totals: totals }), 100).map(stat => [stat.value, stat.label])).toEqual([['1k', 'tokens'], ['~$0.50', 'est. cost']])
+    expect(planStatsOf(plan('a', 'A', ['Todo'], { started, updated: '2026-10-11T20:40:00+09:00' }), 100)).toEqual([])
   })
 })
 
@@ -137,5 +138,49 @@ describe('the state word says since when the plan is idle', () => {
     expect(textOf(await band.drawn())).not.toContain('since')
     await pane.unmount()
     await band.unmount()
+  })
+})
+
+describe('the state word says when a plan is done', () => {
+  const FINISHED = localTime(0, 21, 40)
+  const done = (anchor: string, name: string, extra: Partial<PlanEntry> = {}) => plan(anchor, name, ['Done', 'Done'], extra)
+
+  for (const surface of SURFACES) {
+    test(`${surface}: the header, the band and the plan dropdown read Done at 21:40 from finished, Done at from updated, plain Done with neither`, async ($, on) => {
+      world(on, { surfaces: [surface], fixture: boardOf(done('a', 'Alpha', { finished: FINISHED, updated: localTime(0, 21, 50) }), done('b', 'Beta', { updated: localTime(0, 18, 5) }), done('c', 'Gamma')) })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, surface)
+      const band = await mountBand($, surface)
+
+      expect(textOf(await pane.find({ key: 'menu' }))).toContain('Alpha  Done at 21:40  2/2')
+      expect(textOf(await band.drawn())).toContain('Done at 21:40')
+
+      await pane.press({ key: 'menu:name' })
+
+      const list = textOf(await pane.find({ key: 'menu:list' }))
+
+      expect(list).toMatch(/Alpha\s+Done at 21:40\s+2\/2/)
+      expect(list).toMatch(/Beta\s+Done at 18:05\s+2\/2/)
+      expect(list).toMatch(/Gamma\s+Done\s+2\/2/)
+      await pane.unmount()
+      await band.unmount()
+    })
+  }
+
+  test('terminal: another day reads the day and the time; a narrow header keeps the whole text and cuts the name', async ($, on) => {
+    world(on, { fixture: boardOf(done('a', 'Alpha plan with a long name', { finished: localTime(2, 21, 40) })) })
+    await $.session.start(SESSION)
+
+    const wide = await mountPane($, 'terminal')
+
+    expect(textOf(await wide.find({ key: 'menu' }))).toContain(`Done at ${dayName(2)} 21:40  2/2`)
+    await wide.unmount()
+
+    const narrow = await mountPane($, 'terminal', 44)
+    const header = textOf(await narrow.find({ key: 'menu' }))
+
+    expect(header).toContain(`Done at ${dayName(2)} 21:40  2/2`)
+    expect(header).toContain('…')
+    await narrow.unmount()
   })
 })

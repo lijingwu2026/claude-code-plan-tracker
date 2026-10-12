@@ -256,13 +256,20 @@ export function planStateOf(plan: PlanEntry): PlanState {
 }
 
 /**
- * The state word as the header, the band and the plan list write it: `Stalled since 19:23` (the newest `stalled_since` of its running
- * rows), `Idle since 19:40` (the plan's `idle_since`); a time on another day reads `Oct 11 19:23`. Plain `Stalled` or `Idle` when the
- * time is not there or not a clock time (a `PROGRESS.md` has no `idle_since`); `In progress` and `Done` are the bare words. Colors
- * follow the bare state (`planStateOf`); the room it takes is this text's.
+ * The state word as the header, the band and the plan list write it, and the one place the board shows a plan's time: `Done at 21:40`
+ * (the plan's `finished`, else its `updated`), `Stalled since 19:23` (the newest `stalled_since` of its running rows), `Idle since 19:40`
+ * (the plan's `idle_since`); a time on another day reads `Oct 11 19:23`. Plain `Done`, `Stalled` or `Idle` when the time is not there or
+ * not a clock time (a `PROGRESS.md` has none); `In progress` is always the bare label. Colors follow the bare state (`planStateOf`); the
+ * room it takes is this text's.
  */
 export function planStateText(plan: PlanEntry, now: number = Date.now()): string {
   const state = planStateOf(plan)
+
+  if (state === 'Done') {
+    const at = [plan.finished, plan.updated].map(time => (time === undefined ? undefined : sinceText(time, now))).find(one => one !== undefined)
+
+    return at === undefined ? state : `Done at ${at}`
+  }
 
   if (state === 'Stalled') {
     const times = plan.rows.flatMap(row => (isStalled(row) ? [row.stalled_since as string] : []))
@@ -1288,25 +1295,22 @@ export function statLines(stats: readonly Stat[]): { values: string; labels: str
 }
 
 /**
- * The stats under the plan name: when the plan was last updated (`updated`: `19:40` today, `Oct 11 19:40` on another day; no running
- * time), the tokens (in + out, in already holds the cached) and the cost. The first is left out when the plan has no `updated` or it
- * is no clock time (a `PROGRESS.md` has none); tokens and cost when none is measured, the cost alone when it has no price.
- * Narrower than `width`: the update time goes first, then the tokens; the cost stays. Empty for a plan that has not begun (no start or
- * finish time, every row Todo or Canceled): it reads `Not started yet`. A plan under way with no start time (older tracker data)
- * draws the figures it has.
+ * The stats under the plan name: the tokens (in + out, in already holds the cached) over `tokens` and the cost over `est. cost`; no time,
+ * which the state word in the header carries. The tokens and the cost are left out when none is measured, the cost alone when it has no
+ * price; with neither there is no details line. Narrower than `width`: the tokens go first; the cost stays. Empty for a plan that has not
+ * begun (no start or finish time, every row Todo or Canceled): it reads `Not started yet`. A plan under way with no start time (older
+ * tracker data) draws the figures it has.
  */
-export function planStatsOf(plan: PlanEntry, now: number, width: number): Stat[] {
+export function planStatsOf(plan: PlanEntry, width: number): Stat[] {
   if (!hasBegun(plan)) {
     return []
   }
 
   const totals = plan.usage_totals
-  const updated = plan.updated === undefined ? undefined : sinceText(plan.updated, now)
   const measured = totals !== undefined && totals.measured > 0
 
   return fitStats(
     [
-      ...(updated === undefined ? [] : [{ value: updated, label: 'updated', drop: 1 }]),
       ...(measured ? [{ value: compactCount(totals.tokens_in + totals.tokens_out), label: 'tokens', drop: 2 }] : []),
       ...(measured && totals.cost !== null ? [{ value: `~$${totals.cost.toFixed(2)}`, label: 'est. cost', drop: 3 }] : []),
     ],

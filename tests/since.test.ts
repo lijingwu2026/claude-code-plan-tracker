@@ -60,11 +60,30 @@ describe('planStateText: the state word with the time it began', () => {
     expect(planStateText(plan([]), NOW)).toBe('Idle')
   })
 
-  test('In progress and Done are the bare words, whatever the plan carries', () => {
-    expect(planStateText(plan([row('In Progress'), row('Todo')], { idle_since: at(0, 19, 40) }), NOW)).toBe('In progress')
-    expect(planStateText(plan([row('In Progress', at(0, 14, 2)), row('In Progress')]), NOW)).toBe('In progress')
-    expect(planStateText(plan([row('Done'), row('Canceled')], { idle_since: at(0, 19, 40) }), NOW)).toBe('Done')
-    expect(planStateText(plan([row('Done'), row('Todo')], { finished: at(0, 19, 40), idle_since: at(0, 19, 40) }), NOW)).toBe('Done')
+  test('In progress is the bare label, whatever times the plan carries', () => {
+    expect(planStateText(plan([row('In Progress'), row('Todo')], { idle_since: at(0, 19, 40), updated: at(0, 20, 0) }), NOW)).toBe('In progress')
+    expect(planStateText(plan([row('In Progress', at(0, 14, 2)), row('In Progress')], { updated: at(0, 20, 0) }), NOW)).toBe('In progress')
+    expect(planStateText(plan([row('Verifying'), row('Todo')], { updated: at(0, 20, 0) }), NOW)).toBe('In progress')
+  })
+
+  test('Done at: from the plan\'s finished, else its updated; plain Done with neither', () => {
+    const done = [row('Done'), row('Canceled')]
+
+    expect(planStateText(plan(done, { finished: at(0, 21, 40), updated: at(0, 21, 50) }), NOW)).toBe('Done at 21:40')
+    expect(planStateText(plan(done, { finished: at(2, 21, 40) }), NOW)).toBe(`Done at ${dayName(2)} 21:40`)
+    expect(planStateText(plan(done, { updated: at(0, 21, 50) }), NOW)).toBe('Done at 21:50')
+    expect(planStateText(plan(done, { updated: at(1, 21, 50) }), NOW)).toBe(`Done at ${dayName(1)} 21:50`)
+    expect(planStateText(plan(done), NOW)).toBe('Done')
+    // the tracker closed the plan though a row is open; idle_since is for an idle plan, not a closed one
+    expect(planStateText(plan([row('Done'), row('Todo')], { finished: at(0, 21, 40), idle_since: at(0, 19, 0) }), NOW)).toBe('Done at 21:40')
+    expect(planStateText(plan(done, { idle_since: at(0, 19, 0) }), NOW)).toBe('Done')
+  })
+
+  test('a finished that is no clock time falls back to updated; neither readable is plain Done', () => {
+    const done = [row('Done')]
+
+    expect(planStateText(plan(done, { finished: 'done', updated: at(0, 21, 50) }), NOW)).toBe('Done at 21:50')
+    expect(planStateText(plan(done, { finished: 'done', updated: 'later' }), NOW)).toBe('Done')
   })
 })
 
@@ -92,6 +111,16 @@ describe('the longer state word and tag take their room', () => {
     expect(wide.stateText).toBe('Stalled since 14:02')
     expect(plain.stateText).toBe('Stalled')
     expect(displayWidth(plain.name) - displayWidth(wide.name)).toBe(displayWidth(' since 14:02'))
+  })
+
+  test('a Done plan\'s `Done at 21:40` takes its room from the name in the band row, the header budget and the picker', () => {
+    const done: PlanEntry = { ...plan(STALLED), rows: [{ task: 'x', status: 'Done', updated: null }], finished: localTime(0, 21, 40) }
+    const bareDone: PlanEntry = { ...done, finished: undefined }
+
+    expect(bandLine(done, 100, NOW).stateText).toBe('Done at 21:40')
+    expect(bandLine(bareDone, 100, NOW).stateText).toBe('Done')
+    expect(displayWidth(bandLine(bareDone, 100, NOW).name) - displayWidth(bandLine(done, 100, NOW).name)).toBe(displayWidth(' at 21:40'))
+    expect(bandFit(done, 100, false, 12, NOW)).toMatchObject({ state: 'Done', stateText: 'Done at 21:40', hasState: true })
   })
 
   test('the terminal band drops the state word at a wider row when the word is longer, and never cuts it', () => {

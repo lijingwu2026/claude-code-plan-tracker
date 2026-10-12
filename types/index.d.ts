@@ -81,12 +81,12 @@ export type PlanEntry = {
   /** When the plan was registered: the date, and (plans made since 2026-10-11) the full ISO time. */
   created?: string
   created_at?: string
-  /** The earliest row `started`; the latest row `finished`, given only once the plan is closed. */
+  /** The earliest row `started`; the latest row `finished`, given only once the plan is closed (the header then reads `Done at 21:40`). */
   started?: string
   finished?: string
   /**
-   * When the plan last changed, ISO text: the newest row `updated`. The details line shows it as `updated` (`19:40` today, `Oct 11 19:40` on another
-   * day). A `PROGRESS.md` never has it, and then no time is shown.
+   * When the plan last changed, ISO text: the newest row `updated`. A closed plan with no `finished` reads `Done at 21:40` from it (`Done at Oct 11 21:40`
+   * on another day). A `PROGRESS.md` never has it.
    */
   updated?: string
   /**

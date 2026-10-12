@@ -388,7 +388,7 @@ describe('the deliverables table', () => {
 
 describe('the board header', () => {
   test('a divider line sits between the plan stats and the lanes', async ($, on) => {
-    world(on, { fixture: { ...WITH_ROWS, plans: [{ ...PLAN, started: '2026-10-11T20:08:00+09:00', updated: '2026-10-11T20:40:00+09:00' }] } })
+    world(on, { fixture: { ...WITH_ROWS, plans: [{ ...PLAN, started: '2026-10-11T20:08:00+09:00', usage_totals: { working_ms: 0, tokens_in: 1_000, tokens_cached: 0, tokens_out: 0, cost: 0.5, measured: 1, total: 1 } }] } })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal', 100)
     const strip = kids(await pane.find({ key: 'strip' }))
@@ -1121,83 +1121,67 @@ describe('the deliverables table: rows that do not fit are counted, not dropped'
 describe('the plan stats under the plan name', () => {
   const TOTALS = { working_ms: 150 * 60_000, tokens_in: 38_150_000, tokens_cached: 37_500_000, tokens_out: 50_000, cost: 9.3, measured: 3, total: 3 }
   const open: PlanEntry = { ...PLAN, started: '2026-10-11T20:08:00+09:00', updated: '2026-10-11T20:40:00+09:00', usage_totals: TOTALS }
-  const NOW = Date.parse('2026-10-11T21:04:00+09:00')
   const WIDE = 200
-  const pairs = (plan: PlanEntry, width = WIDE, now = NOW) => planStatsOf(plan, now, width).map(stat => [stat.value, stat.label])
+  const pairs = (plan: PlanEntry, width = WIDE) => planStatsOf(plan, width).map(stat => [stat.value, stat.label])
 
-  test('an open plan: when it was last updated (the clock time today) over "updated", one token total (in + out), the cost; no running time', () => {
-    expect(pairs(open)).toEqual([['20:40', 'updated'], ['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
-    expect(JSON.stringify(planStatsOf(open, NOW, WIDE))).not.toMatch(/since|total time|56m/)
-  })
+  test('an open plan: one token total (in + out) over "tokens" and the cost over "est. cost"; no time figure, whether or not the plan has an updated time', () => {
+    expect(pairs(open)).toEqual([['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
+    expect(pairs({ ...open, updated: '2026-10-09T20:08:00+09:00' })).toEqual(pairs(open))
 
-  test('updated on another day the figure reads Mon D HH:MM', () => {
-    expect(pairs({ ...open, updated: '2026-10-09T20:08:00+09:00' })[0]).toEqual(['Oct 9 20:08', 'updated'])
-  })
-
-  test('"today" is the day on the clock the time was written in, not this machine\'s', () => {
-    const updated = '2026-10-11T23:30:00-05:00'
-
-    // 04:40Z is 23:40 on the 11th at -05:00; 05:40Z is 00:40 on the 12th there
-    expect(pairs({ ...open, updated }, WIDE, Date.parse('2026-10-12T04:40:00Z'))[0]).toEqual(['23:30', 'updated'])
-    expect(pairs({ ...open, updated }, WIDE, Date.parse('2026-10-12T05:40:00Z'))[0]).toEqual(['Oct 11 23:30', 'updated'])
-  })
-
-  test('a plan with no updated (a PROGRESS.md, or a board command that does not send it) has no time figure; the tokens and the cost stay', () => {
     const { updated: _updated, ...unsent } = open
 
-    expect(pairs(unsent)).toEqual([['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
-    expect(pairs({ ...open, updated: 'sometime' }).map(pair => pair[1])).toEqual(['tokens', 'est. cost'])
+    expect(pairs(unsent)).toEqual(pairs(open))
+    expect(JSON.stringify(planStatsOf(open, WIDE))).not.toMatch(/updated|since|total time|56m|20:40/)
   })
 
   test('not every task measured: nothing says "of" or "tasks" (the header already shows n/m)', () => {
     const partial = { ...open, usage_totals: { ...TOTALS, measured: 3, total: 12 } }
 
     expect(pairs(partial)).toEqual(pairs(open))
-    expect(JSON.stringify(planStatsOf(partial, NOW, WIDE))).not.toMatch(/tasks|\bof\b/)
+    expect(JSON.stringify(planStatsOf(partial, WIDE))).not.toMatch(/tasks|\bof\b/)
   })
 
-  test('no price: the cost stat is left out; none measured or no totals: the tokens and the cost are left out', () => {
-    expect(pairs({ ...open, usage_totals: { ...TOTALS, cost: null, measured: 2, total: 4 } }).map(pair => pair[1])).toEqual(['updated', 'tokens'])
-    expect(pairs({ ...open, usage_totals: { ...TOTALS, tokens_in: 0, tokens_out: 0, cost: null, measured: 0, total: 4 } })).toEqual([['20:40', 'updated']])
+  test('no price: the cost stat is left out; none measured or no totals: there is no details line', () => {
+    expect(pairs({ ...open, usage_totals: { ...TOTALS, cost: null, measured: 2, total: 4 } })).toEqual([['38.2M', 'tokens']])
+    expect(pairs({ ...open, usage_totals: { ...TOTALS, tokens_in: 0, tokens_out: 0, cost: null, measured: 0, total: 4 } })).toEqual([])
 
     const { usage_totals: _totals, ...older } = open
 
-    expect(pairs(older)).toEqual([['20:40', 'updated']])
+    expect(pairs(older)).toEqual([])
   })
 
-  test('a closed plan reads the same: when it was last updated, not a total time', () => {
+  test('a closed plan reads the same: its tokens and cost, no total time and no finish time', () => {
     const closed = { ...open, finished: '2026-10-11T23:13:00+09:00', updated: '2026-10-11T23:13:00+09:00' }
 
-    expect(pairs(closed, WIDE, Date.parse('2030-01-01T00:00:00Z'))).toEqual([['Oct 11 23:13', 'updated'], ['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
-    expect(pairs(closed, WIDE, Date.parse('2026-10-11T23:20:00+09:00'))[0]).toEqual(['23:13', 'updated'])
+    expect(pairs(closed)).toEqual([['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
   })
 
   test('a plan no row has started has no stats and reads Not started yet, however much is known', () => {
     const idle = { ...PLAN, rows: ROWS.filter(one => one.status === 'Todo'), usage_totals: TOTALS }
 
-    expect(planStatsOf(idle, NOW, WIDE)).toEqual([])
+    expect(planStatsOf(idle, WIDE)).toEqual([])
     expect(notStartedText(idle)).toBe('Not started yet')
     expect(notStartedText(open)).toBe('')
   })
 
-  test('work under way with no start time (older tracker data) draws the figures it has: updated when sent, then the tokens and the cost', () => {
+  test('work under way with no start time (older tracker data) draws the figures it has: the tokens and the cost', () => {
     const { started: _started, ...unstarted } = open
 
-    expect(pairs(unstarted)).toEqual([['20:40', 'updated'], ['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
+    expect(pairs(unstarted)).toEqual([['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
     expect(notStartedText(unstarted)).toBe('')
 
     // a row that is Verifying, Blocked or Done has left Todo too
     for (const status of ['Verifying', 'Needs Verification', 'Blocked', 'Done'] as const) {
       const rows = [row('one', 'Todo'), row('two', status)]
 
-      expect(pairs({ ...unstarted, rows })[0]).toEqual(['20:40', 'updated'])
+      expect(pairs({ ...unstarted, rows })).toEqual([['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
     }
   })
 
   test('work under way with no start time and nothing else sent says nothing: no figures, no "Not started yet"', () => {
     const { started: _started, updated: _updated, usage_totals: _totals, ...bare } = open
 
-    expect(planStatsOf(bare, NOW, WIDE)).toEqual([])
+    expect(planStatsOf(bare, WIDE)).toEqual([])
     expect(notStartedText(bare)).toBe('')
   })
 
@@ -1205,16 +1189,14 @@ describe('the plan stats under the plan name', () => {
     const { started: _started, ...unstarted } = open
     const todo = { ...unstarted, rows: [row('one', 'Todo'), row('two', 'Canceled')] }
 
-    expect(planStatsOf(todo, NOW, WIDE)).toEqual([])
+    expect(planStatsOf(todo, WIDE)).toEqual([])
     expect(notStartedText(todo)).toBe('Not started yet')
-    expect(planStatsOf({ ...todo, rows: [] }, NOW, WIDE)).toEqual([])
+    expect(planStatsOf({ ...todo, rows: [] }, WIDE)).toEqual([])
     expect(notStartedText({ ...todo, rows: [] })).toBe('Not started yet')
   })
 
-  test('a narrow pane drops the time stat first, then the tokens; the cost stays', () => {
-    // columns: updated = 7, tokens = 6, est. cost = 9, and 3 between two
-    expect(pairs(open, 28).length).toBe(3)
-    expect(pairs(open, 27).map(pair => pair[1])).toEqual(['tokens', 'est. cost'])
+  test('a narrow pane drops the tokens first; the cost stays', () => {
+    // columns: tokens = 6, est. cost = 9, and 3 between the two
     expect(pairs(open, 18).map(pair => pair[1])).toEqual(['tokens', 'est. cost'])
     expect(pairs(open, 17).map(pair => pair[1])).toEqual(['est. cost'])
     expect(pairs(open, 5).map(pair => pair[1])).toEqual(['est. cost'])
@@ -1263,12 +1245,25 @@ describe('the plan stats under the plan name', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
     const closed: PlanEntry = { ...PLAN, started: '2026-10-11T20:08:00+09:00', finished: '2026-10-11T21:04:00+09:00', updated: '2026-10-11T21:04:00+09:00', usage_totals: { ...TOTALS, measured: 3, total: 12 } }
 
-    test(`${surface}: the first figure is the clock time of the last update today, with no duration`, async ($, on) => {
+    test(`${surface}: the details line has no time figure, whatever time the plan carries: only the tokens and the cost`, async ($, on) => {
       world(on, { fixture: { ...WITH_ROWS, plans: [{ ...open, updated: localTime(0, 19, 40) }] } })
       await $.session.start(SESSION)
       const pane = await mountPane($, surface)
 
-      expect(statsShown(await pane.find({ key: 'plan-stats' }), surface)).toEqual([['19:40', 'updated'], ['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
+      expect(statsShown(await pane.find({ key: 'plan-stats' }), surface)).toEqual([['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
+      expect(textOf(await pane.find({ key: 'strip' }))).not.toContain('19:40')
+      expect(textOf(await pane.find({ key: 'strip' }))).not.toContain('updated')
+      await pane.unmount()
+    })
+
+    test(`${surface}: a plan with a time and no tokens or cost has no details line`, async ($, on) => {
+      const { usage_totals: _totals, ...timeOnly } = open
+
+      world(on, { fixture: { ...WITH_ROWS, plans: [{ ...timeOnly, updated: localTime(0, 19, 40) }] } })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, surface)
+
+      expect(kids(await pane.find({ key: 'strip' })).map(node => String(node.props?.key))).toEqual(['menu', 'divider'])
       await pane.unmount()
     })
 
@@ -1281,7 +1276,7 @@ describe('the plan stats under the plan name', () => {
       const stats = await pane.find({ key: 'plan-stats' })
 
       expect(strip).toEqual(['menu', 'plan-stats', 'divider'])
-      expect(statsShown(stats, surface)).toEqual([['Oct 11 21:04', 'updated'], ['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
+      expect(statsShown(stats, surface)).toEqual([['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
 
       const valueNodes = surface === 'desktop' ? kids(stats).map(stat => kids(stat)[0]) : [kids(stats)[0]]
       const labelNodes = surface === 'desktop' ? kids(stats).map(stat => kids(stat)[1]) : [kids(stats)[1]]
@@ -1289,7 +1284,7 @@ describe('the plan stats under the plan name', () => {
       expect(valueNodes.every(node => node?.props.bold === true && node.props.dimColor === undefined)).toBe(true)
       expect(labelNodes.every(node => node?.props.dimColor === true)).toBe(true)
       expect(await pane.find({ key: 'summary' })).toBeUndefined()
-      expect(textOf(await pane.find({ key: 'menu' }))).toBe('● Alpha plan  Done  5/8Plan file ›')
+      expect(textOf(await pane.find({ key: 'menu' }))).toBe('● Alpha plan  Done at Oct 11 21:04  5/8Plan file ›')
       await pane.unmount()
     })
   }
@@ -1305,30 +1300,30 @@ describe('the plan stats under the plan name', () => {
     await pane.unmount()
   })
 
-  test('terminal: on a narrow pane the time goes first and no row is wider than the pane', async ($, on) => {
+  test('terminal: on a narrow pane the tokens go first and no row is wider than the pane', async ($, on) => {
     world(on, { fixture: { ...WITH_ROWS, plans: [open] } })
     await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 20)
+    const pane = await mountPane($, 'terminal', 15)
     const stats = await pane.find({ key: 'plan-stats' })
 
-    expect(statsShown(stats, 'terminal').map(pair => pair[1])).toEqual(['tokens', 'est. cost'])
+    expect(statsShown(stats, 'terminal').map(pair => pair[1])).toEqual(['est. cost'])
 
     for (const line of kids(stats)) {
-      expect(displayWidth(textOf(line))).toBeLessThanOrEqual(20)
+      expect(displayWidth(textOf(line))).toBeLessThanOrEqual(15)
     }
 
     await pane.unmount()
   })
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`${surface}: a plan with a row under way and no start time draws the update time, not "Not started yet"`, async ($, on) => {
+    test(`${surface}: a plan with a row under way and no start time draws its tokens and cost, not "Not started yet"`, async ($, on) => {
       const { started: _started, ...unstarted } = open
 
-      world(on, { fixture: { ...WITH_ROWS, plans: [{ ...unstarted, updated: localTime(0, 19, 40) }] } })
+      world(on, { fixture: { ...WITH_ROWS, plans: [unstarted] } })
       await $.session.start(SESSION)
       const pane = await mountPane($, surface)
 
-      expect(statsShown(await pane.find({ key: 'plan-stats' }), surface)).toEqual([['19:40', 'updated'], ['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
+      expect(statsShown(await pane.find({ key: 'plan-stats' }), surface)).toEqual([['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
       expect(textOf(await pane.drawn())).not.toContain('Not started yet')
       await pane.unmount()
     })

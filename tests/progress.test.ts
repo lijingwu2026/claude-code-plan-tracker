@@ -95,7 +95,7 @@ describe('the board file: a real PROGRESS.md', () => {
 
     expect(plan).not.toHaveProperty('updated')
     expect(plan).not.toHaveProperty('idle_since')
-    expect(planStatsOf(plan, Date.parse('2026-10-12T15:00:00+09:00'), 100)).toEqual([])
+    expect(planStatsOf(plan, 100)).toEqual([])
   })
 })
 
@@ -103,7 +103,7 @@ describe('the board file: a row under way and no figures', () => {
   test('a plain PROGRESS.md with a row under way has no figures and does not read "Not started yet"', FILE_MODE, async ($, on) => {
     const plan = planOf(withStatus('In Progress'))
 
-    expect(planStatsOf(plan, Date.now(), 100)).toEqual([])
+    expect(planStatsOf(plan, 100)).toEqual([])
     expect(notStartedText(plan)).toBe('')
 
     world(on, { files: { [FILE]: withStatus('In Progress') } })
