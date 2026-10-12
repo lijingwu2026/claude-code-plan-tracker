@@ -505,6 +505,9 @@ type PaneArgs = {
   onLane: (key: LaneKey) => void
 }
 
+/** Columns of plan name the pane's header keeps beside "Plan file ›"; a narrower room puts that button on a row of its own. */
+const MIN_HEAD_NAME = 8
+
 /** The pane: the plan dropdown, "Plan file ›" and the plan line on top, then the four lanes, the artifacts and the deliverables (or one card's page, or the plan file). */
 export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   const { Box, Text, Button, Markdown } = kit
@@ -525,11 +528,16 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   const state = planStateOf(plan)
   const stats = planStatsOf(plan, args.now, columns)
   const notStarted = notStartedText(plan)
-  // The state word is never cut: the name is shortened to leave it room (two gaps and the word besides the count).
-  const headName = truncate(plan.name, Math.max(8, columns - 20 - displayWidth(countText(plan)) - 2 - displayWidth(state)))
+  // The state word and n/m are never cut: the name is shortened to leave them room. Beside "Plan file ›" the name has the old
+  // budget (two gaps and the ▾ besides the three; at least MIN_HEAD_NAME columns, else it would be cut to nothing). A name that
+  // does not fit beside it moves "Plan file ›" to a row of its own, and the first row gives the name what the other three leave.
+  const countWidth = displayWidth(countText(plan))
+  const beside = columns - 20 - countWidth - 2 - displayWidth(state)
+  const isFileBelow = beside < Math.min(MIN_HEAD_NAME, displayWidth(plan.name))
+  const headName = truncate(plan.name, isFileBelow ? Math.max(2, columns - 6 - countWidth - displayWidth(state) - (hasChoice ? 2 : 0) - 1) : beside)
 
-  const header = (
-    <Box key="menu" flexDirection="row">
+  const headRow = (
+    <Box key={isFileBelow ? 'menu:row' : 'menu'} flexDirection="row">
       <Text color={dotColor} {...dotDim}>
         ●{' '}
       </Text>
@@ -545,9 +553,21 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
       <Text>{'  '}</Text>
       <Text color="suggestion">{countText(plan)}</Text>
       {hasChoice ? <Button plain key="menu:arrow" label={isOpen ? ' ▴' : ' ▾'} onPress={onMenu} /> : null}
-      <Box flexGrow={1} minWidth={2} />
-      <Button plain key="plan-file" label={FILE_LABEL} onPress={onFile} />
+      {isFileBelow ? null : <Box flexGrow={1} minWidth={2} />}
+      {isFileBelow ? null : <Button plain key="plan-file" label={FILE_LABEL} onPress={onFile} />}
     </Box>
+  )
+
+  const header = isFileBelow ? (
+    <Box key="menu" flexDirection="column">
+      {headRow}
+      <Box flexDirection="row">
+        <Box flexGrow={1} />
+        <Button plain key="plan-file" label={FILE_LABEL} onPress={onFile} />
+      </Box>
+    </Box>
+  ) : (
+    headRow
   )
 
   // A card is its own bordered Box (the border takes 2 columns): every line of it is a Button, so a press anywhere opens

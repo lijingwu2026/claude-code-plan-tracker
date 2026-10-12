@@ -254,6 +254,84 @@ describe('plan-tracker pane: the header', () => {
   })
 })
 
+describe('plan-tracker pane: the header on a narrow pane', () => {
+  const STARTED = '2026-10-12T09:00:00+09:00'
+
+  /** A plan with `rows` tasks, the first In Progress: its state word is `In progress` and its count `0/<rows>`. */
+  const planNamed = (anchor: string, name: string, rows = 8) => ({
+    anchor,
+    name,
+    goal: 'g',
+    plan_file: `/plans/${anchor}.md`,
+    started: STARTED,
+    rows: Array.from({ length: rows }, (_, at) => ({ task: `step ${at}`, status: at === 0 ? ('In Progress' as const) : ('Todo' as const), updated: null })),
+  })
+
+  const headerRows = async (ui: Pane): Promise<string[]> => {
+    const header = await ui.find({ key: 'menu' })
+
+    // A one-row header holds a spacer of at least 2 columns before "Plan file ›": counted as the two spaces it takes.
+    return header?.props.flexDirection === 'column' ? kids(header).map(textOf) : [kids(header).map(child => (child.type === 'Box' ? '  ' : textOf(child))).join('')]
+  }
+
+  for (const surface of SURFACES) {
+    test(`${surface}: at 33 columns the name is cut with … and the state word and n/m stay whole, "Plan file ›" on a row of its own`, async ($, on) => {
+      world(on, { fixture: { selected: 'csv', message: null, plans: [planNamed('csv', 'Add CSV import to the exporter')] } })
+      await $.session.start(SESSION)
+      const ui = await mountPane($, surface, 33)
+
+      const rows = await headerRows(ui)
+
+      expect(rows).toHaveLength(2)
+      expect(rows[0]).toMatch(/^● Add CSV imp…  In progress  0\/8$/)
+      expect(rows[1]).toBe('Plan file ›')
+      expect(rows.every(row => displayWidth(row) <= 33)).toBe(true)
+      expect(await ui.find({ key: 'plan-file' })).toBeDefined()
+      await ui.press({ key: 'plan-file' })
+      expect(await ui.find({ key: 'file' })).toBeDefined()
+      await ui.unmount()
+    })
+
+    test(`${surface}: with several plans the ▾ stays on the first row and still opens the list`, async ($, on) => {
+      world(on, { fixture: { selected: 'csv', message: null, plans: [planNamed('csv', 'Add CSV import to the exporter'), planNamed('other', 'Other plan')] } })
+      await $.session.start(SESSION)
+      const ui = await mountPane($, surface, 33)
+
+      const rows = await headerRows(ui)
+
+      expect(rows[0]).toMatch(/^● Add CSV i…  In progress  0\/8 ▾$/)
+      expect(rows.every(row => displayWidth(row) <= 33)).toBe(true)
+      await ui.press({ key: 'menu:arrow' })
+      expect(await ui.find({ key: 'menu:list' })).toBeDefined()
+      await ui.unmount()
+    })
+
+    test(`${surface}: whatever the width, no header row is wider than the pane and the state word and n/m are never cut`, async ($, on) => {
+      world(on, { fixture: { selected: 'csv', message: null, plans: [planNamed('csv', 'Add CSV import to the exporter', 12), planNamed('other', 'Other plan')] } })
+      await $.session.start(SESSION)
+
+      for (const columns of [60, 50, 45, 40, 36, 33, 30, 28]) {
+        const ui = await mountPane($, surface, columns)
+        const rows = await headerRows(ui)
+
+        expect(rows.every(row => displayWidth(row) <= columns)).toBe(true)
+        expect(rows.join(' ')).toContain('In progress')
+        expect(rows.join(' ')).toContain('0/12')
+        await ui.unmount()
+      }
+    })
+
+    test(`${surface}: a name that fits beside "Plan file ›" keeps one row (40 columns)`, async ($, on) => {
+      world(on, { fixture: { selected: 'csv', message: null, plans: [planNamed('csv', 'CSV')] } })
+      await $.session.start(SESSION)
+      const ui = await mountPane($, surface, 40)
+
+      expect(await headerRows(ui)).toEqual(['● CSV  In progress  0/8  Plan file ›'])
+      await ui.unmount()
+    })
+  }
+})
+
 describe('plan-tracker pane: the lanes', () => {
   for (const surface of SURFACES) {
     test(`${surface}: four lanes (Todo, In Progress, Verify, Done) with their counts and four colors; Done says nothing of the canceled row`, async ($, on) => {
