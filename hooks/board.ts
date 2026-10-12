@@ -1244,20 +1244,22 @@ export type Stat = { value: string; label: string; drop: number }
 /** Columns between two stats of a row. */
 export const STAT_GAP = 3
 
-/** What a stats row shows when no row of the plan has left Todo; a plan with work under way and no times says nothing. */
+/** What a stats row shows when the plan has not begun: no start or finish time, and no row has left Todo. */
 export const NOT_STARTED = 'Not started yet'
 
 /**
- * `Not started yet` for a plan with no times and no row past Todo (a Canceled row is ignored), '' for any other plan: one with
- * times, or one with work under way but no times (a board file or a board command that keeps none), whose header already says
- * In progress.
+ * Whether the plan has begun: it has a start or a finish time, or a row has left Todo (a Canceled row is ignored). The stats are drawn
+ * for such a plan; a plan that has not begun reads `Not started yet` instead.
+ */
+const hasBegun = (plan: PlanEntry): boolean =>
+  plan.started !== undefined || plan.finished !== undefined || plan.rows.some(row => row.status !== 'Todo' && row.status !== 'Canceled')
+
+/**
+ * `Not started yet` for a plan that has not begun (no start or finish time, and every row Todo or Canceled), '' for any other plan,
+ * whose header already says In progress, Idle or Done.
  */
 export function notStartedText(plan: PlanEntry): string {
-  if (plan.started !== undefined || plan.finished !== undefined) {
-    return ''
-  }
-
-  return plan.rows.some(row => row.status !== 'Todo' && row.status !== 'Canceled') ? '' : NOT_STARTED
+  return hasBegun(plan) ? '' : NOT_STARTED
 }
 
 /** Columns a stat takes: the wider of its value and its label. */
@@ -1289,11 +1291,12 @@ export function statLines(stats: readonly Stat[]): { values: string; labels: str
  * The stats under the plan name: when the plan was last updated (`updated`: `19:40` today, `Oct 11 19:40` on another day; no running
  * time), the tokens (in + out, in already holds the cached) and the cost. The first is left out when the plan has no `updated` or it
  * is no clock time (a `PROGRESS.md` has none); tokens and cost when none is measured, the cost alone when it has no price.
- * Narrower than `width`: the update time goes first, then the tokens; the cost stays. Empty for a plan with neither a start nor a
- * finish time.
+ * Narrower than `width`: the update time goes first, then the tokens; the cost stays. Empty for a plan that has not begun (no start or
+ * finish time, every row Todo or Canceled): it reads `Not started yet`. A plan under way with no start time (older tracker data)
+ * draws the figures it has.
  */
 export function planStatsOf(plan: PlanEntry, now: number, width: number): Stat[] {
-  if (plan.started === undefined && plan.finished === undefined) {
+  if (!hasBegun(plan)) {
     return []
   }
 
@@ -1580,13 +1583,28 @@ export type CardView = {
   isCut: boolean
 }
 
-/** How the card of `row`, `cardWidth` wide, is laid out; `now` decides whether a stalled card's tag reads a time or a day. */
+/**
+ * The tag word that fits: `wanted` when `fits` accepts it; else, for a stalled word with its time (`stalled 19:23`, `stalled Oct 11`),
+ * the bare `stalled` when that fits; else '' (a card with no room for a chip has no tag).
+ */
+function fittingTag(wanted: string, fits: (word: string) => boolean): string {
+  if (wanted === '' || fits(wanted)) {
+    return wanted
+  }
+
+  return wanted.startsWith('stalled ') && fits('stalled') ? 'stalled' : ''
+}
+
+/**
+ * How the card of `row`, `cardWidth` wide, is laid out; `now` decides whether a stalled card's tag reads a time or a day. A stalled tag
+ * the card has no room for with its time is drawn as the bare `stalled`, so a narrow card (a mascot card in a pane of four lanes) still
+ * says it.
+ */
 export function cardView(row: PlanRow, cardWidth: number, now: number = Date.now()): CardView {
   const mascot = (isRunning(row) || row.status === 'Blocked') && hasMascot(cardWidth)
   const room = Math.max(1, cardWidth - BORDER_COLUMNS - (mascot ? MASCOT_SPACE : 0))
-  const wanted = tagWordOf(row, now)
   // The chip, two spaces and at least one column of name must fit.
-  const tag = wanted !== '' && chipCols(wanted) + 3 <= room ? wanted : ''
+  const tag = fittingTag(tagWordOf(row, now), word => chipCols(word) + 3 <= room)
   const marker = markerOf(row)
   const reported = progressOf(row)
   // A card too narrow for the whole bar has none.
@@ -1756,11 +1774,13 @@ export type FullCard = {
   pad: number
 }
 
-/** What a hover on a card shows: the marker and task name whole, the goal, then the tag. `left` is the columns of the card it leaves uncovered. */
+/**
+ * What a hover on a card shows: the marker and task name whole, the goal, then the tag (a stalled tag the inside has no room for with its
+ * time is the bare `stalled`, as on the card). `left` is the columns of the card it leaves uncovered.
+ */
 export function fullCard(row: PlanRow, cardWidth: number, left = 0, now: number = Date.now()): FullCard {
   const inner = Math.max(1, cardWidth - left - BORDER_COLUMNS)
-  const wanted = tagWordOf(row, now)
-  const tag = wanted !== '' && chipCols(wanted) <= inner ? wanted : ''
+  const tag = fittingTag(tagWordOf(row, now), word => chipCols(word) <= inner)
 
   const goal = goalOf(row)
 

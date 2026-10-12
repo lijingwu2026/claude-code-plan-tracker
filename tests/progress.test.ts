@@ -99,6 +99,24 @@ describe('the board file: a real PROGRESS.md', () => {
   })
 })
 
+describe('the board file: a row under way and no figures', () => {
+  test('a plain PROGRESS.md with a row under way has no figures and does not read "Not started yet"', FILE_MODE, async ($, on) => {
+    const plan = planOf(withStatus('In Progress'))
+
+    expect(planStatsOf(plan, Date.now(), 100)).toEqual([])
+    expect(notStartedText(plan)).toBe('')
+
+    world(on, { files: { [FILE]: withStatus('In Progress') } })
+    await $.session.start(SESSION)
+
+    const pane = await mountPane($)
+
+    expect(await pane.find({ key: 'plan-stats' })).toBeUndefined()
+    expect(textOf(await pane.drawn())).not.toContain('Not started yet')
+    await pane.unmount()
+  })
+})
+
 describe('the board file: the kit\'s executor and check columns', () => {
   const plan = () => planOf(PROGRESS_REAL_EXECUTOR)
 

@@ -1180,9 +1180,35 @@ describe('the plan stats under the plan name', () => {
     expect(notStartedText(open)).toBe('')
   })
 
-  test('work under way with no times has no stats and says nothing, however much is known', () => {
-    expect(planStatsOf({ ...PLAN, usage_totals: TOTALS }, NOW, WIDE)).toEqual([])
-    expect(notStartedText({ ...PLAN, usage_totals: TOTALS })).toBe('')
+  test('work under way with no start time (older tracker data) draws the figures it has: updated when sent, then the tokens and the cost', () => {
+    const { started: _started, ...unstarted } = open
+
+    expect(pairs(unstarted)).toEqual([['20:40', 'updated'], ['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
+    expect(notStartedText(unstarted)).toBe('')
+
+    // a row that is Verifying, Blocked or Done has left Todo too
+    for (const status of ['Verifying', 'Needs Verification', 'Blocked', 'Done'] as const) {
+      const rows = [row('one', 'Todo'), row('two', status)]
+
+      expect(pairs({ ...unstarted, rows })[0]).toEqual(['20:40', 'updated'])
+    }
+  })
+
+  test('work under way with no start time and nothing else sent says nothing: no figures, no "Not started yet"', () => {
+    const { started: _started, updated: _updated, usage_totals: _totals, ...bare } = open
+
+    expect(planStatsOf(bare, NOW, WIDE)).toEqual([])
+    expect(notStartedText(bare)).toBe('')
+  })
+
+  test('a plan whose every row is Todo or Canceled is not started, whatever else is sent: "Not started yet" and no figures', () => {
+    const { started: _started, ...unstarted } = open
+    const todo = { ...unstarted, rows: [row('one', 'Todo'), row('two', 'Canceled')] }
+
+    expect(planStatsOf(todo, NOW, WIDE)).toEqual([])
+    expect(notStartedText(todo)).toBe('Not started yet')
+    expect(planStatsOf({ ...todo, rows: [] }, NOW, WIDE)).toEqual([])
+    expect(notStartedText({ ...todo, rows: [] })).toBe('Not started yet')
   })
 
   test('a narrow pane drops the time stat first, then the tokens; the cost stays', () => {
@@ -1293,6 +1319,20 @@ describe('the plan stats under the plan name', () => {
 
     await pane.unmount()
   })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`${surface}: a plan with a row under way and no start time draws the update time, not "Not started yet"`, async ($, on) => {
+      const { started: _started, ...unstarted } = open
+
+      world(on, { fixture: { ...WITH_ROWS, plans: [{ ...unstarted, updated: localTime(0, 19, 40) }] } })
+      await $.session.start(SESSION)
+      const pane = await mountPane($, surface)
+
+      expect(statsShown(await pane.find({ key: 'plan-stats' }), surface)).toEqual([['19:40', 'updated'], ['38.2M', 'tokens'], ['~$9.30', 'est. cost']])
+      expect(textOf(await pane.drawn())).not.toContain('Not started yet')
+      await pane.unmount()
+    })
+  }
 
   test('a plan not started: one dim "Not started yet", no stats', async ($, on) => {
     world(on, { fixture: { ...WITH_ROWS, plans: [{ ...PLAN, rows: ROWS.filter(one => one.status === 'Todo') }] } })

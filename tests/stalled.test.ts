@@ -112,8 +112,8 @@ describe('stalled_since: the plan', () => {
 })
 
 describe('stalled_since: on screen', () => {
-  const mountPane = ($: Engine, surface: 'terminal' | 'desktop') =>
-    $.ui.mount({ plugin: 'plan-tracker', surface, component: 'Pane', requestId: PANE_ID, props: paneProps(140), viewport: { columns: 200, rows: 50, isFullscreen: true } })
+  const mountPane = ($: Engine, surface: 'terminal' | 'desktop', columns = 140) =>
+    $.ui.mount({ plugin: 'plan-tracker', surface, component: 'Pane', requestId: PANE_ID, props: paneProps(columns), viewport: { columns: 200, rows: 50, isFullscreen: true } })
 
   const mountBand = ($: Engine) =>
     $.ui.mount({ plugin: 'plan-tracker', surface: 'terminal', component: 'AbovePrompt', requestId: 'band', props: bandProps(120), viewport: { columns: 125, rows: 40, isFullscreen: true } })
@@ -197,6 +197,24 @@ describe('stalled_since: on screen', () => {
     expect(textOf(await pane.find({ key: 'field:status' })).replace(/[│╭╮╰╯├┤┬┴┼─]/g, ' ').replace(/\s+/g, ' ').trim()).toBe(`Status In progress · stalled since ${dayName(3)} 14:02`)
     await pane.unmount()
   })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`${surface}: in a 105-column pane (cards 25 wide) a stalled card keeps a tag: the bare \`stalled\` where the time does not fit`, async ($, on) => {
+      world(on, { fixture: stalledBoard('Build') })
+      await $.session.start(SESSION)
+
+      const narrow = await mountPane($, surface, 105)
+
+      expect(textOf((await cardRowsIn(narrow, BUILD)).at(-1))).toEndWith(' stalled ')
+      expect(textOf((await cardRowsIn(narrow, BUILD)).at(-1))).not.toContain('14:02')
+      await narrow.unmount()
+
+      const wide = await mountPane($, surface, 140)
+
+      expect(textOf((await cardRowsIn(wide, BUILD)).at(-1))).toEndWith(' stalled 14:02 ')
+      await wide.unmount()
+    })
+  }
 
   test('desktop: the stalled card\'s sprite is a still pose, not the animated one', async ($, on) => {
     world(on, { fixture: stalledBoard('Build') })

@@ -109,17 +109,43 @@ describe('the longer state word and tag take their room', () => {
     expect(firstWithState(timed) - firstWithState(bare)).toBe(displayWidth(' since 14:02'))
   })
 
-  test('a card shows its tag only where the whole chip, two spaces and a column of name fit beside the mascot: `stalled 14:02` needs 29 columns, `stalled` alone 19', () => {
-    // a mascot card keeps 4 columns of border and 7 of mascot: the chip (word and a space each side), two spaces and one column of name need 15 + 3 on top
-    expect(cardView(stalledRow(STALLED), 28, NOW).tag).toBe('')
+  test('a card keeps the timed tag where it fits and falls back to the bare `stalled` where it does not: `stalled 14:02` needs 29 columns beside the mascot, `stalled` 23', () => {
+    // a mascot card keeps 4 columns of border and 7 of mascot: a chip (word and a space each side), two spaces and one column of name need 18 for `stalled 14:02`, 12 for `stalled`
+    expect(cardView(stalledRow(STALLED), 22, NOW).tag).toBe('')
+    expect(cardView(stalledRow(STALLED), 23, NOW).tag).toBe('stalled')
+    expect(cardView(stalledRow(STALLED), 25, NOW).tag).toBe('stalled')
+    expect(cardView(stalledRow(STALLED), 28, NOW).tag).toBe('stalled')
     expect(cardView(stalledRow(STALLED), 29, NOW).tag).toBe('stalled 14:02')
-    expect(cardView(stalledRow('2026-10-12 14:02'), 28, NOW).tag).toBe('stalled')
     expect(cardView(stalledRow(STALLED), 60, NOW).tag).toBe('stalled 14:02')
+    expect(cardView(stalledRow('2026-10-12 14:02'), 28, NOW).tag).toBe('stalled')
   })
 
-  test('the hover box carries the same tag', () => {
+  test('a card 25 columns wide (four lanes in a 105-column pane) has the bare tag, today or another day, on the line below its title', () => {
+    for (const at of [STALLED, localTime(3, 14, 2)]) {
+      const view = cardView(stalledRow(at), 25, NOW)
+
+      expect(view.mascot).toBe(true)
+      expect(view.tag).toBe('stalled')
+      expect(view.lines[view.tagAt]).toBe('')
+      expect(view.pad).toBe(14 - displayWidth(' stalled '))
+    }
+  })
+
+  test('another day: the day where it fits, the bare word where it does not', () => {
+    const before = localTime(3, 14, 2)
+
+    expect(cardView(stalledRow(before), 60, NOW).tag).toBe(`stalled ${dayName(3)}`)
+    expect(cardView(stalledRow(before), 25, NOW).tag).toBe('stalled')
+  })
+
+  test('the hover box falls back the same way: the timed word where its inside holds it, `stalled` where it does not, none where not even that fits', () => {
+    // inside = card width - 4 of border - the columns left uncovered; the chip is the word and a space each side
+    expect(fullCard(stalledRow(STALLED), 25, 7, NOW).tag).toBe('stalled')
+    expect(fullCard(stalledRow(STALLED), 26, 7, NOW).tag).toBe('stalled 14:02')
     expect(fullCard(stalledRow(STALLED), 40, 0, NOW).tag).toBe('stalled 14:02')
     expect(fullCard(stalledRow(localTime(3, 14, 2)), 40, 0, NOW).tag).toBe(`stalled ${dayName(3)}`)
+    expect(fullCard(stalledRow(STALLED), 14, 0, NOW).tag).toBe('stalled')
+    expect(fullCard(stalledRow(STALLED), 12, 0, NOW).tag).toBe('')
   })
 })
 
