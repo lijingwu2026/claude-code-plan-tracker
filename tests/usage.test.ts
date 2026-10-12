@@ -389,7 +389,7 @@ describe('the deliverables table', () => {
 
 describe('the board header', () => {
   test('a divider line sits between the plan stats and the lanes', async ($, on) => {
-    world(on, { fixture: WITH_ROWS })
+    world(on, { fixture: { ...WITH_ROWS, plans: [{ ...PLAN, started: '2026-10-11T20:08:00+09:00' }] } })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal', 100)
     const strip = kids(await pane.find({ key: 'strip' }))
@@ -1073,9 +1073,16 @@ describe('the plan stats under the plan name', () => {
   })
 
   test('a plan no row has started has no stats and reads Not started yet, however much is known', () => {
-    expect(planStatsOf({ ...PLAN, usage_totals: TOTALS }, NOW, WIDE)).toEqual([])
-    expect(notStartedText({ ...PLAN, usage_totals: TOTALS })).toBe('Not started yet')
+    const idle = { ...PLAN, rows: ROWS.filter(one => one.status === 'Todo'), usage_totals: TOTALS }
+
+    expect(planStatsOf(idle, NOW, WIDE)).toEqual([])
+    expect(notStartedText(idle)).toBe('Not started yet')
     expect(notStartedText(open)).toBe('')
+  })
+
+  test('work under way with no times has no stats and says nothing, however much is known', () => {
+    expect(planStatsOf({ ...PLAN, usage_totals: TOTALS }, NOW, WIDE)).toEqual([])
+    expect(notStartedText({ ...PLAN, usage_totals: TOTALS })).toBe('')
   })
 
   test('a narrow pane drops the time stat first, then the tokens; the cost stays', () => {
@@ -1159,7 +1166,7 @@ describe('the plan stats under the plan name', () => {
   })
 
   test('a plan not started: one dim "Not started yet", no stats', async ($, on) => {
-    world(on, { fixture: WITH_ROWS })
+    world(on, { fixture: { ...WITH_ROWS, plans: [{ ...PLAN, rows: ROWS.filter(one => one.status === 'Todo') }] } })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal')
     const note = await pane.find({ key: 'plan-stats' })

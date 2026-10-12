@@ -76,9 +76,24 @@ describe('plan-tracker pane: the header', () => {
       expect(textOf(await ui.drawn())).not.toContain('Summary')
       const strip = kids(await ui.find({ key: 'strip' })).map(node => String(node.props?.key))
 
-      expect(strip).toEqual(['menu', 'plan-stats', 'divider'])
-      expect(textOf(await ui.find({ key: 'plan-stats' }))).toBe('Not started yet')
-      expect(kids(await ui.find({ key: 'plan-stats' }))[0]?.props.dimColor).toBe(true)
+      // In progress with no times (a board command that keeps none): nothing under the header says "Not started yet"
+      expect(strip).toEqual(['menu', 'divider'])
+      expect(await ui.find({ key: 'plan-stats' })).toBeUndefined()
+      expect(textOf(await ui.drawn())).not.toContain('Not started yet')
+      await ui.unmount()
+    })
+
+    test(`${surface}: a plan whose every row is Todo (or Canceled) and has no times reads one dim "Not started yet"`, async ($, on) => {
+      const rows = [{ task: 't1', status: 'Todo' as const, updated: null }, { task: 'c1', status: 'Canceled' as const, updated: null }]
+
+      world(on, { fixture: { selected: 'idle', message: null, plans: [{ anchor: 'idle', name: 'Idle plan', goal: 'g', plan_file: '/plans/idle.md', rows }] } })
+      await $.session.start(SESSION)
+      const ui = await mountPane($, surface)
+      const note = await ui.find({ key: 'plan-stats' })
+
+      expect(textOf(await ui.find({ key: 'menu' }))).toContain('Idle plan  Idle')
+      expect(textOf(note)).toBe('Not started yet')
+      expect(kids(note)[0]?.props.dimColor).toBe(true)
       await ui.unmount()
     })
 
@@ -233,14 +248,15 @@ describe('plan-tracker pane: the header', () => {
     // one plan: nothing to pick, so no ▾
     expect(textOf(await ui.find({ key: 'menu' }))).toBe('● MVP  Idle  1/2Plan file ›')
     expect(await ui.find({ key: 'goal' })).toBeUndefined()
-    expect(textOf(await ui.find({ key: 'deliverables' }))).toContain('automation/plans/mvp.md')
+    // the only deliverable is a Canceled row's: the board lists none
+    expect(await ui.find({ key: 'deliverables' })).toBeUndefined()
     await ui.unmount()
   })
 })
 
 describe('plan-tracker pane: the lanes', () => {
   for (const surface of SURFACES) {
-    test(`${surface}: four lanes (Todo, In Progress, Verify, Done) with their counts and four colors; Done adds the canceled count`, async ($, on) => {
+    test(`${surface}: four lanes (Todo, In Progress, Verify, Done) with their counts and four colors; Done says nothing of the canceled row`, async ($, on) => {
       world(on)
       await $.session.start(SESSION)
       const ui = await mountPane($, surface, 140)
@@ -249,7 +265,7 @@ describe('plan-tracker pane: the lanes', () => {
 
       const headers = await Promise.all(LANES.map(async lane => (await ui.find({ key: `lane:${lane}` }))?.children[0] as unknown as Node))
 
-      expect(headers.map(textOf)).toEqual(['Todo 5', 'In Progress 2 · 1 blocked', 'Verify 1', 'Done 5 · 1 canceled'])
+      expect(headers.map(textOf)).toEqual(['Todo 5', 'In Progress 2 · 1 blocked', 'Verify 1', 'Done 5'])
       expect(headers.map(header => header.props.color)).toEqual(['inactive', 'suggestion', 'warning', 'success'])
       expect(await ui.find({ key: 'lane:Blocked' })).toBeUndefined()
       expect(await ui.find({ key: 'lane:Review' })).toBeUndefined()

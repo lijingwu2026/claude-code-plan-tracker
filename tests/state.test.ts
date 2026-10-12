@@ -52,6 +52,35 @@ describe('the plan state', () => {
   })
 })
 
+describe('"Not started yet" under the header', () => {
+  const started = '2026-10-11T20:08:00+09:00'
+
+  test('no times: only while no row has left Todo (Canceled ignored), whatever the plan\'s anchor', () => {
+    for (const anchor of ['a', 'progress']) {
+      expect(notStartedText(plan(anchor, 'A', ['Todo', 'Todo']))).toBe('Not started yet')
+      expect(notStartedText(plan(anchor, 'A', ['Todo', 'Canceled']))).toBe('Not started yet')
+      expect(notStartedText(plan(anchor, 'A', ['Canceled']))).toBe('Not started yet')
+      expect(notStartedText(plan(anchor, 'A', []))).toBe('Not started yet')
+    }
+  })
+
+  test('no times, a row that left Todo (In Progress, Verifying, Needs Verification, Blocked, Done, Other): nothing, so it never contradicts the In progress state word', () => {
+    for (const anchor of ['a', 'progress']) {
+      for (const status of ['In Progress', 'Verifying', 'Needs Verification', 'Blocked', 'Done', 'Other'] as const) {
+        expect(notStartedText(plan(anchor, 'A', ['Todo', status]))).toBe('')
+        expect(notStartedText(plan(anchor, 'A', ['Canceled', status]))).toBe('')
+      }
+    }
+
+    expect(planStateOf(plan('a', 'A', ['Todo', 'In Progress']))).toBe('In progress')
+  })
+
+  test('a plan with a start or a finish time never reads it', () => {
+    expect(notStartedText(plan('a', 'A', ['Todo'], { started }))).toBe('')
+    expect(notStartedText(plan('a', 'A', ['Todo'], { finished: started }))).toBe('')
+  })
+})
+
 describe('the plan stats have no state', () => {
   test('a never-started plan reads "Not started yet" and has no stats; a started one has stats with no state word', () => {
     expect(notStartedText(plan('a', 'A', ['Todo']))).toBe('Not started yet')

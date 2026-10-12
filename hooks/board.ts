@@ -185,11 +185,11 @@ export function worstStatus(plan: PlanEntry): PlanStatus {
   return URGENCY.find(status => status !== 'Done' && status !== 'Canceled' && plan.rows.some(row => row.status === status)) ?? 'Done'
 }
 
-/** Rows Done, rows to reach (every row but the Canceled), rows Canceled: what `n/m` and the lane header count. */
-export function countOf(plan: PlanEntry): { done: number; total: number; canceled: number } {
+/** Rows Done and rows to reach (every row but the Canceled): what `n/m` counts. A Canceled row is not shown anywhere. */
+export function countOf(plan: PlanEntry): { done: number; total: number } {
   const canceled = plan.rows.filter(row => row.status === 'Canceled').length
 
-  return { done: plan.rows.filter(row => row.status === 'Done').length, total: plan.rows.length - canceled, canceled }
+  return { done: plan.rows.filter(row => row.status === 'Done').length, total: plan.rows.length - canceled }
 }
 
 /** `5/12`. */
@@ -555,11 +555,10 @@ const timeOf = (row: PlanRow) => (row.updated === null ? 0 : Date.parse(row.upda
 
 /**
  * The four lanes of a plan. Verifying and Needs Verification are Verify; Blocked stays on the In Progress lane (its card is red, first
- * in the lane, 3 at the most while running cards fill the rest of 5); a Canceled row is no card but is counted in the Done header.
+ * in the lane, 3 at the most while running cards fill the rest of 5); a Canceled row is no card and is counted nowhere.
  * Todo and Done keep 3 cards (Done: the latest).
  */
 export function lanesOf(plan: PlanEntry, expanded: readonly LaneKey[] = []): Lane[] {
-  const { canceled } = countOf(plan)
   const cards = plan.rows.map((row, index): Card => ({ row, index }))
   const of = (...statuses: PlanStatus[]) => cards.filter(card => statuses.includes(card.row.status))
   const todo = of('Todo')
@@ -646,7 +645,7 @@ export function lanesOf(plan: PlanEntry, expanded: readonly LaneKey[] = []): Lan
     },
     {
       key: 'Done',
-      header: `Done ${done.length}${canceled > 0 ? ` · ${canceled} canceled` : ''}`,
+      header: `Done ${done.length}`,
       color: STYLE.Done.color,
       cards: isOpen('Done') ? done : done.slice(0, CAPPED),
       more: isOpen('Done') ? 0 : Math.max(0, done.length - CAPPED),
@@ -970,12 +969,12 @@ export function foldedPath(absolute: string): string {
 /** `mtime` is the file's modification time in epoch seconds; absent when the path does not exist (or the tracker did not say). */
 export type Deliverable = { path: string; task: string; change?: string; mtime?: number }
 
-/** The plan's deliverables in row order, each path once, with the task of the first row that names it. */
+/** The plan's deliverables in row order, each path once, with the task of the first row that names it; a Canceled row names none. */
 export function deliverablesOf(plan: PlanEntry): Deliverable[] {
   const seen = new Set<string>()
   const out: Deliverable[] = []
 
-  for (const row of plan.rows) {
+  for (const row of plan.rows.filter(one => one.status !== 'Canceled')) {
     const path = row.deliverable
 
     if (typeof path === 'string' && path !== '' && !seen.has(path)) {
@@ -1103,16 +1102,20 @@ export type Stat = { value: string; label: string; drop: number }
 /** Columns between two stats of a row. */
 export const STAT_GAP = 3
 
-/** What a stats row shows when no row of the plan has started; a board file with work under way says nothing. */
+/** What a stats row shows when no row of the plan has left Todo; a plan with work under way and no times says nothing. */
 export const NOT_STARTED = 'Not started yet'
 
-/** `Not started yet` for a plan no row has started, '' for one that has (or a board file with work under way, which keeps no times). */
+/**
+ * `Not started yet` for a plan with no times and no row past Todo (a Canceled row is ignored), '' for any other plan: one with
+ * times, or one with work under way but no times (a board file or a board command that keeps none), whose header already says
+ * In progress.
+ */
 export function notStartedText(plan: PlanEntry): string {
   if (plan.started !== undefined || plan.finished !== undefined) {
     return ''
   }
 
-  return plan.anchor === 'progress' && plan.rows.some(row => row.status !== 'Todo' && row.status !== 'Canceled') ? '' : NOT_STARTED
+  return plan.rows.some(row => row.status !== 'Todo' && row.status !== 'Canceled') ? '' : NOT_STARTED
 }
 
 /** Columns a stat takes: the wider of its value and its label. */
@@ -1144,7 +1147,7 @@ export function statLines(stats: readonly Stat[]): { values: string; labels: str
  * The stats under the plan name: the time (`56m` over `since 20:08`, `Oct 9 20:08` on another day; a closed plan `3h 05m` over
  * `total time`), the tokens (in + out, in already holds the cached) and the cost. Tokens and cost are left out when none is
  * measured, the cost alone when it has no price. Narrower than `width`: the time goes first, then the tokens; the cost stays.
- * Empty for a plan no row has started.
+ * Empty for a plan with neither a start nor a finish time.
  */
 export function planStatsOf(plan: PlanEntry, now: number, width: number): Stat[] {
   if (plan.started === undefined && plan.finished === undefined) {

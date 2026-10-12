@@ -44,7 +44,7 @@ import {
   wrap,
 } from '../hooks/board'
 import type { LaneKey } from '../hooks/board'
-import type { PlanEntry } from '../types'
+import type { PlanEntry, PlanRow } from '../types'
 import { ALPHA_ROWS, BOARD, ROOT, SCRIPT } from './fixtures'
 
 const ALPHA = BOARD.plans[0] as PlanEntry
@@ -64,8 +64,8 @@ describe('lane mapping', () => {
     expect(all).not.toContain('c1 dropped')
   })
 
-  test('headers count every row of the lane; Done adds the canceled count', () => {
-    expect(lanesOf(ALPHA).map(lane => lane.header)).toEqual(['Todo 5', 'In Progress 2 · 1 blocked', 'Verify 1', 'Done 5 · 1 canceled'])
+  test('headers count every row of the lane; the Done header says nothing of the canceled row', () => {
+    expect(lanesOf(ALPHA).map(lane => lane.header)).toEqual(['Todo 5', 'In Progress 2 · 1 blocked', 'Verify 1', 'Done 5'])
   })
 
   test('without a canceled row the Done header has no suffix', () => {
@@ -92,8 +92,8 @@ describe('lane mapping', () => {
     expect(new Set(Object.values(STYLE).map(style => style.color)).size).toBe(6)
   })
 
-  test('n/m counts the Canceled row in neither', () => {
-    expect(countOf(ALPHA)).toEqual({ done: 5, total: 13, canceled: 1 })
+  test('n/m counts the Canceled row in neither, and reports no canceled count', () => {
+    expect(countOf(ALPHA)).toEqual({ done: 5, total: 13 })
   })
 
   test('the plan\'s color is its most urgent open status: Blocked first', () => {
@@ -449,6 +449,16 @@ describe('deliverables', () => {
   test('only rows that record a deliverable name one, each path once', () => {
     expect(deliverablesOf(ALPHA)).toEqual([{ path: 'automation/plans/alpha-plan.md', task: 'd4 newest' }])
     expect(deliverablesOf(BOARD.plans[1] as PlanEntry)).toEqual([])
+  })
+
+  test('a Canceled row lists no deliverable; a path a live row shares still shows, with that row\'s change', () => {
+    const rows: PlanRow[] = [
+      { ...ALPHA_ROWS[4], deliverable: 'dropped.md', change: 'created' } as PlanRow,
+      { ...ALPHA_ROWS[4], deliverable: 'shared.md', change: 'dropped edit' } as PlanRow,
+      { ...ALPHA_ROWS[0], task: 'kept', deliverable: 'shared.md', change: 'edited' } as PlanRow,
+    ]
+
+    expect(deliverablesOf({ ...ALPHA, rows })).toEqual([{ path: 'shared.md', task: 'kept', change: 'edited' }])
   })
 })
 
