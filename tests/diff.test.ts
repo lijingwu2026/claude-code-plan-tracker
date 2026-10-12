@@ -58,7 +58,7 @@ describe('which commit a deliverable is about', () => {
   })
 
   test('changed_at (when the deliverable or change was written) bounds the window, not updated: a later status write does not reach later commits', () => {
-    // row 76 of plan zany-herding-spring: started 22:44, checked and marked Done at 00:28; its own commit d7c487e at 23:13, row 79's at 23:53
+    // a step started at 22:44 and marked Done at 00:28 after a later check; its own commit is at 23:13, another step's at 23:53
     const started = '2026-10-12T22:44:00+09:00'
     const updated = '2026-10-13T00:28:00+09:00'
     const changed = '2026-10-12T23:20:00+09:00'
