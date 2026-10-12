@@ -879,7 +879,8 @@ describe('the task page stats row', () => {
     expect(kids(await pane.find({ key: 'detail:fields' })).filter(node => String(node.props?.key ?? '').startsWith('field:')).map(node => String(node.props?.key))).toEqual([
       'field:status', 'field:who', 'field:checker', 'field:note', 'field:deliverable',
     ])
-    expect(words(await pane.find({ key: 'field:deliverable' }))).toBe('Deliverable hooks/draw.tsx plan line under the name')
+    // the terminal's Deliverable row ends with the `Diff ›` button that opens the diff of the commit that made the change
+    expect(words(await pane.find({ key: 'field:deliverable' }))).toBe('Deliverable hooks/draw.tsx plan line under the name Diff ›')
     expect(words(await pane.find({ key: 'field:checker' }))).toBe('Checked by main session · Sonnet')
     await pane.unmount()
   })
@@ -1054,8 +1055,11 @@ describe('the deliverables table: the WHAT CHANGED column', () => {
     const [, header, first, second] = kids(await wide.find({ key: 'deliverables' }))
 
     expect(kids(header).map(textOf)).toEqual(['TYPE', 'DELIVERABLE', 'WHAT CHANGED'])
-    expect(textOf(kids(first)[2])).toBe(CHANGE)
+    // on the desktop the change text is a link to the diff (keyed change:N): its Markdown is `[text](file://…)`
+    expect(textOf(kids(first)[2])).toMatch(/^\[adds the CHANGE column to the table\]\(file:\/\/.+knowledge\/a\.md\)$/)
+    expect(await wide.find({ key: 'change:0' })).toBeDefined()
     expect(textOf(kids(second)[2])).toBe('—')
+    expect(await wide.find({ key: 'change:1' })).toBeUndefined()
     await wide.unmount()
 
     const narrow = await mountPane($, 'desktop', 50)
@@ -1070,7 +1074,7 @@ describe('the deliverables table: the WHAT CHANGED column', () => {
     const [pathRow, changeText] = kids(one)
 
     expect(textOf(pathRow)).toContain('knowledge/a.md')
-    expect(textOf(changeText)).toBe(CHANGE)
+    expect(textOf(changeText)).toMatch(/^\[adds the CHANGE column to the table\]\(file:\/\/.+knowledge\/a\.md\)$/)
     expect(changeText?.props.dimColor === true || kids(changeText).every(node => node.props?.dimColor === true)).toBe(true)
     expect(kids(two).length).toBe(1)
     await narrow.unmount()

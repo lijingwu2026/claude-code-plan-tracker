@@ -633,7 +633,8 @@ describe('card lines', () => {
 
 describe('deliverables', () => {
   test('only rows that record a deliverable name one, each path once', () => {
-    expect(deliverablesOf(ALPHA)).toEqual([{ path: 'automation/plans/alpha-plan.md', task: 'd4 newest' }])
+    // a deliverable carries the `updated` of its row (and `started` when it has one): they pick the commit its diff shows
+    expect(deliverablesOf(ALPHA)).toEqual([{ path: 'automation/plans/alpha-plan.md', task: 'd4 newest', updated: '2026-10-08T04:00:00+09:00' }])
     expect(deliverablesOf(BOARD.plans[1] as PlanEntry)).toEqual([])
   })
 
@@ -644,7 +645,7 @@ describe('deliverables', () => {
       { ...ALPHA_ROWS[0], task: 'kept', deliverable: 'shared.md', change: 'edited' } as PlanRow,
     ]
 
-    expect(deliverablesOf({ ...ALPHA, rows })).toEqual([{ path: 'shared.md', task: 'kept', change: 'edited' }])
+    expect(deliverablesOf({ ...ALPHA, rows })).toEqual([{ path: 'shared.md', task: 'kept', change: 'edited', updated: '2026-10-08T01:00:00+09:00' }])
   })
 })
 

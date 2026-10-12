@@ -146,8 +146,14 @@ export type World = {
   jsonGate: () => Promise<void>
   /** Awaited by every `ui.open`: a test holds it to show that a press does not wait for the pane to open. */
   openGate: () => Promise<void>
-  /** every other process the mod ran: the log writer */
+  /** every other process the mod ran: the log writer, `open`, git and the editor's command */
   logRuns: { argv: readonly string[]; stdin: string | undefined }[]
+  /** Answers one of those processes (git, the editor's `--diff`): its exit code and output, or undefined for a clean exit with no output. */
+  answer: (argv: readonly string[]) => Partial<Pick<Run, 'exitCode' | 'stdout' | 'stderr'>> | undefined
+  /** every file the mod wrote through `fs.write`, in order */
+  written: { path: string; text: string }[]
+  /** environment variables besides HOME that `$.env.get` answers */
+  env: Record<string, string>
   /** every `command.register`, in order */
   registered: { name: string; argumentHint: string | undefined }[]
   /** a reason `command.register` refuses /plan-tracker (a command of that name exists), or null */
@@ -223,6 +229,9 @@ export function world(
     scriptRuns: [],
     jsonRuns: [],
     logRuns: [],
+    answer: () => undefined,
+    written: [],
+    env: {},
     jsonGate: async () => undefined,
     openGate: async () => undefined,
     registered: [],
@@ -338,6 +347,12 @@ export function world(
 
     w.logRuns.push({ argv: e.argv, stdin: e.init?.stdin })
 
+    const answered = w.answer(e.argv)
+
+    if (answered !== undefined) {
+      return { value: { exitCode: 0, stdout: '', stderr: '', ...FINISHED_RUN, ...answered } }
+    }
+
     if (e.argv[0] === 'open' && w.openRun !== null) {
       return { value: { exitCode: w.openRun.exitCode, stdout: '', stderr: w.openRun.stderr, ...FINISHED_RUN } }
     }
@@ -364,7 +379,12 @@ export function world(
     return { value: undefined }
   })
   on('tool.call', () => ({ result: { stdout: w.bash, stderr: '', interrupted: false }, text: w.bash }) as never)
-  mock.env(on, { HOME })
+  on('fs.write', ($, e) => {
+    w.written.push({ path: e.path, text: e.text })
+
+    return { value: undefined }
+  })
+  mock.env(on, { HOME, ...w.env })
 
   return w
 }

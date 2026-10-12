@@ -4,7 +4,7 @@
  * screen, and what the band and the board show. Nothing here draws or touches `$`.
  * It shows only what the tracker records.
  */
-import type { CardRef, PlanBoard, PlanEntry, PlanMatch, PlanRow, PlanStatus, PlanTotals, PlanUsage } from '../types'
+import type { CardRef, DiffView, PlanBoard, PlanEntry, PlanMatch, PlanRow, PlanStatus, PlanTotals, PlanUsage } from '../types'
 
 export const STATUSES: readonly PlanStatus[] = ['Todo', 'In Progress', 'Verifying', 'Needs Verification', 'Blocked', 'Done', 'Canceled']
 
@@ -176,6 +176,8 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
       const stalledAt = asText(row.stalled_since)
       const stalledSince = stalledAt === undefined || Number.isNaN(Date.parse(stalledAt)) ? undefined : stalledAt
       const usage = usageOf(row.usage)
+      const changedText = asText(row.changed_at)
+      const changedAt = changedText === undefined || Number.isNaN(Date.parse(changedText)) ? undefined : changedText
 
       return {
         task: row.task as string,
@@ -194,6 +196,7 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
         ...(finished === undefined ? {} : { finished }),
         ...(stalledSince === undefined ? {} : { stalled_since: stalledSince }),
         ...(usage === undefined ? {} : { usage }),
+        ...(changedAt === undefined ? {} : { changed_at: changedAt }),
         ...(isNumber(row.deliverable_mtime) ? { deliverable_mtime: row.deliverable_mtime } : {}),
       }
     }),
@@ -969,10 +972,21 @@ export const isYou = (name: string | undefined): boolean => {
 const linkOf = (absolute: string) => `file://${absolute.split('/').map(encodeURIComponent).join('/')}`
 
 /**
- * The `file://` link of a deliverable: `~/…` is under `home`, a path that starts with `/` is as it is and any other is
- * relative to the project root. null for a `~` path when the home directory is not known.
+ * Whether a deliverable is a web link (`http://` or `https://`). Rows written before the tracker refused links there stored a claude.ai
+ * page as their deliverable; it is a link to open as it is, never a path in the project (that is the surface's "Couldn't find this file").
+ */
+export const isWebLink = (path: string): boolean => /^\s*https?:\/\//i.test(path)
+
+/**
+ * The link of a deliverable: a web link as it is (null with a space in it, which no surface opens); otherwise its `file://` link:
+ * `~/…` is under `home`, a path that starts with `/` is as it is and any other is relative to the project root. null for a `~` path when the
+ * home directory is not known.
  */
 export function deliverableHref(path: string, home: string | undefined): string | null {
+  if (isWebLink(path)) {
+    return /\s/.test(path.trim()) ? null : path.trim()
+  }
+
   const absolute = absolutePath(path, home)
 
   return absolute === null ? null : linkOf(absolute)
@@ -1057,8 +1071,11 @@ export function foldedPath(absolute: string): string {
   return `/${folded.join('/')}`
 }
 
-/** `mtime` is the file's modification time in epoch seconds; absent when the path does not exist (or the tracker did not say). */
-export type Deliverable = { path: string; task: string; change?: string; mtime?: number }
+/**
+ * `mtime` is the file's modification time in epoch seconds; absent when the path does not exist (or the tracker did not say).
+ * `started`, `updated` and `changed_at` are the times of the row that names it (ISO), which pick the commit its diff shows; absent for a row with none.
+ */
+export type Deliverable = { path: string; task: string; change?: string; mtime?: number; started?: string; updated?: string; changed_at?: string }
 
 /** The plan's deliverables in row order, each path once, with the task of the first row that names it; a Canceled row names none. */
 export function deliverablesOf(plan: PlanEntry): Deliverable[] {
@@ -1070,7 +1087,15 @@ export function deliverablesOf(plan: PlanEntry): Deliverable[] {
 
     if (typeof path === 'string' && path !== '' && !seen.has(path)) {
       seen.add(path)
-      out.push({ path, task: row.task, ...(row.change === undefined || row.change === '' ? {} : { change: row.change }), ...(typeof row.deliverable_mtime === 'number' ? { mtime: row.deliverable_mtime } : {}) })
+      out.push({
+        path,
+        task: row.task,
+        ...(row.change === undefined || row.change === '' ? {} : { change: row.change }),
+        ...(typeof row.deliverable_mtime === 'number' ? { mtime: row.deliverable_mtime } : {}),
+        ...(row.started === undefined ? {} : { started: row.started }),
+        ...(row.updated === null ? {} : { updated: row.updated }),
+        ...(row.changed_at === undefined ? {} : { changed_at: row.changed_at }),
+      })
     }
   }
 
@@ -1079,9 +1104,13 @@ export function deliverablesOf(plan: PlanEntry): Deliverable[] {
 
 /**
  * The type column's label of a deliverable: its extension (`.md`), `folder` for a path that ends in `/`, `file` for a name
- * with no extension. The tracker says nothing of a directory but its trailing slash.
+ * with no extension, `link` for a web link. The tracker says nothing of a directory but its trailing slash.
  */
 export function typeOf(path: string): string {
+  if (isWebLink(path)) {
+    return 'link'
+  }
+
   if (path.endsWith('/')) {
     return 'folder'
   }
@@ -1112,6 +1141,203 @@ export function deliverableGroups(plan: PlanEntry): DeliverableGroup[] {
   return [...groups.entries()]
     .map(([type, items]) => ({ type, items: [...items].sort(newer) }))
     .sort((a, b) => newer(a.items[0] as Deliverable, b.items[0] as Deliverable))
+}
+
+// ---------------------------------------------------------------- the diff of a deliverable
+
+/** One commit as `git log --format=%H%x09%ct%x09%s` prints it: the full sha, the commit time in epoch seconds, the subject. */
+export type Commit = { sha: string; time: number; subject: string }
+
+/** The commits in `git log --format=%H%x09%ct%x09%s` output, one per line; a line of any other shape is skipped. */
+export function commitsOf(stdout: string): Commit[] {
+  return stdout.split('\n').flatMap((line): Commit[] => {
+    const match = /^([0-9a-f]{7,64})\t(\d+)\t(.*)$/.exec(line)
+
+    return match === null ? [] : [{ sha: match[1] as string, time: Number(match[2]), subject: match[3] as string }]
+  })
+}
+
+/** How long after a row's last update a commit still counts as its work. */
+export const COMMIT_WINDOW_MS = 30 * 60_000
+
+/**
+ * The commit a deliverable's diff shows: the newest one made after its row `started` and before the row's `changed_at` plus 30 minutes
+ * (the time its deliverable or change was last written; each edge counts). A row from before the tracker kept `changed_at` ends the
+ * window at its `updated` plus 30 minutes, which a later status write (a check marking it Done) moves on to the next task's commits.
+ * With no commit in the window, or no times (a plain `PROGRESS.md`), the newest commit that touched the file. Undefined for none.
+ */
+export function commitFor(commits: readonly Commit[], times: { started?: string | null; updated?: string | null; changed_at?: string | null }): Commit | undefined {
+  const newest = [...commits].sort((a, b) => b.time - a.time)
+  const end = times.changed_at ?? times.updated
+  const from = times.started == null ? Number.NaN : Date.parse(times.started)
+  const to = end == null ? Number.NaN : Date.parse(end) + COMMIT_WINDOW_MS
+
+  return (
+    newest.find(commit => (Number.isNaN(from) || commit.time * 1000 >= from) && (Number.isNaN(to) || commit.time * 1000 <= to)) ?? newest[0]
+  )
+}
+
+/** The most characters of one `Code` element of format `diff`. */
+export const DIFF_HUNK_CHARS = 10_000
+
+/** The most characters of diff the pane draws in all; the lines past them are counted, not shown. */
+export const DIFF_TOTAL_CHARS = 60_000
+
+/** What the diff page says for a commit with no hunks. */
+export const NO_HUNKS = 'No text changes to show (binary file, rename or mode change only)'
+
+/** Characters kept free in a piece for a header written afresh (`@@ -a,b +c,d @@`). */
+const HEADER_ROOM = 40
+
+const HUNK_HEAD = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+
+type Hunk = { header: string; oldStart: number; newStart: number; lines: string[] }
+
+/**
+ * The hunks in `git show` output: each `@@` header and the lines it counts (its old and new line counts say where it ends, so a
+ * line of a file that looks like a header cannot start another hunk), with `\ No newline at end of file` kept. Git's file header, and
+ * anything else outside a hunk, is left out.
+ */
+function hunksOf(lines: readonly string[]): Hunk[] {
+  const out: Hunk[] = []
+
+  for (let at = 0; at < lines.length; at += 1) {
+    const head = HUNK_HEAD.exec(lines[at] ?? '')
+
+    if (head === null) {
+      continue
+    }
+
+    let oldLeft = Number(head[2] ?? 1)
+    let newLeft = Number(head[4] ?? 1)
+    const hunk: Hunk = { header: lines[at] as string, oldStart: Number(head[1]), newStart: Number(head[3]), lines: [] }
+
+    for (let next = lines[at + 1]; next !== undefined; next = lines[at + 1]) {
+      const kind = next[0]
+
+      if (kind === '\\') {
+        hunk.lines.push(next)
+      } else if (oldLeft === 0 && newLeft === 0) {
+        break
+      } else if (kind === '+') {
+        newLeft -= 1
+        hunk.lines.push(next)
+      } else if (kind === '-') {
+        oldLeft -= 1
+        hunk.lines.push(next)
+      } else if (kind === ' ' || kind === undefined) {
+        oldLeft -= 1
+        newLeft -= 1
+        hunk.lines.push(next === '' ? ' ' : next)
+      } else {
+        break
+      }
+
+      at += 1
+    }
+
+    out.push(hunk)
+  }
+
+  return out
+}
+
+/** Where a hunk piece starts on one side: `first` plus the lines before it; a side with no lines in the piece starts at the line before. */
+const startOf = (count: number, first: number, before: number) => (count > 0 ? first + before : before === 0 ? first : first + before - 1)
+
+/**
+ * A hunk as pieces a `Code` element takes (at most `DIFF_HUNK_CHARS` each): the hunk as it is when it fits, else split at line
+ * boundaries into hunks of their own with headers written afresh, so each is valid and no line is lost. A line that is alone over the
+ * limit is cut. `lines` counts the diff lines of a piece.
+ */
+function diffPiecesOf(hunk: Hunk): { source: string; lines: number }[] {
+  const whole = [hunk.header, ...hunk.lines].join('\n')
+
+  if (whole.length <= DIFF_HUNK_CHARS) {
+    return [{ source: whole, lines: hunk.lines.length }]
+  }
+
+  const out: { source: string; lines: number }[] = []
+  let at = 0
+  let oldBefore = 0
+  let newBefore = 0
+
+  while (at < hunk.lines.length) {
+    const body: string[] = []
+    let size = HEADER_ROOM
+    let oldCount = 0
+    let newCount = 0
+
+    for (let line = hunk.lines[at]; line !== undefined; line = hunk.lines[at]) {
+      const room = DIFF_HUNK_CHARS - HEADER_ROOM - 1
+      const kept = line.length > room ? `${line.slice(0, room - 1)}…` : line
+
+      if (body.length > 0 && !kept.startsWith('\\') && size + kept.length + 1 > DIFF_HUNK_CHARS) {
+        break
+      }
+
+      body.push(kept)
+      size += kept.length + 1
+      oldCount += kept.startsWith('+') || kept.startsWith('\\') ? 0 : 1
+      newCount += kept.startsWith('-') || kept.startsWith('\\') ? 0 : 1
+      at += 1
+    }
+
+    const header = `@@ -${startOf(oldCount, hunk.oldStart, oldBefore)},${oldCount} +${startOf(newCount, hunk.newStart, newBefore)},${newCount} @@`
+
+    out.push({ source: [header, ...body].join('\n'), lines: body.length })
+    oldBefore += oldCount
+    newBefore += newCount
+  }
+
+  return out
+}
+
+/**
+ * The diff page for `git show <sha> --format= -- <file>` output (`path` is the file as the row wrote it, `subject` the commit's): the hunks as `Code` sources (`diffPiecesOf`), up to `DIFF_TOTAL_CHARS`
+ * in all, then in `note` how many diff lines are not shown; with no hunk (binary, rename or mode change only) `note` says so.
+ * Carriage returns are dropped and control characters other than tab and newline replaced, as a `Code` element requires.
+ */
+export function diffViewOf(raw: string, title: string, path?: string, subject?: string): DiffView {
+  const hunks = hunksOf(raw.replace(/\r/g, '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '\uFFFD').split('\n'))
+  const pieces = hunks.flatMap(diffPiecesOf)
+  const shown: string[] = []
+  let total = 0
+  let at = 0
+
+  for (; at < pieces.length; at += 1) {
+    const source = (pieces[at] as { source: string }).source
+
+    if (total + source.length > DIFF_TOTAL_CHARS) {
+      break
+    }
+
+    shown.push(source)
+    total += source.length
+  }
+
+  const rest = pieces.slice(at).reduce((all, piece) => all + piece.lines, 0)
+  const note = hunks.length === 0 ? NO_HUNKS : rest > 0 ? `Rest of the diff not shown (${rest} more lines)` : undefined
+
+  return { title, ...(subject === undefined ? {} : { subject }), hunks: shown, ...(note === undefined ? {} : { note }), ...(path === undefined ? {} : { path }) }
+}
+
+/** Columns the commit subject needs beside the path and sha to share their line; with less it takes a line of its own. */
+const MIN_SUBJECT_ROOM = 8
+
+/**
+ * The lines of the diff page's title for a pane `columns` wide: `head` (`<path> · <short sha>`, whole) and the commit subject on one
+ * line, cut with `…`. The subject shares the line with `head` when at least `MIN_SUBJECT_ROOM` columns are left after it, else it is
+ * a line of its own, cut to the width. A `head` wider than the pane is the Text's to wrap; it is never cut. No subject: `head` alone.
+ */
+export function diffTitleLines(head: string, subject: string, columns: number): string[] {
+  if (subject === '') {
+    return [head]
+  }
+
+  const room = columns - displayWidth(head) - 3
+
+  return room >= MIN_SUBJECT_ROOM ? [`${head} · ${truncate(subject, room)}`] : [head, truncate(subject, columns)]
 }
 
 // ---------------------------------------------------------------- artifacts
