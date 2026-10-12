@@ -2,7 +2,7 @@
 
 **Everything you need to know about your plan's progress — live.**
 
-![plan-tracker board: four lanes of task cards with progress bars, and a band above the prompt showing the plan's done/total](docs/board.png)
+![plan-tracker board: four lanes of task cards, an Artifacts table and a Deliverables list below them, and a band above the prompt showing the plan's done/total](docs/board.png)
 
 A Claude Code plugin that draws your approved plan as a board in the terminal and in the Claude Desktop app:
 
