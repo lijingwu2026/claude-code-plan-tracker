@@ -16,8 +16,6 @@ export type CardRow = {
   name: string
   isRed: boolean
   isBold: boolean
-  /** Drawn dim: the goal in a hover box. */
-  isDim?: boolean
   /** The progress bar that starts the row (`name` is then its count), or undefined: filled cells in `color`, the empty ones dim. */
   bar?: { filled: number; empty: number; color: string; track: string }
   /** The word of the tag's chip, or ''; `tagPad` spaces go before it (the terminal aligns it right; a proportional font does it with a Box). */
@@ -28,16 +26,11 @@ export type CardRow = {
   tagBold: boolean
 }
 
-/** The colours of the text on a `fill` the theme does not know (the desktop's hover box): raw hex, since the default text colour follows the theme. */
-export type CardInk = { text: string; dim: string; error: string }
-
 /**
- * `fill` paints every row's background: the hover box over a cut card covers the card beneath it. `ink` gives the text its own colours
- * (the default one follows the theme and may be dark on the fill); a dim row is then in `ink.dim`, not drawn with `dimColor`.
  * `isProportional` is a surface with a proportional font (the desktop app): the tag cannot be aligned with spaces there, so a row is
- * the name in a Box that grows, then the tag; its row Box is filled too, so no gap between the parts shows what is under the card.
+ * the name in a Box that grows, then the tag.
  */
-export type CardProps = { index: number; rows: CardRow[]; fill?: string; ink?: CardInk; isProportional?: boolean }
+export type CardProps = { index: number; rows: CardRow[]; isProportional?: boolean }
 
 /** The local state: whether the left button went down in the card and has not come up yet. */
 type State = { isDown: boolean }
@@ -45,11 +38,7 @@ type State = { isDown: boolean }
 const Card: ClientModule<CardProps, State> = (props, surface) => {
   const { Box, Text } = surface.elements
   const open = () => surface.post({ open: props.index })
-  const bg = props.fill === undefined ? {} : { backgroundColor: props.fill }
-  const ink = props.ink
-  // The text's colour: red for a blocked card, else the ink's when the card has one; a dim row is dim by its colour with an ink, else by `dimColor`.
-  const colour = (row: CardRow) => (row.isRed ? { color: ink?.error ?? 'error' } : ink === undefined ? {} : { color: row.isDim === true ? ink.dim : ink.text })
-  const dim = (row: CardRow) => (row.isDim === true && ink === undefined ? { dimColor: true } : {})
+  const colour = (row: CardRow) => (row.isRed ? { color: 'error' } : {})
 
   surface.onPointer(event => {
     if (event.type === 'down' && event.button === 'left') {
@@ -83,23 +72,23 @@ const Card: ClientModule<CardProps, State> = (props, surface) => {
     row.bar === undefined
       ? row.name
       : [
-          <Text color={row.bar.color} {...bg}>{'▰'.repeat(row.bar.filled)}</Text>,
-          <Text dimColor {...bg}>{'▱'.repeat(row.bar.empty)}</Text>,
+          <Text color={row.bar.color}>{'▰'.repeat(row.bar.filled)}</Text>,
+          <Text dimColor>{'▱'.repeat(row.bar.empty)}</Text>,
           row.name,
         ]
 
   return (
     <Box flexDirection="column">
       {props.rows.map(row => (
-        <Box flexDirection="row" {...(props.isProportional === true ? bg : {})}>
-          {row.art === '' ? null : <Text color={row.artColor} {...bg}>{row.art}</Text>}
+        <Box flexDirection="row">
+          {row.art === '' ? null : <Text color={row.artColor}>{row.art}</Text>}
           {row.marker === '' ? null : (
-            <Text bold color={row.markerColor} {...bg}>
+            <Text bold color={row.markerColor}>
               {row.marker}
             </Text>
           )}
           {props.isProportional === true ? (
-            <Box flexGrow={1} flexDirection="row" {...bg}>
+            <Box flexGrow={1} flexDirection="row">
               {
                 // The glyphs of a bar draw as slanted dashes in a proportional font: a solid bar of two Boxes instead.
                 row.bar === undefined ? null : (
@@ -109,21 +98,21 @@ const Card: ClientModule<CardProps, State> = (props, surface) => {
                   </Box>
                 )
               }
-              <Text {...colour(row)} {...(row.isBold ? { bold: true } : {})} {...dim(row)} {...bg}>
+              <Text {...colour(row)} {...(row.isBold ? { bold: true } : {})}>
                 {row.name}
               </Text>
             </Box>
           ) : (
-            <Text {...colour(row)} {...(row.isBold ? { bold: true } : {})} {...dim(row)} {...bg}>
+            <Text {...colour(row)} {...(row.isBold ? { bold: true } : {})}>
               {name(row)}
             </Text>
           )}
           {row.tag === '' ? null : props.isProportional === true ? (
-            <Box marginLeft={1} flexShrink={0} {...bg}>
+            <Box marginLeft={1} flexShrink={0}>
               {chip(row)}
             </Box>
           ) : (
-            <Text {...bg}>
+            <Text>
               {' '.repeat(row.tagPad)}
               {chip(row)}
             </Text>

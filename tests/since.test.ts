@@ -1,6 +1,6 @@
 import { describe, expect, test } from './testing'
 
-import { CHIPS, bandFit, bandLine, cardView, chipOf, displayWidth, fullCard, planStateOf, planStateText, sinceText } from '../hooks/board'
+import { CHIPS, bandFit, bandLine, cardView, chipOf, displayWidth, planStateOf, planStateText, sinceText } from '../hooks/board'
 import type { PlanEntry, PlanRow, PlanStatus } from '../types'
 import { dayName, localTime } from './fixtures'
 
@@ -165,16 +165,6 @@ describe('the longer state word and tag take their room', () => {
 
     expect(cardView(stalledRow(before), 60, NOW).tag).toBe(`stalled ${dayName(3)}`)
     expect(cardView(stalledRow(before), 25, NOW).tag).toBe('stalled')
-  })
-
-  test('the hover box falls back the same way: the timed word where its inside holds it, `stalled` where it does not, none where not even that fits', () => {
-    // inside = card width - 4 of border - the columns left uncovered; the chip is the word and a space each side
-    expect(fullCard(stalledRow(STALLED), 25, 7, NOW).tag).toBe('stalled')
-    expect(fullCard(stalledRow(STALLED), 26, 7, NOW).tag).toBe('stalled 14:02')
-    expect(fullCard(stalledRow(STALLED), 40, 0, NOW).tag).toBe('stalled 14:02')
-    expect(fullCard(stalledRow(localTime(3, 14, 2)), 40, 0, NOW).tag).toBe(`stalled ${dayName(3)}`)
-    expect(fullCard(stalledRow(STALLED), 14, 0, NOW).tag).toBe('stalled')
-    expect(fullCard(stalledRow(STALLED), 12, 0, NOW).tag).toBe('')
   })
 })
 

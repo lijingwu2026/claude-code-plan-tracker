@@ -192,7 +192,7 @@ describe('the board file: artifact and artifact_note columns', () => {
     expect((await pane.find({ type: 'Markdown', key: 'artifact:0' }))?.props.text).toBe(
       `[my\\_plan \\*v2\\* \\\`draft\\\`](${href})`,
     )
-    expect(textOf(await pane.find({ key: 'artifacts' }))).toContain(NOTE)
+    expect(textOf(await pane.find({ key: 'deliverables' }))).toContain(NOTE)
     await pane.unmount()
   })
 
@@ -253,20 +253,29 @@ describe('artifactsOf', () => {
   })
 })
 
-describe('the Artifacts table on the terminal', () => {
-  test('160 columns: a title, a dim header, one line a row: the title as a link (never the URL), the note dim', async ($, on) => {
-    world(on, { fixture: TWO })
+/** A row that names a file as its deliverable, with the change written beside it. */
+const FILE_ROW: PlanRow = { task: 'f1', status: 'Done', updated: null, deliverable: 'automation/plans/x.md', change: 'adds the thing' }
+
+const WITH_FILE = boardOf(art('a1', 'Plan board preview', WEB, WEB_NOTE), art('a2', 'Q3 review deck', LOCAL, 'slides for the review'), FILE_ROW)
+
+/** Rows of the table (below its title and header): the Text lines of the terminal, the Boxes of the desktop. */
+const entriesOf = async (pane: Awaited<ReturnType<typeof mountPane>>, header = 1) => kids(await pane.find({ key: 'deliverables' })).slice(1 + header)
+
+describe('the Deliverables table lists the artifacts first, on the terminal', () => {
+  test('160 columns: one table, the artifacts first (the type `artifact` on the first), the title as a link (never the URL), the note under SUMMARY; then the files', async ($, on) => {
+    world(on, { fixture: WITH_FILE })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal', 160)
-    const section = await pane.find({ key: 'artifacts' })
-    const [title, header, one, two] = kids(section)
+    const section = await pane.find({ key: 'deliverables' })
+    const [title, header, one, two, three] = kids(section)
 
-    expect(textOf(title)).toBe('Artifacts')
-    expect(title?.props.bold).toBe(true)
-    expect(textOf(header).trimEnd()).toMatch(/^ARTIFACT\s+ABOUT$/)
+    expect(textOf(title)).toBe('Deliverables')
+    expect(textOf(header).trimEnd()).toMatch(/^TYPE\s+DELIVERABLE\s+SUMMARY$/)
     expect(header?.props.dimColor).toBe(true)
-    expect(flat(one)).toBe(`Plan board preview ${WEB_NOTE}`)
+    expect(flat(one)).toBe(`artifact Plan board preview ${WEB_NOTE}`)
     expect(flat(two)).toBe('Q3 review deck slides for the review')
+    expect(flat(three)).toBe('.md automation/plans/x.md adds the thing')
+    expect(kids(section)).toHaveLength(5)
     expect(textOf(section)).not.toContain('claude.ai')
     expect(textOf(section)).not.toContain('/home/tester')
     expect(textOf(section)).not.toMatch(/[─│]/)
@@ -274,13 +283,25 @@ describe('the Artifacts table on the terminal', () => {
 
     const links = (await pane.findAll({ type: 'Link' })).map(node => [node.props.label, node.props.href])
 
-    expect(links).toEqual([
+    expect(links.slice(0, 2)).toEqual([
       ['Plan board preview', WEB],
       ['Q3 review deck', LOCAL_HREF],
     ])
+    // a file path is plain coloured text on the terminal (a terminal without OSC 8 would draw a Link as the path and then the URL): only the artifacts' titles are Links
+    expect(links).toHaveLength(2)
     // the note is the dim part of the line, the title is not
     expect(kids(one).some(node => node.props?.dimColor === true && textOf(node).includes(WEB_NOTE))).toBe(true)
     expect(kids(one).some(node => node.props?.dimColor !== true && textOf(node).includes('Plan board preview'))).toBe(true)
+    await pane.unmount()
+  })
+
+  test('an artifact has no Diff: the terminal table is plain text for every row', async ($, on) => {
+    world(on, { fixture: WITH_FILE })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 160)
+
+    expect(textOf(await pane.find({ key: 'deliverables' }))).not.toContain('Diff')
+    expect(await pane.find({ key: 'diff:0' })).toBeUndefined()
     await pane.unmount()
   })
 
@@ -288,65 +309,64 @@ describe('the Artifacts table on the terminal', () => {
     world(on, { fixture: boardOf(art('a1', 'Plan board preview', WEB)) })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal', 160)
-    const [, , one] = kids(await pane.find({ key: 'artifacts' }))
+    const [one] = await entriesOf(pane)
 
-    expect(flat(one)).toBe('Plan board preview —')
+    expect(flat(one)).toBe('artifact Plan board preview —')
     expect(kids(one).some(node => node.props?.dimColor === true && textOf(node).includes('—'))).toBe(true)
     await pane.unmount()
   })
 
-  test('drawn above the Deliverables, below the lanes', async ($, on) => {
-    world(on, { fixture: boardOf(art('a1', 'Plan board preview', WEB, WEB_NOTE, 'Done', { deliverable: 'automation/plans/x.md' })) })
+  test('there is no table of artifacts of its own: one Deliverables table, below the lanes', async ($, on) => {
+    world(on, { fixture: WITH_FILE })
     await $.session.start(SESSION)
 
     for (const surface of ['terminal', 'desktop'] as const) {
       const pane = await mountPane($, surface, 160)
       const keys = kids(await pane.drawn()).map(node => String(node.props?.key ?? node.type))
 
-      expect(keys.indexOf('artifacts')).toBeGreaterThan(keys.indexOf('kanban'))
-      expect(keys.indexOf('artifacts')).toBeLessThan(keys.indexOf('deliverables'))
-      expect(keys.indexOf('deliverables')).toBeGreaterThan(-1)
+      expect(keys.indexOf('deliverables')).toBeGreaterThan(keys.indexOf('kanban'))
+      expect(keys).not.toContain('artifacts')
+      expect(textOf(await pane.drawn())).not.toContain('Artifacts')
       await pane.unmount()
     }
   })
 
-  test('with none recorded there is no table at all, not "Artifacts 0"', async ($, on) => {
+  test('with none recorded there is no artifact entry: no `artifact` type in the table', async ($, on) => {
     world(on)
     await $.session.start(SESSION)
 
     for (const surface of ['terminal', 'desktop'] as const) {
       const pane = await mountPane($, surface, 160)
 
-      expect(await pane.find({ key: 'artifacts' })).toBeUndefined()
-      expect(textOf(await pane.drawn())).not.toContain('Artifacts')
+      expect(await pane.find({ key: 'deliverables' })).toBeDefined()
+      expect(textOf(await pane.find({ key: 'deliverables' }))).not.toContain('artifact')
       await pane.unmount()
     }
   })
 
-  test('~40 columns: each artifact is a block, the title then its note dim and wrapped under it; no column header; no line wider than the pane', async ($, on) => {
-    const NOTE = 'one-screen mock of the new Artifacts table with its fold and its stacked layout'
+  test('~30 columns: each entry is a block, the title then its note dim and wrapped under it; no column header; no line wider than the pane', async ($, on) => {
+    const NOTE = 'one-screen mock of the new table with its fold and its stacked layout'
     world(on, { fixture: boardOf(art('a1', 'Plan board preview', WEB, NOTE), art('a2', 'Q3 review deck', LOCAL)) })
     await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 40)
-    const section = await pane.find({ key: 'artifacts' })
+    const pane = await mountPane($, 'terminal', 30)
+    const section = await pane.find({ key: 'deliverables' })
     const [title, first, second] = kids(section)
 
-    expect(textOf(title)).toBe('Artifacts')
-    expect(textOf(section)).not.toMatch(/ARTIFACT|ABOUT/)
+    expect(textOf(title)).toBe('Deliverables')
+    expect(textOf(section)).not.toMatch(/TYPE|DELIVERABLE |SUMMARY/)
     expect(String(first?.props.key)).toBe('artifact:0:item')
 
     const [head, ...under] = kids(first)
 
-    expect(textOf(head).trim()).toBe('Plan board preview')
+    expect(flat(head)).toBe('artifact Plan board preview')
     expect(under.length).toBeGreaterThan(1)
     expect(under.map(line => textOf(line).trim()).join(' ')).toBe(NOTE)
     expect(under.every(isDim)).toBe(true)
-    expect(isDim(head)).toBe(false)
     // a row with no note is its title alone
-    expect(kids(second).map(line => textOf(line).trim())).toEqual(['Q3 review deck'])
+    expect(kids(second).map(line => flat(line))).toEqual(['Q3 review deck'])
 
     for (const line of kids(section).flatMap(block => (block.type === 'Box' ? kids(block) : [block]))) {
-      expect(displayWidth(textOf(line))).toBeLessThanOrEqual(40)
+      expect(displayWidth(textOf(line))).toBeLessThanOrEqual(30)
     }
 
     expect(textOf(section)).not.toContain('claude.ai')
@@ -359,7 +379,7 @@ describe('the Artifacts table on the terminal', () => {
 
     for (const columns of [40, 60, 160]) {
       const pane = await mountPane($, 'terminal', columns)
-      const section = await pane.find({ key: 'artifacts' })
+      const section = await pane.find({ key: 'deliverables' })
 
       for (const line of kids(section).flatMap(block => (block.type === 'Box' ? kids(block) : [block]))) {
         expect(displayWidth(textOf(line))).toBeLessThanOrEqual(columns)
@@ -382,56 +402,62 @@ describe('the Artifacts table on the terminal', () => {
     )
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal', 160)
-    const [, , ...lines] = kids(await pane.find({ key: 'artifacts' }))
 
-    expect(lines.map(flat)).toEqual([`Plan board preview ${WEB_NOTE}`])
+    expect((await entriesOf(pane)).map(flat)).toEqual([`artifact Plan board preview ${WEB_NOTE}`])
     await pane.unmount()
   })
 })
 
-describe('the Artifacts table on the desktop', () => {
-  test('160 columns: a dim header row, then a row a title Markdown link (the title, not the URL) and the dim note', async ($, on) => {
-    world(on, { fixture: TWO })
+describe('the Deliverables table lists the artifacts first, on the desktop', () => {
+  test('160 columns: a blank-headed Diff column; an artifact row is a title Markdown link (the title, not the URL), an empty Diff cell and the dim note', async ($, on) => {
+    world(on, { fixture: WITH_FILE })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop', 160)
-    const section = await pane.find({ key: 'artifacts' })
-    const [title, header, one, two] = kids(section)
+    const section = await pane.find({ key: 'deliverables' })
+    const [title, header, one, two, three] = kids(section)
 
-    expect(textOf(title)).toBe('Artifacts')
-    expect(kids(header).map(textOf)).toEqual(['ARTIFACT', 'ABOUT'])
-    expect(kids(header).every(isDim)).toBe(true)
+    expect(textOf(title)).toBe('Deliverables')
+    expect(kids(header).map(textOf)).toEqual(['TYPE', 'DELIVERABLE', '', 'SUMMARY'])
     expect(String(one?.props.key)).toBe('artifact:0:item')
     expect(one?.props.flexDirection).toBe('row')
 
-    const [titleCell, noteCell] = kids(one)
+    const [typeCell, titleCell, diffCell, noteCell] = kids(one)
 
-    expect(titleCell?.props.width).toBe(kids(header)[0]?.props.width)
+    expect(textOf(typeCell)).toBe(' artifact ')
     expect(kids(titleCell)[0]).toMatchObject({ type: 'Markdown', props: { key: 'artifact:0', text: `[Plan board preview](${WEB})` } })
+    // no Diff for an artifact: the cell is there, empty, so the cells of the other rows line up
+    expect(kids(diffCell)).toEqual([])
+    expect(diffCell?.props.width).toBe(kids(header)[2]?.props.width)
     expect(textOf(noteCell)).toBe(WEB_NOTE)
     expect(isDim(kids(noteCell)[0])).toBe(true)
-    expect(kids(kids(two)[0])[0]?.props.text).toBe(`[Q3 review deck](${LOCAL_HREF})`)
+    // the type is on the first row of its group only
+    expect(textOf(kids(two)[0])).toBe('')
+    expect(kids(kids(two)[1])[0]?.props.text).toBe(`[Q3 review deck](${LOCAL_HREF})`)
+    expect(String(three?.props.key)).toBe('deliverable:0:item')
+    expect(textOf(kids(three)[0])).toBe(' .md ')
+    expect(textOf(kids(three)[2])).toBe('Diff')
     expect(await pane.find({ type: 'Link' })).toBeUndefined()
     await pane.unmount()
   })
 
-  test('~40 columns: stacked, the title link then its note dim under it; no header', async ($, on) => {
+  test('~40 columns: stacked, the title link in its row, the note dim under it; no header', async ($, on) => {
     world(on, { fixture: TWO })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop', 40)
-    const section = await pane.find({ key: 'artifacts' })
+    const section = await pane.find({ key: 'deliverables' })
     const [title, one, two] = kids(section)
 
-    expect(textOf(title)).toBe('Artifacts')
-    expect(textOf(section)).not.toMatch(/ARTIFACT|ABOUT/)
+    expect(textOf(title)).toBe('Deliverables')
+    expect(textOf(section)).not.toMatch(/SUMMARY/)
     expect(String(one?.props.key)).toBe('artifact:0:item')
     expect(one?.props.flexDirection).toBe('column')
 
-    const [link, note] = kids(one)
+    const [pathRow, note] = kids(one)
 
-    expect(link).toMatchObject({ type: 'Markdown', props: { key: 'artifact:0', text: `[Plan board preview](${WEB})` } })
+    expect(kids(kids(pathRow)[1])[0]).toMatchObject({ type: 'Markdown', props: { key: 'artifact:0', text: `[Plan board preview](${WEB})` } })
     expect(textOf(note)).toBe(WEB_NOTE)
     expect(isDim(note)).toBe(true)
-    expect(kids(two).map(node => node.type)).toEqual(['Markdown', 'Text'])
+    expect(kids(two)).toHaveLength(2)
     await pane.unmount()
   })
 
@@ -443,88 +469,146 @@ describe('the Artifacts table on the desktop', () => {
     expect((await pane.find({ type: 'Markdown', key: 'artifact:0' }))?.props.text).toBe('[a\\_b \\[1\\] \\*x\\*](https://claude.ai/artifact/a_%281%29)')
     await pane.unmount()
   })
+
+  test('the Diff numbers count the files: diff:0 is the first file with the artifacts above it, and an artifact row has none', async ($, on) => {
+    world(on, { fixture: WITH_FILE })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 160)
+
+    expect(await pane.find({ key: 'diff:0' })).toMatchObject({ type: 'Button' })
+    expect(await pane.find({ key: 'diff:1' })).toBeUndefined()
+    expect(kids(await pane.find({ key: 'deliverable:0:item' })).map(cell => String(cell.props.key ?? cell.type))).toContain('deliverable:0:diff')
+    expect(board.deliverableGroups(WITH_FILE.plans[0]!).flatMap(group => group.items.map(item => item.path))).toEqual(['automation/plans/x.md'])
+    await pane.unmount()
+  })
 })
 
-describe('the Artifacts table folds after five rows', () => {
-  const eight = (withDeliverables = false) =>
-    boardOf(...Array.from({ length: 8 }, (_, at) => art(`task ${at}`, `Artifact ${at}`, `https://claude.ai/artifact/n${at}`, `note ${at}`, 'Done', withDeliverables ? { deliverable: `docs/d${at}.md` } : {})))
+describe('a web link that is an artifact and a deliverable shows once, as the artifact', () => {
+  const plan = (...rows: PlanRow[]): PlanEntry => boardOf(...rows).plans[0]!
+  const BOTH = [art('a1', 'Plan board preview', WEB, WEB_NOTE, 'Done', { deliverable: WEB, change: 'a change nobody sees' }), { task: 'b', status: 'Done' as const, updated: null, deliverable: WEB }]
+
+  test('the data: the deliverables leave the link out, the table lists it as an artifact', () => {
+    expect(board.deliverablesOf(plan(...BOTH))).toEqual([])
+    expect(board.tableGroupsOf(plan(...BOTH)).map(group => [group.type, group.items.map(item => item.path)])).toEqual([['artifact', [WEB]]])
+  })
+
+  test('a different link, or the same one in a Canceled artifact row, stays a deliverable', () => {
+    expect(board.deliverablesOf(plan(art('a1', 'One', WEB, 'n', 'Done', { deliverable: 'https://example.com/other' }))).map(item => item.path)).toEqual(['https://example.com/other'])
+    expect(board.deliverablesOf(plan(art('gone', 'Gone', WEB, 'n', 'Canceled'), { task: 'b', status: 'Done', updated: null, deliverable: WEB })).map(item => item.path)).toEqual([WEB])
+  })
+
+  test('terminal: one entry in the table, the artifact: no `link` entry for the same URL, no change text of the deliverable', async ($, on) => {
+    world(on, { fixture: boardOf(...BOTH) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 160)
+    const section = await pane.find({ key: 'deliverables' })
+    const entries = await entriesOf(pane)
+
+    expect(entries.map(flat)).toEqual([`artifact Plan board preview ${WEB_NOTE}`])
+    expect(textOf(section)).not.toContain('a change nobody sees')
+    expect(textOf(section)).not.toContain('claude.ai')
+    await pane.unmount()
+  })
+
+  test('desktop: one entry in the table, the artifact (artifact:0), and no deliverable:0 for the same URL', async ($, on) => {
+    world(on, { fixture: boardOf(...BOTH) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 160)
+    const entries = await entriesOf(pane)
+
+    expect(entries.map(node => String(node.props.key))).toEqual(['artifact:0:item'])
+    expect(await pane.find({ type: 'Markdown', key: 'artifact:0' })).toBeDefined()
+    expect(await pane.find({ key: 'deliverable:0' })).toBeUndefined()
+    expect(await pane.find({ key: 'diff:0' })).toBeUndefined()
+    expect(textOf(await pane.find({ key: 'deliverables' }))).not.toContain('a change nobody sees')
+    await pane.unmount()
+  })
+
+  test('a Canceled artifact row leaves the URL a deliverable of its own: a `link` entry, no artifact', async ($, on) => {
+    world(on, { fixture: boardOf(art('gone', 'Gone', WEB, 'n', 'Canceled'), { task: 'b', status: 'Done', updated: null, deliverable: WEB }) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 160)
+    const [one] = await entriesOf(pane)
+
+    expect(await entriesOf(pane)).toHaveLength(1)
+    expect(flat(one)).toBe(`link ${WEB} —`)
+    await pane.unmount()
+  })
+})
+
+describe('the Deliverables table folds after five rows, the artifacts counted with the files', () => {
+  const file = (at: number): PlanRow => ({ task: `file ${at}`, status: 'Done', updated: null, deliverable: `docs/d${at}.md` })
+  const artifact = (at: number): PlanRow => art(`task ${at}`, `Artifact ${at}`, `https://claude.ai/artifact/n${at}`, `note ${at}`)
+  /** `artifacts` artifacts, then `files` files. */
+  const mixed = (artifacts: number, files: number) => boardOf(...Array.from({ length: artifacts }, (_, at) => artifact(at)), ...Array.from({ length: files }, (_, at) => file(at)))
+
+  const shownIn = (text: string, artifacts: number, files: number) =>
+    [...Array.from({ length: artifacts }, (_, at) => `Artifact ${at}`), ...Array.from({ length: files }, (_, at) => `docs/d${at}.md`)].filter(name => text.includes(name))
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`${surface}: 8 artifacts show 5, then a pressable "+3 more ▾"; pressing shows all 8 and "Show less ▴"; pressing again folds`, async ($, on) => {
-      world(on, { fixture: eight() })
+    test(`${surface}: 4 artifacts and 4 files show 5 (the 4 artifacts, then the first file), then a pressable "+3 more ▾"; pressing shows all 8 and "Show less ▴"; pressing again folds`, async ($, on) => {
+      world(on, { fixture: mixed(4, 4) })
       await $.session.start(SESSION)
       const pane = await mountPane($, surface, 160)
-      const text = async () => textOf(await pane.find({ key: 'artifacts' }))
-      const more = async () => String((await pane.find({ key: 'lane:Artifacts:more' }))?.props.label)
-      const count = async () => {
-        const shown = await text()
+      const text = async () => textOf(await pane.find({ key: 'deliverables' }))
+      const more = async () => String((await pane.find({ key: 'lane:Deliverables:more' }))?.props.label)
 
-        return Array.from({ length: 8 }, (_, at) => `Artifact ${at}`).filter(name => shown.includes(name)).length
-      }
-
-      expect(await count()).toBe(5)
-      expect(await text()).not.toContain('Artifact 5')
+      expect(shownIn(await text(), 4, 4)).toEqual(['Artifact 0', 'Artifact 1', 'Artifact 2', 'Artifact 3', 'docs/d0.md'])
       expect(await more()).toBe('+3 more ▾')
 
-      await pane.press({ key: 'lane:Artifacts:more' })
-      expect(await count()).toBe(8)
+      await pane.press({ key: 'lane:Deliverables:more' })
+      expect(shownIn(await text(), 4, 4)).toHaveLength(8)
       expect(await more()).toBe('Show less ▴')
 
-      await pane.press({ key: 'lane:Artifacts:more' })
-      expect(await count()).toBe(5)
+      await pane.press({ key: 'lane:Deliverables:more' })
+      expect(shownIn(await text(), 4, 4)).toHaveLength(5)
       expect(await more()).toBe('+3 more ▾')
       await pane.unmount()
     })
   }
 
-  test('five or fewer: no overflow button', async ($, on) => {
-    world(on, { fixture: boardOf(...Array.from({ length: 5 }, (_, at) => art(`task ${at}`, `Artifact ${at}`, `https://claude.ai/artifact/n${at}`, 'n'))) })
+  test('the count is the combined list: 6 artifacts and 6 files hide 7', async ($, on) => {
+    world(on, { fixture: mixed(6, 6) })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal', 160)
 
+    expect(await pane.find({ key: 'lane:Deliverables:more' })).toMatchObject({ props: { label: '+7 more ▾' } })
+    await pane.unmount()
+  })
+
+  test('five or fewer together: no overflow button', async ($, on) => {
+    world(on, { fixture: mixed(3, 2) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 160)
+
+    expect(shownIn(textOf(await pane.find({ key: 'deliverables' })), 3, 2)).toHaveLength(5)
+    expect(await pane.find({ key: 'lane:Deliverables:more' })).toBeUndefined()
     expect(await pane.find({ key: 'lane:Artifacts:more' })).toBeUndefined()
     await pane.unmount()
   })
 
-  test('its fold is its own: unfolding the Artifacts leaves the Deliverables folded, and the other way round', async ($, on) => {
-    world(on, { fixture: eight(true) })
-    await $.session.start(SESSION)
-
-    for (const surface of ['terminal', 'desktop'] as const) {
-      const pane = await mountPane($, surface, 160)
-      const label = async (key: string) => String((await pane.find({ key }))?.props.label)
-
-      await pane.press({ key: 'lane:Artifacts:more' })
-      expect(await label('lane:Artifacts:more')).toBe('Show less ▴')
-      expect(await label('lane:Deliverables:more')).toBe('+3 more ▾')
-
-      await pane.press({ key: 'lane:Artifacts:more' })
-      await pane.press({ key: 'lane:Deliverables:more' })
-      expect(await label('lane:Artifacts:more')).toBe('+3 more ▾')
-      expect(await label('lane:Deliverables:more')).toBe('Show less ▴')
-      await pane.press({ key: 'lane:Deliverables:more' })
-      await pane.unmount()
-    }
-  })
-
-  test('the Markdown keys of a desktop row count from the first artifact whether or not the table is folded', async ($, on) => {
-    world(on, { fixture: eight() })
+  test('the keys of a desktop row count from the first artifact and from the first file, whether or not the table is folded', async ($, on) => {
+    world(on, { fixture: mixed(4, 4) })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop', 160)
 
-    // The divider under the plan details is a keyless Markdown rule on the desktop; only the artifact rows are counted here.
-    const artifactKeys = async () =>
-      (await pane.findAll({ type: 'Markdown' })).map(node => node.props.key).filter(key => typeof key === 'string' && key.startsWith('artifact:'))
+    // The divider under the plan details is a keyless Markdown rule on the desktop; only the table's rows are counted here.
+    const keys = async (prefix: string) =>
+      (await pane.findAll({ type: 'Markdown' })).map(node => node.props.key).filter(key => typeof key === 'string' && key.startsWith(prefix))
 
-    expect(await artifactKeys()).toEqual(['artifact:0', 'artifact:1', 'artifact:2', 'artifact:3', 'artifact:4'])
-    await pane.press({ key: 'lane:Artifacts:more' })
-    expect(await artifactKeys()).toHaveLength(8)
+    expect(await keys('artifact:')).toEqual(['artifact:0', 'artifact:1', 'artifact:2', 'artifact:3'])
+    expect(await keys('deliverable:')).toEqual(['deliverable:0'])
+    await pane.press({ key: 'lane:Deliverables:more' })
+    expect(await keys('artifact:')).toHaveLength(4)
+    expect(await keys('deliverable:')).toEqual(['deliverable:0', 'deliverable:1', 'deliverable:2', 'deliverable:3'])
     await pane.unmount()
   })
 })
 
-describe('the Artifact row of a task page', () => {
+describe('the Deliverable row of a task page holds the artifact first, then the file', () => {
   const rows = [art('a1', 'Plan board preview', WEB, WEB_NOTE), art('a2', 'Q3 review deck', LOCAL), { task: 'plain', status: 'Done' as const, updated: null }]
+  const BOTH_ROW = art('a1', 'Plan board preview', WEB, WEB_NOTE, 'Done', { deliverable: 'automation/plans/x.md', change: 'adds the thing' })
+  const SAME_ROW = art('a1', 'Plan board preview', WEB, WEB_NOTE, 'Done', { deliverable: WEB, change: 'a change nobody sees' })
 
   const fieldText = async (pane: Awaited<ReturnType<typeof mountPane>>, key: string) => {
     const found = await pane.find({ key: `field:${key}` })
@@ -532,22 +616,60 @@ describe('the Artifact row of a task page', () => {
     return found === undefined ? undefined : textOf(found).replace(/[│╭╮╰╯├┤┬┴┼─]/g, ' ').replace(/\s+/g, ' ').trim()
   }
 
-  test('terminal: the label Artifact, the title as a link, the note dim under it; next to the Deliverable row', async ($, on) => {
-    world(on, { fixture: boardOf(art('a1', 'Plan board preview', WEB, WEB_NOTE, 'Done', { deliverable: 'automation/plans/x.md' })) })
+  const fieldKeys = async (pane: Awaited<ReturnType<typeof mountPane>>) => kids(await pane.find({ key: 'detail:fields' })).map(node => String(node.props?.key ?? ''))
+
+  test('terminal, both: one row labelled Deliverable: the title as a link, the note dim, the path, the change, Diff ›; no Artifact row', async ($, on) => {
+    world(on, { fixture: boardOf(BOTH_ROW) })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal', 96)
 
     await openCard(pane, 0)
 
-    const field = await pane.find({ key: 'field:artifact' })
-    const keys = kids(await pane.find({ key: 'detail:fields' })).map(node => String(node.props?.key ?? ''))
+    const field = await pane.find({ key: 'field:deliverable' })
 
-    expect(await fieldText(pane, 'artifact')).toBe(`Artifact Plan board preview ${WEB_NOTE}`)
+    expect(await fieldText(pane, 'deliverable')).toBe(`Deliverable Plan board preview ${WEB_NOTE} automation/plans/x.md adds the thing Diff ›`)
     expect((await pane.findAll({ type: 'Link' })).map(node => [node.props.label, node.props.href])).toContainEqual(['Plan board preview', WEB])
     expect(textOf(field)).not.toContain('claude.ai')
     expect(kids(field).some(line => kids(line).some(node => node.props?.dimColor === true && textOf(node).includes(WEB_NOTE)))).toBe(true)
-    expect(keys.filter(key => key === 'field:deliverable' || key === 'field:artifact')).toHaveLength(2)
-    expect(Math.abs(keys.indexOf('field:artifact') - keys.indexOf('field:deliverable'))).toBeLessThanOrEqual(2)
+    expect(await pane.find({ key: 'field:artifact' })).toBeUndefined()
+    expect((await fieldKeys(pane)).filter(key => key === 'field:deliverable' || key === 'field:artifact')).toEqual(['field:deliverable'])
+    await pane.unmount()
+  })
+
+  test('terminal, only an artifact: its title and note, no path and no Diff ›', async ($, on) => {
+    world(on, { fixture: boardOf(...rows) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 96)
+
+    await openCard(pane, 0)
+    expect(await fieldText(pane, 'deliverable')).toBe(`Deliverable Plan board preview ${WEB_NOTE}`)
+    expect(await pane.find({ key: 'field:artifact' })).toBeUndefined()
+    await pane.unmount()
+  })
+
+  test('terminal, only a file: its path, the change, Diff ›, as before', async ($, on) => {
+    world(on, { fixture: boardOf(FILE_ROW) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 96)
+
+    await openCard(pane, 0)
+    expect(await fieldText(pane, 'deliverable')).toBe('Deliverable automation/plans/x.md adds the thing Diff ›')
+    await pane.unmount()
+  })
+
+  test('terminal, the same web link in both fields: shown once, as the artifact', async ($, on) => {
+    world(on, { fixture: boardOf(SAME_ROW) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 96)
+
+    await openCard(pane, 0)
+
+    const field = await pane.find({ key: 'field:deliverable' })
+
+    expect(await fieldText(pane, 'deliverable')).toBe(`Deliverable Plan board preview ${WEB_NOTE}`)
+    expect((await pane.findAll({ type: 'Link' })).filter(node => node.props.href === WEB)).toHaveLength(1)
+    expect(textOf(field)).not.toContain('claude.ai')
+    expect(textOf(field)).not.toContain('Diff')
     await pane.unmount()
   })
 
@@ -567,7 +689,7 @@ describe('the Artifact row of a task page', () => {
     await pane.unmount()
   })
 
-  test('no row at all when the task has no artifact', async ($, on) => {
+  test('no row at all when the task has neither', async ($, on) => {
     world(on, { fixture: boardOf(...rows) })
     await $.session.start(SESSION)
 
@@ -575,28 +697,60 @@ describe('the Artifact row of a task page', () => {
       const pane = await mountPane($, surface, 96)
 
       await openCard(pane, 2)
+      expect(await pane.find({ key: 'field:deliverable' })).toBeUndefined()
       expect(await pane.find({ key: 'field:artifact' })).toBeUndefined()
-      expect(textOf(await pane.find({ key: 'detail' }))).not.toContain('Artifact')
+      expect(textOf(await pane.find({ key: 'detail' }))).not.toMatch(/Artifact|Deliverable/)
       // the open page is session state: back to the board before the next surface mounts
       await pane.press({ key: 'back' })
       await pane.unmount()
     }
   })
 
-  test('desktop: a round-bordered row, the label, the title as a Markdown link keyed detail:artifact, the note dim under it', async ($, on) => {
-    world(on, { fixture: boardOf(...rows) })
+  test('desktop, both: a round-bordered row; the title link keyed detail:artifact, its note dim, then the path link with Diff, then the change', async ($, on) => {
+    world(on, { fixture: boardOf(BOTH_ROW) })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop', 96)
 
     await openCard(pane, 0)
 
-    const field = await pane.find({ key: 'field:artifact' })
+    const field = await pane.find({ key: 'field:deliverable' })
+    const [label, value] = kids(field)
 
     expect(field?.props.borderStyle).toBe('round')
-    expect(textOf(kids(field)[0])).toBe('Artifact')
+    expect(textOf(label)).toBe('Deliverable')
+    expect(kids(value).map(node => node.type)).toEqual(['Markdown', 'Box', 'Box', 'Box'])
+    expect(kids(value)[0]).toMatchObject({ props: { key: 'detail:artifact', text: `[Plan board preview](${WEB})` } })
+    expect(textOf(kids(value)[1])).toBe(WEB_NOTE)
+    expect(isDim(kids(value)[1])).toBe(true)
+    expect(kids(kids(value)[2]).map(node => String(node.props.key))).toEqual(['detail:deliverable', 'detail:diff'])
+    expect(textOf(kids(value)[3])).toBe('adds the thing')
+    expect(await pane.find({ key: 'field:artifact' })).toBeUndefined()
+    await pane.unmount()
+  })
+
+  test('desktop, only an artifact: the title link and its note, no path link and no Diff', async ($, on) => {
+    world(on, { fixture: boardOf(...rows) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 96)
+
+    await openCard(pane, 0)
     expect(await pane.find({ type: 'Markdown', key: 'detail:artifact' })).toMatchObject({ props: { text: `[Plan board preview](${WEB})` } })
-    expect(textOf(field)).toContain(WEB_NOTE)
-    expect(isDim(kids(kids(field)[1]).find(node => textOf(node) === WEB_NOTE))).toBe(true)
+    expect(await pane.find({ key: 'detail:deliverable' })).toBeUndefined()
+    expect(await pane.find({ key: 'detail:diff' })).toBeUndefined()
+    expect(textOf(await pane.find({ key: 'field:deliverable' }))).toContain(WEB_NOTE)
+    await pane.unmount()
+  })
+
+  test('desktop, the same web link in both fields: the artifact link alone', async ($, on) => {
+    world(on, { fixture: boardOf(SAME_ROW) })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'desktop', 96)
+
+    await openCard(pane, 0)
+    expect(await pane.find({ type: 'Markdown', key: 'detail:artifact' })).toBeDefined()
+    expect(await pane.find({ key: 'detail:deliverable' })).toBeUndefined()
+    expect(await pane.find({ key: 'detail:diff' })).toBeUndefined()
+    expect(textOf(await pane.find({ key: 'field:deliverable' }))).not.toContain('a change nobody sees')
     await pane.unmount()
   })
 

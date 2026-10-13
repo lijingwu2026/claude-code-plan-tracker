@@ -15,7 +15,6 @@ import {
   displayWidth,
   doneBlocks,
   doneHeader,
-  fullCard,
   executorOf,
   failureText,
   finishedAnchor,
@@ -499,7 +498,6 @@ describe('who: the tag names who does the task next', () => {
       expect(assigneeOf(routed(status, 'serial × Sam · — — x'))).toBeUndefined()
       expect(assigneeOf(routed(status, 'serial × inline · Opus — x — check by Sam: y'))).toBeUndefined()
       expect(cardView(routed(status, 'spawn × subagent · Sonnet — x'), 40).tag).toBe('')
-      expect(fullCard(routed(status, 'spawn × subagent · Sonnet — x'), 40).tag).toBe('')
     }
 
     expect(whoLineOf(routed('Done', 'spawn × subagent · Sonnet — x'))).toEqual({ tier: 'Sonnet', executor: 'subagent' })
@@ -598,23 +596,30 @@ describe('the band row', () => {
 })
 
 describe('card lines', () => {
-  test('the tag has the last line when it leaves room, else a line of its own, else the last line is cut', () => {
-    expect(cardLines('short', 30, 2, 6)).toEqual(['short'])
-    expect(cardLines('x'.repeat(28), 30, 2, 6)).toEqual(['x'.repeat(28), ''])
-    expect(cardLines('word '.repeat(12), 30, 2, 6).map(displayWidth).every(width => width <= 30)).toBe(true)
-    expect(displayWidth(cardLines('word '.repeat(12), 30, 2, 6)[1] ?? '')).toBeLessThanOrEqual(30 - 6 - 2)
+  test('the whole name is kept: the tag has the last line when it leaves room, else a line of its own, and no line is cut', () => {
+    expect(cardLines('short', 30, 6)).toEqual(['short'])
+    expect(cardLines('x'.repeat(28), 30, 6)).toEqual(['x'.repeat(28), ''])
+
+    const long = cardLines('word '.repeat(40), 30, 6)
+
+    expect(long.length).toBeGreaterThan(4)
+    expect(long.map(displayWidth).every(width => width <= 30)).toBe(true)
+    expect(long.join(' ').split(/\s+/).filter(word => word !== '')).toEqual(Array.from({ length: 40 }, () => 'word'))
+    expect(long.join('')).not.toContain('…')
+    expect(displayWidth(long.at(-1) ?? '')).toBeLessThanOrEqual(30 - 6 - 2)
   })
 
   test('a mascot card has at least two lines; the tag sits on a line below the title, so the title keeps the width', () => {
     const view = cardView(rowNamed('Build'), 40)
 
     expect(view.mascot).toBe(true)
-    expect(view.lines).toHaveLength(3)
+    // the title takes the lines it needs (three at this width), then the tag's line
+    expect(view.lines).toHaveLength(4)
     expect(view.tag).toBe('Sonnet')
-    expect(view.tagAt).toBe(2)
-    expect(view.lines[2]).toBe('')
+    expect(view.tagAt).toBe(3)
+    expect(view.lines[3]).toBe('')
     expect(view.lines[0]?.startsWith('Build the eval suite')).toBe(true)
-    // no tag: the two lines of the title
+    // no tag: the title alone
     expect(cardView(rowNamed('t3'), 60).lines.length).toBe(1)
   })
 

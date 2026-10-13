@@ -1,7 +1,7 @@
 import { describe, expect, test } from './testing'
 import type { Engine } from 'claude-code/testing'
 
-import { MASCOT, REVEAL_LEFT, cardView, displayWidth, laneWidth, overflowLabel } from '../hooks/board'
+import { MASCOT, cardView, displayWidth, laneWidth, overflowLabel } from '../hooks/board'
 import type { PlanBoard } from '../types'
 import type { Node } from './fixtures'
 import { ALPHA_ROWS, BOARD, FRAME_MS, PANE_ID, SESSION, paneProps, plans, kids, textIn, cardRowsIn, textOf, world, openCard } from './fixtures'
@@ -22,15 +22,9 @@ type Pane = Awaited<ReturnType<typeof mountPane>>
 
 const LANES = ['Todo', 'In Progress', 'Verify', 'Done']
 
-/** The card Boxes of a lane, in order (the lane's header, `—` and `+N more` are Text). */
-/** A lane's card Boxes in drawing order; the desktop wraps each in a slot inside a reversed stack. */
-const cardsOf = async (ui: Pane, lane: string): Promise<Node[]> => {
-  const children = ((await ui.find({ key: `lane:${lane}` }))?.children as Node[]).flatMap(child =>
-    String(child.props.key).startsWith('cards:') ? [...child.children].reverse().flatMap(slot => slot.children) : [child],
-  )
-
-  return children.filter(child => child.type === 'Box' && child.props.borderStyle === 'round' && child.props.position !== 'absolute')
-}
+/** The card Boxes of a lane, in drawing order (the lane's header, `—` and `+N more` are Text). */
+const cardsOf = async (ui: Pane, lane: string): Promise<Node[]> =>
+  ((await ui.find({ key: `lane:${lane}` }))?.children as Node[]).filter(child => child.type === 'Box' && child.props.borderStyle === 'round')
 
 /** The card of the row at `index` in ALPHA_ROWS: found by its first line's key. */
 const cardAt = async (ui: Pane, index: number): Promise<Node> => {
@@ -45,15 +39,11 @@ const cardAt = async (ui: Pane, index: number): Promise<Node> => {
   throw new Error(`no card ${index}`)
 }
 
-/** A card's visible rows: its children but the hidden box a hover reveals. */
-const rowsOf = (box: Node): Node[] => box.children.filter(child => child.props.position !== 'absolute')
+/** A card's rows. */
+const rowsOf = (box: Node): Node[] => box.children
 
 /** The Button of a card row: the row itself without a mascot, else the second child of its Box. */
 const buttonOf = (row: Node | undefined): Node | undefined => (row?.type === 'Button' ? row : row?.children.find(child => child.type === 'Button'))
-
-/** The hidden boxes of a lane's cut cards, in order. */
-const revealsOf = async (ui: Pane, lane: string): Promise<Node[]> =>
-  ((await ui.find({ key: `lane:${lane}` }))?.children as Node[]).filter(child => child.props.position === 'absolute')
 
 const indexOfTask = (start: string) => ALPHA_ROWS.findIndex(one => one.task.startsWith(start))
 
@@ -375,8 +365,7 @@ describe('plan-tracker pane: the lanes', () => {
       expect(todo).not.toContain('t4 fourth todo')
       expect(todo).toContain('+2 more')
       expect(await cardsOf(ui, 'Done')).toHaveLength(3)
-      // the desktop stacks a lane's cards in reverse order, so its text reads from the last card up
-      expect(surface === 'desktop' ? done.indexOf('d2 newest but one') : done.indexOf('d4 newest')).toBeLessThan(surface === 'desktop' ? done.indexOf('d4 newest') : done.indexOf('d2 newest but one'))
+      expect(done.indexOf('d4 newest')).toBeLessThan(done.indexOf('d2 newest but one'))
       expect(done).not.toContain('d1 oldest')
       expect(done).toContain('+2 more')
       await ui.unmount()
@@ -829,7 +818,8 @@ describe('plan-tracker pane: the task page', () => {
     await $.session.start(SESSION)
     const first = await open($, 'd4')
 
-    expect(await fieldText(first.pane, 'deliverable')).toBe('Deliverable automation/plans/alpha-plan.md')
+    // the terminal's Deliverable row ends with the `Diff ›` button (the row has a file)
+    expect(await fieldText(first.pane, 'deliverable')).toBe('Deliverable automation/plans/alpha-plan.md Diff ›')
     expect((await first.pane.find({ type: 'Link' }))?.props.label).toBe('automation/plans/alpha-plan.md')
     expect(await fieldText(first.pane, 'status')).toBe('Status Done')
     expect(await fieldText(first.pane, 'note')).toStartWith('Latest note • built the suite')
@@ -1314,15 +1304,9 @@ describe('plan-tracker pane: overflow buttons, header fold and the ask-for-you p
   })
 })
 
-describe('plan-tracker pane: card hover', () => {
+describe('plan-tracker pane: the card', () => {
   /** The Buttons anywhere under `node`. */
   const buttonsUnder = (node: Node): Node[] => (node.type === 'Button' ? [node] : (node.children ?? []).flatMap(buttonsUnder))
-  const LONG = 'A long task name that cannot fit one narrow card and must be shown whole when the pointer is on it'
-
-  const board: PlanBoard = {
-    ...BOARD,
-    plans: [{ ...BOARD.plans[0]!, rows: [{ ...ALPHA_ROWS[6]!, task: LONG }, { ...ALPHA_ROWS[7]!, task: `${LONG} blocked` }, { ...ALPHA_ROWS[8]!, task: `${LONG} todo` }] }],
-  }
 
   test('1: the mascot is plain Text at the start of its row in the card\'s Client, and the card holds no Button the pointer could invert', async ($, on) => {
     world(on)
@@ -1345,112 +1329,6 @@ describe('plan-tracker pane: card hover', () => {
     await pane.unmount()
   })
 
-  test('2: a cut card is a hover scope; its hidden box is the lane\'s last child, on the card\'s own corner and width', async ($, on) => {
-    world(on, { fixture: board })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 140)
-    const width = laneWidth(140)
-
-    const lane = (await pane.find({ key: 'lane:In Progress' })) as unknown as Node
-    const [one] = await revealsOf(pane, 'In Progress')
-    const cards = await cardsOf(pane, 'In Progress')
-
-    // the lane has no border or padding: `top` is the rows above the card (the header row and the cards before it)
-    // a card with the mascot is covered only right of it; the box is a heavy-bordered floating layer
-    expect(one?.props).toMatchObject({ position: 'absolute', display: 'none', top: 1, left: REVEAL_LEFT, width: width - REVEAL_LEFT, borderStyle: 'bold' })
-    expect(REVEAL_LEFT).toBe(2 + 6 + 1 - 1)
-    expect((one as unknown as { hover?: unknown }).hover).toEqual({ display: 'flex', scope: 'card:alpha:1' })
-    expect((cards[0] as unknown as { hover?: unknown }).hover).toEqual({ scope: 'card:alpha:1' })
-    // a hidden keyed Box cannot be hovered: the hidden box has no key; and it is drawn after every card, so none paints over it
-    expect(one?.props.key).toBeUndefined()
-    const lastCard = lane.children.findLastIndex(child => String(child.props.key).startsWith('cardbox:'))
-
-    expect(lane.children.findIndex(child => child.props.position === 'absolute')).toBeGreaterThan(lastCard)
-    expect(cards.length).toBeGreaterThan(0)
-    await pane.unmount()
-  })
-
-  test('2: the hidden box holds the whole name and the executor, and a click on it opens the task page', async ($, on) => {
-    world(on, { fixture: board })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 140)
-
-    const one = (await revealsOf(pane, 'In Progress'))[1]
-    const text = await textIn(pane, one)
-
-    expect(text.replace(/\s+/g, '')).toContain(LONG.replace(/\s+/g, ''))
-    expect(text.trimEnd()).toEndWith('Sonnet')
-    expect(text).not.toContain('Open')
-    expect(buttonsUnder(one as Node)).toEqual([])
-
-    await pane.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'reveal:0' })
-    await pane.pointer({ type: 'up', x: 1, y: 0, button: 'left', in: 'reveal:0' })
-    expect(await pane.find({ key: 'kanban' })).toBeUndefined()
-    expect(await pane.find({ key: 'detail' })).toBeDefined()
-    await pane.unmount()
-  })
-
-  test('2: the second cut card sits below the first: top is the header plus the first card\'s rows', async ($, on) => {
-    world(on, { fixture: board })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 140)
-
-    const reveals = await revealsOf(pane, 'In Progress')
-    // the blocked card (row 1) is first in the lane
-    const first = await cardAt(pane, 1)
-
-    expect(first.props.key).toBe('cardbox:1')
-    expect(reveals.map(one => one.props.top)).toEqual([1, 1 + ((await cardRowsIn(pane, 1)).length + 2)])
-    await pane.unmount()
-  })
-
-  test('2: a blocked card reveals in red with its flag first', async ($, on) => {
-    world(on, { fixture: board })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 140)
-
-    const reveals = await revealsOf(pane, 'In Progress')
-    const texts = await Promise.all(reveals.map(one => textIn(pane, one)))
-    const blocked = reveals[texts.findIndex(text => text.startsWith('⚑ Blocked · A long'))]
-
-    expect(blocked?.props.borderColor).toBe('error')
-    expect(JSON.stringify(await pane.find({ type: 'Box', in: 'reveal:1' }))).toContain('"color":"error"')
-    await pane.unmount()
-  })
-
-  test('3: a card whose name fits has no hidden box: no hover change; a hidden box exists exactly when the name is cut', async ($, on) => {
-    world(on)
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 140)
-
-    let fits = 0
-    let cut = 0
-
-    for (const lane of LANES) {
-      const reveals = await revealsOf(pane, lane)
-      const cards = await cardsOf(pane, lane)
-      const expected = cards.filter(box => cardView(ALPHA_ROWS[Number(String(box.props.key).split(':')[1])]!, laneWidth(140)).isCut).length
-
-      expect(reveals).toHaveLength(expected)
-      cut += expected
-      fits += cards.length - expected
-    }
-
-    expect(fits).toBeGreaterThan(0)
-    expect(cut).toBeGreaterThan(0)
-    await pane.unmount()
-  })
-
-  test('3: the cut test: isCut is true for a name over two lines or shortened by the tag, false otherwise', () => {
-    const row = (task: string, route?: string) => ({ ...ALPHA_ROWS[8]!, task, ...(route === undefined ? {} : { route }) })
-
-    expect(cardView(row('short'), 40).isCut).toBe(false)
-    expect(cardView(row('word '.repeat(30)), 40).isCut).toBe(true)
-    // a name of exactly the inside width plus a tag: the tag takes a line of its own, nothing is cut
-    expect(cardView(row('x'.repeat(30), 'spawn × subagent · Sonnet — x'), 40).isCut).toBe(false)
-    // two full lines and a tag: the second line is shortened for the tag
-    expect(cardView(row(`${'a'.repeat(35)} ${'b'.repeat(35)}`, 'spawn × subagent · Sonnet — x'), 40).isCut).toBe(true)
-  })
 })
 
 describe('plan-tracker pane: a surface with no Client', () => {
@@ -1474,47 +1352,6 @@ describe('plan-tracker pane: a surface with no Client', () => {
 })
 
 describe('plan-tracker pane: R4 review changes', () => {
-  const LONGER = 'A long task name that cannot fit one narrow card and must be shown whole when the pointer is on it'
-  const board: PlanBoard = {
-    ...BOARD,
-    plans: [{ ...BOARD.plans[0]!, rows: [{ ...ALPHA_ROWS[6]!, task: LONGER }, { ...ALPHA_ROWS[8]!, task: `${LONGER} todo` }] }],
-  }
-
-  test('M2: a card without the mascot is covered from its own edge; one with it only right of the mascot, which stays in view', async ($, on) => {
-    world(on, { fixture: board })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 140)
-    const width = laneWidth(140)
-
-    const [doing] = await revealsOf(pane, 'In Progress')
-    const [todo] = await revealsOf(pane, 'Todo')
-
-    expect(doing?.props).toMatchObject({ left: REVEAL_LEFT, width: width - REVEAL_LEFT })
-    expect(todo?.props).toMatchObject({ left: 0, width })
-    // the revealed lines wrap to the room right of the mascot: none is wider than the box's inside
-    for (const line of kids(doing)) {
-      expect(displayWidth(textOf(line))).toBeLessThanOrEqual(width - REVEAL_LEFT - 4)
-    }
-
-    // the mascot is still drawn by the card's own Client, at the card's left
-    expect(textOf((await cardRowsIn(pane, 0))[0]).startsWith('▄█▜▛█▄ ')).toBe(true)
-    await pane.unmount()
-  })
-
-  test('m1: the revealed box is a floating layer: heavy border in the lane colour, not dim', async ($, on) => {
-    world(on, { fixture: board })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 140)
-
-    const [doing] = await revealsOf(pane, 'In Progress')
-    const [todo] = await revealsOf(pane, 'Todo')
-
-    expect(doing?.props).toMatchObject({ borderStyle: 'bold', borderColor: 'suggestion' })
-    expect(todo?.props).toMatchObject({ borderStyle: 'bold', borderColor: 'inactive' })
-    expect(doing?.props.borderDimColor).toBeUndefined()
-    await pane.unmount()
-  })
-
   test('M1: the overflow button is never cut inside its brackets: it shortens to "+13 more ▾" and "less ▴"', () => {
     const lane = { moreLabel: '+3 blocked · 10 running', more: 13 }
 
@@ -1697,18 +1534,6 @@ describe('plan-tracker pane: the Verify lane with a Verifying row', () => {
     const status = kids(kids(await pane.find({ key: 'field:status' }))[0]).find(node => textOf(node).trim() === 'Being checked')
 
     expect(status?.props.color).toBe('warning')
-    await pane.unmount()
-  })
-
-  test('a long Verifying name reveals right of the mascot, like a running card', async ($, on) => {
-    const board: PlanBoard = { ...VERIFY, plans: [{ ...VERIFY.plans[0]!, rows: [row('A long task name that cannot fit one narrow card and must be shown whole when the pointer is on it', 'Verifying')] }] }
-    world(on, { fixture: board })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 140)
-
-    const [reveal] = await revealsOf(pane, 'Verify')
-
-    expect(reveal?.props).toMatchObject({ left: REVEAL_LEFT, borderColor: 'warning', borderStyle: 'bold' })
     await pane.unmount()
   })
 

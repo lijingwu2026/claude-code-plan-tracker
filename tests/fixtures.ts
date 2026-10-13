@@ -110,6 +110,9 @@ export const FILES: Record<string, string> = {
   '/plans/beta.md': '# Beta\n',
 }
 
+/** A task name in CJK, which real tracker data holds: for the tests of wide characters only. */
+export const CJK_TASK = '执行分配判据的可达性修复与回写'
+
 export const HOME = '/home/tester'
 
 export const VIEW_TEXT = ['Plans of this session', '', 'Alpha plan  1/5 Done', '  next: §2 wire the CLI'].join('\n')

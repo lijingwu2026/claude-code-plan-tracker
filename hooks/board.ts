@@ -604,7 +604,7 @@ export const rainbowAt = (cell: number, frame: number): string => RAINBOW[(cell 
 /** A row on a lane; `index` is its place in the plan's `rows`, which names the card. */
 export type Card = { row: PlanRow; index: number }
 
-export type LaneKey = 'Todo' | 'In Progress' | 'Verify' | 'Done' | 'Other' | 'Artifacts' | 'Deliverables'
+export type LaneKey = 'Todo' | 'In Progress' | 'Verify' | 'Done' | 'Other' | 'Deliverables'
 
 /** `more` is how many cards the lane does not show; `moreLabel` the line that says so (`+2 more`, `+1 blocked · 12 running`). */
 export type Lane = { key: LaneKey; header: string; color: string; cards: Card[]; more: number; moreLabel: string }
@@ -618,11 +618,8 @@ export const moreButton = (label: string): string => `${label} ${label === SHOW_
 /** Todo and Done show this many cards, then `+N more`. */
 export const CAPPED = 3
 
-/** The deliverables table shows this many rows, then `+N more`; the same press that unfolds a lane unfolds it. */
+/** The deliverables table (the artifacts first, then the files) shows this many rows, then `+N more`; the same press that unfolds a lane unfolds it. */
 export const DELIVERABLES_SHOWN = 5
-
-/** The artifacts table shows this many rows, then `+N more`, as the deliverables table does. */
-export const ARTIFACTS_SHOWN = 5
 
 /** Folders besides the project root and ~/.claude from which a press opens an artifact (a regular file only): where a session leaves its scratch pages. */
 export const ARTIFACT_EXTRA_ROOTS: readonly string[] = ['/tmp', '/private/tmp']
@@ -977,6 +974,9 @@ const linkOf = (absolute: string) => `file://${absolute.split('/').map(encodeURI
  */
 export const isWebLink = (path: string): boolean => /^\s*https?:\/\//i.test(path)
 
+/** Whether a deliverable can have a diff: a file, not a web link and not a folder (a path that ends in `/`). */
+export const isDiffable = (path: string): boolean => !isWebLink(path) && !path.endsWith('/')
+
 /**
  * The link of a deliverable: a web link as it is (null with a space in it, which no surface opens); otherwise its `file://` link:
  * `~/…` is under `home`, a path that starts with `/` is as it is and any other is relative to the project root. null for a `~` path when the
@@ -1075,17 +1075,24 @@ export function foldedPath(absolute: string): string {
  * `mtime` is the file's modification time in epoch seconds; absent when the path does not exist (or the tracker did not say).
  * `started`, `updated` and `changed_at` are the times of the row that names it (ISO), which pick the commit its diff shows; absent for a row with none.
  */
-export type Deliverable = { path: string; task: string; change?: string; mtime?: number; started?: string; updated?: string; changed_at?: string }
+export type Deliverable = { path: string; task: string; change?: string; mtime?: number; started?: string; updated?: string; changed_at?: string; title?: string }
 
-/** The plan's deliverables in row order, each path once, with the task of the first row that names it; a Canceled row names none. */
+/** Whether `item` is an artifact entry of the deliverables table, not a file. */
+export const isArtifactEntry = (item: Deliverable): boolean => item.title !== undefined
+
+/**
+ * The plan's deliverables in row order, each path once, with the task of the first row that names it; a Canceled row names none. A web
+ * link that is also the target of an artifact is that artifact, not a deliverable.
+ */
 export function deliverablesOf(plan: PlanEntry): Deliverable[] {
   const seen = new Set<string>()
+  const artifactTargets = new Set(artifactsOf(plan).map(artifact => artifact.target))
   const out: Deliverable[] = []
 
   for (const row of plan.rows.filter(one => one.status !== 'Canceled')) {
     const path = row.deliverable
 
-    if (typeof path === 'string' && path !== '' && !seen.has(path)) {
+    if (typeof path === 'string' && path !== '' && !seen.has(path) && !(isWebLink(path) && artifactTargets.has(path.trim()))) {
       seen.add(path)
       out.push({
         path,
@@ -1141,6 +1148,21 @@ export function deliverableGroups(plan: PlanEntry): DeliverableGroup[] {
   return [...groups.entries()]
     .map(([type, items]) => ({ type, items: [...items].sort(newer) }))
     .sort((a, b) => newer(a.items[0] as Deliverable, b.items[0] as Deliverable))
+}
+
+/** The type column's label of an artifact entry. */
+export const ARTIFACT_TYPE = 'artifact'
+
+/**
+ * What the deliverables table lists: the artifacts first, as one group of type `artifact` (in row order, each target once; `change` is the
+ * artifact's note), then the files grouped as `deliverableGroups` has them.
+ */
+export function tableGroupsOf(plan: PlanEntry): DeliverableGroup[] {
+  const artifacts = artifactsOf(plan).map(
+    (artifact): Deliverable => ({ path: artifact.target, task: artifact.task, title: artifact.title, ...(artifact.note === undefined ? {} : { change: artifact.note }) }),
+  )
+
+  return [...(artifacts.length === 0 ? [] : [{ type: ARTIFACT_TYPE, items: artifacts }]), ...deliverableGroups(plan)]
 }
 
 // ---------------------------------------------------------------- the diff of a deliverable
@@ -1742,22 +1764,6 @@ export const CHIPS: Readonly<Record<string, Chip>> = {
 /** The chip of a card tag's word: `you`, a model, or the grey one of `stalled` with its time (`stalled 19:23`, `stalled Oct 11`); undefined for none. */
 export const chipOf = (word: string): Chip | undefined => CHIPS[word] ?? (/^stalled( |$)/.test(word) ? CHIPS.stalled : undefined)
 
-/**
- * The colours of a card's hover box on the desktop, all raw hex. The box was filled with the theme key `inverseText` (a fill that
- * follows a light or a dark theme) and the desktop did not paint it: the box was see-through. The desktop paints raw hex backgrounds
- * (the type chips, the tag chips and the solid progress bars are all raw hex and all show), so the box is filled with one. A raw colour
- * does not follow the theme, and the plugin is not told the theme, so the box carries its own ink as well: a dark box with light text
- * is as legible on a light page as on a dark one, and every colour keeps its contrast on the fill (`tests/reveal.test.ts`). The
- * terminal's box keeps the theme keys.
- */
-export const DESKTOP_BOX = {
-  fill: '#2b2a27',
-  text: '#f4f2ea',
-  dim: '#b7b3a7',
-  error: '#ff8c90',
-  needsYou: '#c7a6ff',
-} as const
-
 /** The grey chip of a deliverable's type. */
 export const TYPE_CHIP: Chip = { bg: '#E4E2D9', fg: '#44413A' }
 
@@ -1771,20 +1777,16 @@ export const NEEDS_YOU = '◆ needs you · '
 export const markerOf = (row: PlanRow): string => (isBlocked(row) ? FLAG : needsYou(row) ? NEEDS_YOU : '')
 
 /**
- * `text` as at most `maxLines` card lines of `width` columns; with a tag of `tagCols` columns, the last line leaves it
- * room (`tagCols` and two spaces), by a new empty line when a line is free, else by cutting the last. At least `minLines`.
+ * `text` as card lines of `width` columns, all of it: no line count caps it and nothing is cut. With a tag of `tagCols`
+ * columns, the last line leaves it room (`tagCols` and two spaces), else the tag has a new empty line of its own. At least `minLines`.
  */
-export function cardLines(text: string, width: number, maxLines: number, tagCols: number, minLines = 1): string[] {
-  const lines = wrap(text, width, maxLines)
+export function cardLines(text: string, width: number, tagCols: number, minLines = 1): string[] {
+  const lines = wrap(text, width)
   const room = width - tagCols - 2
   const last = lines[lines.length - 1] ?? ''
 
   if (tagCols > 0 && displayWidth(last) > room) {
-    if (lines.length < maxLines) {
-      lines.push('')
-    } else {
-      lines[lines.length - 1] = truncate(last, Math.max(1, room))
-    }
+    lines.push('')
   }
 
   while (lines.length < minLines) {
@@ -1793,9 +1795,6 @@ export function cardLines(text: string, width: number, maxLines: number, tagCols
 
   return lines
 }
-
-/** Lines of name a card shows at the most. */
-export const CARD_NAME_LINES = 2
 
 /** Cells of a card's progress bar. */
 export const PROGRESS_CELLS = 5
@@ -1834,8 +1833,6 @@ export type CardView = {
   tag: string
   tagAt: number
   pad: number
-  /** Whether the name does not fit the card: a hover shows it whole. */
-  isCut: boolean
 }
 
 /**
@@ -1869,17 +1866,13 @@ export function cardView(row: PlanRow, cardWidth: number, now: number = Date.now
   const isTagOnBar = bar !== undefined && tag !== '' && displayWidth(barText) + chipCols(tag) + 2 <= room
   // Beside the mascot the title keeps the whole width: the chip goes below it, on the bar's line or on a line of its own.
   const isChipBelow = mascot && tag !== ''
-  const names = cardLines(`${marker}${row.task}`, room, CARD_NAME_LINES, isTagOnBar || isChipBelow ? 0 : chipCols(tag), bar === undefined && !isChipBelow ? (mascot ? MASCOT_ROWS : 1) : 1)
+  const names = cardLines(`${marker}${row.task}`, room, isTagOnBar || isChipBelow ? 0 : chipCols(tag), bar === undefined && !isChipBelow ? (mascot ? MASCOT_ROWS : 1) : 1)
   const metaLine = isChipBelow && !isTagOnBar ? [''] : []
   const lines = bar === undefined ? [...names, ...metaLine] : [...names, barText, ...metaLine]
   const tagAt = isChipBelow || (bar !== undefined && isTagOnBar) ? lines.length - 1 : names.length - 1
   const last = lines[tagAt] ?? ''
 
-  const full = wrap(`${marker}${row.task}`, room)
-  // Cut when the name takes more lines than the card has, or the tag's room shortened a line.
-  const isCut = full.length > CARD_NAME_LINES || names.slice(0, full.length).some((line, at) => line !== full[at])
-
-  return { mascot, lines, marker, bar, barAt: bar === undefined ? -1 : names.length, tag, tagAt, pad: tag === '' ? 0 : Math.max(2, room - displayWidth(last) - chipCols(tag)), isCut }
+  return { mascot, lines, marker, bar, barAt: bar === undefined ? -1 : names.length, tag, tagAt, pad: tag === '' ? 0 : Math.max(2, room - displayWidth(last) - chipCols(tag)) }
 }
 
 /** The route as the tracker wrote it, whitespace folded; undefined for none. */
@@ -2019,50 +2012,8 @@ export function shortPath(path: string, cols: number): string {
   return `…${kept}`
 }
 
-export type FullCard = {
-  /** The name whole, in lines of the card's inside width. */
-  lines: string[]
-  /** The row's goal in lines of the same width, drawn dim after the name; empty for none. */
-  goal: string[]
-  /** The executor tag on a line of its own after the name, right-aligned with `pad` spaces before it; empty for none. */
-  tag: string
-  pad: number
-}
-
-/**
- * What a hover on a card shows: the marker and task name whole, the goal, then the tag (a stalled tag the inside has no room for with its
- * time is the bare `stalled`, as on the card). `left` is the columns of the card it leaves uncovered.
- */
-export function fullCard(row: PlanRow, cardWidth: number, left = 0, now: number = Date.now()): FullCard {
-  const inner = Math.max(1, cardWidth - left - BORDER_COLUMNS)
-  const tag = fittingTag(tagWordOf(row, now), word => chipCols(word) <= inner)
-
-  const goal = goalOf(row)
-
-  return { lines: wrap(`${markerOf(row)}${row.task}`, inner), goal: goal === '' ? [] : wrap(goal, inner), tag, pad: Math.max(0, inner - chipCols(tag)) }
-}
-
-/** The hover scope that links a card to its revealed box: 1 to 64 characters, so a long anchor is cut. */
-export function scopeOf(anchor: string, index: number): string {
-  const tail = `:${index}`
-
-  return `${`card:${anchor}`.slice(0, 64 - tail.length)}${tail}`
-}
-
-/** The row's goal as one line of words, or '' for none. */
-export const goalOf = (row: PlanRow): string => (row.goal ?? '').replace(/\s+/g, ' ').trim()
-
-/** Whether the card of `row` has a hover box: its name is cut, or its row has a goal to show. */
-export const hasReveal = (row: PlanRow, cardWidth: number, now: number = Date.now()): boolean => cardView(row, cardWidth, now).isCut || goalOf(row) !== ''
-
 /** Rows a card takes: its border, its text lines, its border. */
 export const cardRows = (row: PlanRow, cardWidth: number, now: number = Date.now()): number => 2 + cardView(row, cardWidth, now).lines.length
-
-/** Columns of a mascot card left uncovered by its revealed box: its border and padding, the mascot, and the space after it. */
-export const REVEAL_LEFT = 2 + MASCOT_SPACE - 1
-
-/** Where the revealed box of the card of `row` starts: right of the mascot when the card has one, else at the card's own edge. */
-export const revealLeft = (row: PlanRow, cardWidth: number, now: number = Date.now()): number => (cardView(row, cardWidth, now).mascot ? REVEAL_LEFT : 0)
 
 /**
  * The overflow button's label (a Button draws its own `[ ]`, 4 columns): the line as it is when it fits `width`, else the

@@ -96,9 +96,9 @@ describe('a deliverable that is a web link', () => {
       await $.session.start(SESSION)
       const pane = await mountPane($, surface, 96)
 
-      expect(await pane.find({ key: 'change:0' })).toBeUndefined()
+      expect(await pane.find({ key: 'diff:0' })).toBeUndefined()
       await openCard(pane, 0)
-      expect(await pane.find({ key: 'detail:change' })).toBeUndefined()
+      expect(await pane.find({ key: 'detail:diff' })).toBeUndefined()
       await pane.unmount()
     })
   }

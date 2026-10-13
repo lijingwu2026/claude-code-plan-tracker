@@ -122,61 +122,112 @@ const start = async ($: Engine, on: Parameters<typeof world>[0], surface: Surfac
   return { w, pane: await mountPane($, surface, columns) }
 }
 
-describe('the WHAT CHANGED text is the diff link', () => {
-  test('desktop table, wide: the change text is a Markdown link keyed change:0 that the plugin answers', async ($, on) => {
+describe('the Diff of a deliverable', () => {
+  test('desktop table, wide: a Diff Button keyed diff:0 in a cell of its own after the path; the change stays plain text', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop')
-    const link = (await pane.find({ key: 'change:0' })) as Node
+    const button = (await pane.find({ key: 'diff:0' })) as Node
 
-    expect(link.type).toBe('Markdown')
-    expect(String(link.props.text)).toContain('[adds the diff link](file://')
-    // a Markdown with no `onLinkPress` has nothing a press can reach; this one takes the press
-    await expect(pane.press({ key: 'change:0', link: { href: HREF } })).resolves.toBeDefined()
+    expect(button.type).toBe('Button')
+    expect(button.props.label).toBe('Diff')
+    // the cell is between the path's and the change's, and the change text has no link
+    const item = kids(await pane.find({ key: 'deliverable:0:item' }))
+
+    expect(item.map(cell => String(cell.props.key ?? cell.type))).toEqual(['deliverable:0:type', 'deliverable:0:path', 'deliverable:0:diff', 'Box'])
+    expect(textOf(item[2])).toBe('Diff')
+    expect(textOf(item[3])).toBe('adds the diff link')
+    expect((await pane.findAll({ type: 'Markdown' })).some(node => String(node.props.text).includes('adds the diff link'))).toBe(false)
+    await expect(pane.press({ key: 'diff:0' })).resolves.toBeDefined()
     await settle(w.clock)
     await pane.unmount()
   })
 
-  test('desktop table, narrow (the change under the path): the same link', async ($, on) => {
+  test('desktop table: artifacts listed above the files do not move the Diff numbers: diff:0 opens the first file, and an artifact has no Diff', async ($, on) => {
+    const artifact: PlanRow = { task: 'page', status: 'Done', updated: null, artifact: '[Preview](https://claude.ai/artifact/x)', artifact_note: 'a mock' }
+    const { w, pane } = await start($, on, 'desktop', { rows: [artifact, ROW] })
+
+    expect(await pane.find({ key: 'diff:1' })).toBeUndefined()
+    expect(textOf(await pane.find({ key: 'artifact:0:diff' }))).toBe('')
+    await pane.press({ key: 'diff:0' })
+    await settle(w.clock)
+    expect((await codes(pane)).map(code => code.source)).toContain(HUNK)
+    expect(gitRuns(w).flat().some(arg => arg.endsWith(REL))).toBe(true)
+    await pane.unmount()
+  })
+
+  test('desktop table: the Diff column has a blank header, between DELIVERABLE and SUMMARY', async ($, on) => {
+    const { pane } = await start($, on, 'desktop')
+    const head = kids(await pane.find({ key: 'deliverables:head' }))
+
+    expect(head.map(textOf)).toEqual(['TYPE', 'DELIVERABLE', '', 'SUMMARY'])
+    await pane.unmount()
+  })
+
+  test('desktop table, narrow: the Diff cell stays with the path when the row stacks, and the change is plain text under it', async ($, on) => {
     const { pane } = await start($, on, 'desktop', { columns: 96 })
+    const [top, change] = kids(await pane.find({ key: 'deliverable:0:item' }))
 
-    expect(((await pane.find({ key: 'change:0' })) as Node | undefined)?.type).toBe('Markdown')
+    expect(kids(top).map(cell => String(cell.props.key ?? cell.type))).toEqual(['deliverable:0:type', 'deliverable:0:path', 'deliverable:0:diff'])
+    expect(((await pane.find({ key: 'diff:0' })) as Node).type).toBe('Button')
+    expect(textOf(change)).toBe('adds the diff link')
     await pane.unmount()
   })
 
-  test('the link is on the deliverable that has a change: one without keeps its dash and has none', async ($, on) => {
-    const { pane } = await start($, on, 'desktop', { rows: [{ ...ROW, change: undefined } as PlanRow] })
+  test('desktop table: a file with no change text still has a Diff; a web link and a folder have an empty cell, and the rows line up', async ($, on) => {
+    const rows: PlanRow[] = [
+      { ...ROW, task: 'a', change: undefined } as PlanRow,
+      { ...ROW, task: 'b', deliverable: 'https://claude.ai/artifact/x' },
+      { ...ROW, task: 'c', deliverable: `${HOME}/.claude/mods/plan-tracker/` },
+    ]
+    const { pane } = await start($, on, 'desktop', { rows })
+    const cells = async (index: number) => kids(await pane.find({ key: `deliverable:${index}:item` })).find(cell => String(cell.props.key).endsWith(':diff')) as Node
 
-    expect(await pane.find({ key: 'change:0' })).toBeUndefined()
+    expect(((await pane.find({ key: 'diff:0' })) as Node).type).toBe('Button')
+
+    for (const index of [1, 2]) {
+      const cell = await cells(index)
+
+      expect(cell.props.width).toBe(((await cells(0)) as Node).props.width)
+      expect(textOf(cell)).toBe('')
+    }
+
+    expect(await pane.find({ key: 'diff:1' })).toBeUndefined()
+    expect(await pane.find({ key: 'diff:2' })).toBeUndefined()
     await pane.unmount()
   })
 
-  test('terminal table: the text stays plain, with no link and no button', async ($, on) => {
+  test('terminal table: the text stays plain, with no Diff and no link (the terminal opens a table link itself, the plugin never gets the press)', async ($, on) => {
     const { pane } = await start($, on, 'terminal')
 
-    expect(await pane.find({ key: 'change:0' })).toBeUndefined()
+    expect(await pane.find({ key: 'diff:0' })).toBeUndefined()
     expect(flat(await pane.find({ key: 'deliverables' }))).toContain('adds the diff link')
+    expect(flat(await pane.find({ key: 'deliverables' }))).not.toContain('Diff')
     await pane.unmount()
   })
 
-  test('desktop task page: the change line is a Markdown link keyed detail:change', async ($, on) => {
+  test('desktop task page: a Diff Button keyed detail:diff right after the path link; the change line is plain text', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop', { columns: 96 })
 
     await openCard(pane, 0)
 
-    const link = (await pane.find({ key: 'detail:change' })) as Node
+    const button = (await pane.find({ key: 'detail:diff' })) as Node
+    const path = (await pane.find({ key: 'detail:deliverable' })) as Node
 
-    expect(link.type).toBe('Markdown')
-    expect(String(link.props.text)).toContain('[adds the diff link](file://')
-    await expect(pane.press({ key: 'detail:change', link: { href: HREF } })).resolves.toBeDefined()
+    expect(button.type).toBe('Button')
+    expect(button.props.label).toBe('Diff')
+    expect(path.type).toBe('Markdown')
+    expect((await pane.findAll({ type: 'Markdown' })).some(node => String(node.props.text).includes('adds the diff link'))).toBe(false)
+    expect(flat(await pane.find({ key: 'field:deliverable' }))).toContain('adds the diff link')
+    await expect(pane.press({ key: 'detail:diff' })).resolves.toBeDefined()
     await settle(w.clock)
     await pane.unmount()
   })
 
-  test('terminal task page: a `Diff ›` button keyed detail:change on the Deliverable row, and no Markdown link', async ($, on) => {
+  test('terminal task page: a `Diff ›` button keyed detail:diff on the Deliverable row, and no Markdown link', async ($, on) => {
     const { pane } = await start($, on, 'terminal', { columns: 96 })
 
     await openCard(pane, 0)
 
-    const button = (await pane.find({ key: 'detail:change' })) as Node
+    const button = (await pane.find({ key: 'detail:diff' })) as Node
 
     expect(button.type).toBe('Button')
     expect(button.props.label).toBe('Diff ›')
@@ -185,13 +236,15 @@ describe('the WHAT CHANGED text is the diff link', () => {
   })
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`${surface}: a task page without a change text has no link and no button`, async ($, on) => {
-      const { pane } = await start($, on, surface, { rows: [{ ...ROW, change: undefined } as PlanRow], columns: 96 })
+    for (const [what, deliverable] of [['a web link', 'https://claude.ai/artifact/x'], ['a folder', `${HOME}/.claude/mods/plan-tracker/`]] as const) {
+      test(`${surface}: a task page for ${what} has no Diff`, async ($, on) => {
+        const { pane } = await start($, on, surface, { rows: [{ ...ROW, deliverable }], columns: 96 })
 
-      await openCard(pane, 0)
-      expect(await pane.find({ key: 'detail:change' })).toBeUndefined()
-      await pane.unmount()
-    })
+        await openCard(pane, 0)
+        expect(await pane.find({ key: 'detail:diff' })).toBeUndefined()
+        await pane.unmount()
+      })
+    }
   }
 })
 
@@ -213,7 +266,7 @@ describe('the path is checked before any git call', () => {
   const pressWith = async ($: Engine, on: Parameters<typeof world>[0], deliverable: string, setup: Partial<ReturnType<typeof world>> = {}) => {
     const { w, pane } = await start($, on, 'desktop', { rows: [{ ...ROW, deliverable }], ...setup })
 
-    await pane.press({ key: 'change:0', link: { href: 'file:///x' } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
     await pane.unmount()
 
@@ -264,7 +317,7 @@ describe('which commit and what the toasts say', () => {
   test('the commit inside the row\'s window is the one shown, found with git -C <toplevel> and a repo-relative path', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop', { answer: repo() })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     expect(gitRuns(w)).toEqual([
@@ -278,7 +331,7 @@ describe('which commit and what the toasts say', () => {
   test('no commit touched the file: a toast, and no show', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop', { answer: repo({ log: '' }) })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     expect(w.toasts).toEqual(['No commit found for board.ts'])
@@ -290,7 +343,7 @@ describe('which commit and what the toasts say', () => {
   test('the file is not in a git repo: a toast, and nothing after rev-parse', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop', { answer: repo({ top: null }) })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     expect(w.toasts).toEqual(['Not in a git repo'])
@@ -301,7 +354,7 @@ describe('which commit and what the toasts say', () => {
   test('git show failing is a toast too, and the board stays', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop', { answer: repo({ diffExit: 128 }) })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     expect(w.toasts).toEqual(['No diff: git show exited 128'])
@@ -314,7 +367,7 @@ describe('outside Cursor the diff is a page of the board', () => {
   test('desktop table press: ‹ Back, the path · short sha · subject, then one diff Code per hunk', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop')
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     expect(await pane.find({ key: 'lane:Done' })).toBeUndefined()
@@ -329,7 +382,7 @@ describe('outside Cursor the diff is a page of the board', () => {
     const { w, pane } = await start($, on, 'terminal', { columns: 96 })
 
     await openCard(pane, 0)
-    await pane.press({ key: 'detail:change' })
+    await pane.press({ key: 'detail:diff' })
     await settle(w.clock)
 
     expect((await codes(pane)).map(one => one.source)).toEqual([HUNK])
@@ -346,7 +399,7 @@ describe('outside Cursor the diff is a page of the board', () => {
   test('desktop task page: the detail link opens it, and Back from a page opened on the table returns to the board', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop', { columns: 96 })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
     await pane.press({ key: 'back' })
     await settle(w.clock)
@@ -355,7 +408,7 @@ describe('outside Cursor the diff is a page of the board', () => {
     expect(await pane.find({ key: 'lane:Done' })).toBeDefined()
 
     await openCard(pane, 0)
-    await pane.press({ key: 'detail:change', link: { href: HREF } })
+    await pane.press({ key: 'detail:diff' })
     await settle(w.clock)
 
     expect((await codes(pane)).length).toBe(1)
@@ -367,7 +420,7 @@ describe('outside Cursor the diff is a page of the board', () => {
     const diff = ['diff --git a/x b/x', '--- /dev/null', '+++ b/x', '@@ -0,0 +1,600 @@', ...lines, ''].join('\n')
     const { w, pane } = await start($, on, 'desktop', { answer: repo({ diff }) })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     const sources = (await codes(pane)).map(one => one.source)
@@ -383,7 +436,7 @@ describe('outside Cursor the diff is a page of the board', () => {
     const diff = ['@@ -0,0 +1,3000 @@', ...lines, ''].join('\n')
     const { w, pane } = await start($, on, 'desktop', { answer: repo({ diff }) })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     const shown = (await codes(pane)).flatMap(one => one.source.split('\n').slice(1)).length
@@ -396,7 +449,7 @@ describe('outside Cursor the diff is a page of the board', () => {
     const diff = 'diff --git a/x.png b/x.png\nindex 1111111..2222222 100644\nBinary files a/x.png and b/x.png differ\n'
     const { w, pane } = await start($, on, 'desktop', { answer: repo({ diff }) })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     expect(await codes(pane)).toEqual([])
@@ -411,7 +464,7 @@ describe('outside Cursor the diff is a page of the board', () => {
   test('desktop table: the commit comes from changed_at + 30 minutes, not from a later updated: the later task\'s commit is not shown', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop', { rows: [CHECKED_LATE] })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     expect(shownSha(w)).toEqual([sha('b')])
@@ -422,7 +475,7 @@ describe('outside Cursor the diff is a page of the board', () => {
     const { w, pane } = await start($, on, 'terminal', { rows: [CHECKED_LATE], columns: 96 })
 
     await openCard(pane, 0)
-    await pane.press({ key: 'detail:change' })
+    await pane.press({ key: 'detail:diff' })
     await settle(w.clock)
 
     expect(shownSha(w)).toEqual([sha('b')])
@@ -432,7 +485,7 @@ describe('outside Cursor the diff is a page of the board', () => {
   test('a row without changed_at (old rows are not backfilled) keeps updated + 30 minutes: the later commit', async ($, on) => {
     const { w, pane } = await start($, on, 'desktop', { rows: [{ ...CHECKED_LATE, changed_at: undefined } as PlanRow] })
 
-    await pane.press({ key: 'change:0', link: { href: HREF } })
+    await pane.press({ key: 'diff:0' })
     await settle(w.clock)
 
     expect(shownSha(w)).toEqual([sha('c')])
@@ -445,7 +498,7 @@ describe('outside Cursor the diff is a page of the board', () => {
     const { w, pane } = await start($, on, 'terminal', { answer: repo({ log: logLine('b', '2026-10-12T19:00:00+09:00', LONG_SUBJECT) }), columns })
 
     await openCard(pane, 0)
-    await pane.press({ key: 'detail:change' })
+    await pane.press({ key: 'detail:diff' })
     await settle(w.clock)
 
     const box = (await pane.find({ key: 'diff' })) as Node
@@ -481,7 +534,7 @@ describe('outside Cursor the diff is a page of the board', () => {
       const { w, pane } = await start($, on, 'terminal', { env, columns: 96 })
 
       await openCard(pane, 0)
-      await pane.press({ key: 'detail:change' })
+      await pane.press({ key: 'detail:diff' })
       await settle(w.clock)
 
       expect(editorRuns(w)).toEqual([])
@@ -498,7 +551,7 @@ describe('inside Cursor the diff opens in its own diff view', () => {
     const { w, pane } = await start($, on, 'terminal', { env: CURSOR_ENV, answer: repo({ before: 'old text\n', after: 'new text\n', editor: { exitCode: 0 }, ...given }), columns: 96, ...rest })
 
     await openCard(pane, 0)
-    await pane.press({ key: 'detail:change' })
+    await pane.press({ key: 'detail:diff' })
     await settle(w.clock)
 
     return { w, pane }
@@ -567,11 +620,13 @@ describe('inside Cursor the diff opens in its own diff view', () => {
 })
 
 describe('the keys', () => {
-  test('change:N is answered only as a link; detail:change as a link (desktop) and as a button (terminal)', async () => {
-    expect(actionFor({} as never, 'change:0', true, 'desktop')).toBeDefined()
-    expect(actionFor({} as never, 'change:0', false, 'desktop')).toBeUndefined()
-    expect(actionFor({} as never, 'detail:change', true, 'desktop')).toBeDefined()
-    expect(actionFor({} as never, 'detail:change', false, 'terminal')).toBeDefined()
+  test('one key means open the diff: diff:N and detail:diff are answered as a Button or as a link, and the old change keys are not the mod\'s', async () => {
+    for (const isLink of [true, false]) {
+      expect(actionFor({} as never, 'diff:0', isLink, 'desktop')).toBeDefined()
+      expect(actionFor({} as never, 'detail:diff', isLink, 'desktop')).toBeDefined()
+      expect(actionFor({} as never, 'change:0', isLink, 'desktop')).toBeUndefined()
+      expect(actionFor({} as never, 'detail:change', isLink, 'desktop')).toBeUndefined()
+    }
   })
 })
 
@@ -582,7 +637,7 @@ describe('inside VS Code (TERM_PROGRAM is vscode, the app is not Cursor) the dif
     const { w, pane } = await start($, on, 'terminal', { env, answer: repo({ before: 'old text\n', after: 'new text\n', editor }), columns: 96 })
 
     await openCard(pane, 0)
-    await pane.press({ key: 'detail:change' })
+    await pane.press({ key: 'detail:diff' })
     await settle(w.clock)
 
     return { w, pane }

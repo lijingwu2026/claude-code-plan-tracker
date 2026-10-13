@@ -157,24 +157,24 @@ describe('the desktop: card rows', () => {
     await pane.unmount()
   })
 
-  test('the hover box has the same row shape: names unpadded, the tag on a row of its own at the right', async ($, on) => {
-    const LONG = 'A long task name that cannot fit one narrow card and must be shown whole when the pointer is on it'
+  test('a long name wraps over rows of the card in full: names unpadded, the tag on a row of its own at the right', async ($, on) => {
+    const LONG = 'A long task name that cannot fit one narrow card and must be shown whole without a hover box'
     const board: PlanBoard = { ...BOARD, plans: [{ ...BOARD.plans[0]!, rows: [{ ...ALPHA_ROWS[6]!, task: LONG }, { ...ALPHA_ROWS[8]!, task: `${LONG} todo` }] }] }
     world(on, { fixture: board })
     await $.session.start(SESSION)
     const pane = await mountPane($, 'desktop', 140)
 
-    const rows = kids(await pane.find({ type: 'Box', in: 'reveal:1' }))
-    const [last] = rows.slice(-1)
+    const rows = await cardRowsIn(pane, 1)
 
-    expect(rows.length).toBeGreaterThan(1)
+    expect(rows.length).toBeGreaterThan(2)
     expect(rows.every(row => row.type === 'Box' && row.props.flexDirection === 'row')).toBe(true)
     expect(rows.flatMap(stringsIn).filter(isPadding)).toEqual([])
     expect(rows.map(textOf).join(' ')).toContain('cannot fit one narrow card')
+    expect(rows.map(textOf).join('')).not.toContain('…')
     // the todo card has no tag: its rows are names only
-    expect(textOf(last)).not.toContain('  ')
+    expect(textOf(rows.at(-1))).not.toContain('  ')
 
-    const doing = kids(await pane.find({ type: 'Box', in: 'reveal:0' }))
+    const doing = await cardRowsIn(pane, 0)
     const tagRow = doing.at(-1)
 
     expect(kids(tagRow).map(child => child.props.flexGrow ?? null)).toEqual([1, null])
@@ -754,74 +754,6 @@ describe('the desktop: deliverables', () => {
 
     expect(w.toasts).toEqual(['Not opened: open exited 1'])
     expect(w.logLines()).toMatchObject([{ stage: 'open-path', error: 'open exited 1: no application' }])
-    await pane.unmount()
-  })
-})
-
-describe('the hover box is drawn after the overflow button', () => {
-  const LONG = 'A long task name that cannot fit one narrow card and must be shown whole when the pointer is on it'
-  // five Todo rows: three cards and "+2 more"; the first is cut
-  const board: PlanBoard = {
-    ...BOARD,
-    plans: [{ ...BOARD.plans[0]!, rows: ALPHA_ROWS.map((row, at) => (at === 8 ? { ...row, task: LONG } : row)) }],
-  }
-
-  for (const surface of ['terminal'] as const) {
-    test(`${surface}: in the lane, "+2 more" comes before every hidden box, so the box's bottom border is not painted over`, async ($, on) => {
-      world(on, { fixture: board })
-      await $.session.start(SESSION)
-      const pane = await mountPane($, surface, 140)
-
-      const lane = kids(await pane.find({ key: 'lane:Todo' }))
-      const more = lane.findIndex(child => child.props.key === 'lane:Todo:more')
-      const hidden = lane.flatMap((child, at) => (child.props.position === 'absolute' ? [at] : []))
-
-      expect(more).toBeGreaterThan(0)
-      expect(hidden).toHaveLength(1)
-      expect(hidden[0]).toBeGreaterThan(more)
-      expect(lane.length - 1, 'the box is the lane\'s last child').toBe(hidden[0])
-      expect((await textIn(pane, lane[hidden[0]!])).replace(/\s+/g, '')).toContain('cannotfitonenarrowcard')
-      await pane.unmount()
-    })
-  }
-})
-
-describe('the hover box is anchored to its own card (desktop)', () => {
-  const LONG = 'A long task name that cannot fit one narrow card and must be shown whole when the pointer is on it'
-  const board: PlanBoard = {
-    ...BOARD,
-    plans: [{ ...BOARD.plans[0]!, rows: ALPHA_ROWS.map(row => ({ ...row, task: LONG })) }],
-  }
-
-  test('every cut card, the last of its lane included, holds its hidden box at top 0 of its own slot; none hangs off the lane', async ($, on) => {
-    world(on, { fixture: board })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'desktop', 140)
-
-    let reveals = 0
-
-    for (const name of ['Todo', 'In Progress', 'Verify', 'Done']) {
-      const lane = kids(await pane.find({ key: `lane:${name}` }))
-      const stack = lane.find(child => child.props.key === `cards:${name}`)
-
-      expect(lane.filter(child => child.props.position === 'absolute'), `${name}: no hidden box is the lane's own child`).toEqual([])
-
-      for (const slot of kids(stack)) {
-        expect(slot.props.position).toBe('relative')
-
-        const hidden = kids(slot).filter(child => child.props.position === 'absolute')
-
-        expect(hidden.length).toBeLessThanOrEqual(1)
-        expect(kids(slot)[0]?.props.key).toMatch(/^cardbox:/)
-
-        for (const one of hidden) {
-          expect(one.props.top).toBe(0)
-          reveals += 1
-        }
-      }
-    }
-
-    expect(reveals).toBeGreaterThan(2)
     await pane.unmount()
   })
 })

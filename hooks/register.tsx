@@ -2,7 +2,7 @@
  * The plan board for a terminal: a one-row band above the prompt (`● <plan> ▾ <bar> n/m  Plan file ›`: "▾" opens the plan
  * list above the prompt, the bar opens or closes the board, "Plan file ›" opens the board on the plan file) and a pane with
  * the plan dropdown, the plan line, four lanes (Todo, In Progress, Verify, Done) of bordered cards (press one for its page) and the
- * plan's artifacts and deliverables. Picking a plan in the band or in the pane switches both.
+ * plan's deliverables, the artifacts listed first among them. Picking a plan in the band or in the pane switches both.
  *
  * The data is the board file (PROGRESS.md, read again every 1.5 s, so the board follows the file) or, with the setting
  * `board_command`, that command's JSON; read on session.start, on each prompt, after a Bash call that runs the command, and every
@@ -13,7 +13,7 @@
  * page the plugin opens with `open` (the same allowlist). A PLAN-DONE block in a Bash result becomes a toast, a chime and a
  * notice in the conversation, and one with `0 left` makes the band's bar a rainbow until the person's next prompt. With no
  * `board_command`, a row of the board file that goes Done does the same, with no block: the file is the only source. A deliverable's
- * WHAT CHANGED text opens the diff of the commit that made the change (git runs only on that press, after the same path check): in the
+ * Diff button opens the diff of the commit that made the change (git runs only on that press, after the same path check): in the
  * diff view of Cursor or VS Code when the session runs inside them, else as a page of the board with a `Code` element per hunk.
  */
 import { atom, read, update } from 'claude-code'
@@ -44,6 +44,7 @@ import {
   isComplete,
   isOpen,
   isRainbow,
+  isDiffable,
   isWebLink,
   isWebTarget,
   messageOf,
@@ -55,6 +56,7 @@ import {
   parseBoard,
   parseProgress,
   planOf,
+  planStateText,
   truncate,
   settings,
   applyOptions,
@@ -64,7 +66,7 @@ import {
 } from './board'
 import type { LaneKey } from './board'
 import type { FileView } from './draw'
-import { drawBand, drawMatches, drawPane } from './draw'
+import { drawBand, drawMatches, drawPane, holdsSomething, listedOf } from './draw'
 
 const COMMAND = 'plan-tracker'
 const PANE_ID = 'plan-tracker'
@@ -291,6 +293,29 @@ async function loadUsage($: EngineInterface, plan: PlanEntry, index: number) {
   } finally {
     usageRuns.delete(key)
   }
+}
+
+const lastDrawn = new Map<string, { key: string; tree: unknown }>()
+
+/**
+ * The tree `build` makes for `data`, or the one made last time in `slot` when `data` is the same. Every Button and every link with a
+ * press gets a new handle when a render hook builds its tree, and the engine keeps only the latest tree's handles: a click that
+ * carries an earlier tree's handle is "ui_press not handled" and nothing happens. A render that draws what was drawn therefore hands
+ * back the tree it drew, whose handles are the ones the surface holds. `data` is every input of the drawing (JSON, closures left out).
+ */
+export function steadily<T>(slot: string, data: unknown, build: () => T): T {
+  const key = JSON.stringify(data)
+  const held = lastDrawn.get(slot)
+
+  if (held !== undefined && held.key === key) {
+    return held.tree as T
+  }
+
+  const tree = build()
+
+  lastDrawn.set(slot, { key, tree })
+
+  return tree
 }
 
 /** Starts a read of the tracker without waiting for it (a slow script must not hold a prompt or a Bash result), then redraws what moves. */
@@ -578,7 +603,7 @@ export function actionFor($: EngineInterface, element: string, isLink: boolean, 
   const lane = /^lane:(.+):(?:more|less)$/.exec(element)?.[1]
   const at = /^deliverable:(\d+)$/.exec(element)?.[1]
   const artifactAt = /^artifact:(\d+)$/.exec(element)?.[1]
-  const changeAt = /^change:(\d+)$/.exec(element)?.[1]
+  const diffAt = /^diff:(\d+)$/.exec(element)?.[1]
 
   if (element === 'band:bar' || element === 'band:head') {
     return () => toggleBoard($)
@@ -648,24 +673,25 @@ export function actionFor($: EngineInterface, element: string, isLink: boolean, 
     }
   }
 
-  // The WHAT CHANGED text: the table's link (desktop), and the task page's link (desktop) or `Diff ›` button (terminal).
-  if (isLink && changeAt !== undefined) {
+  // The Diff of a deliverable: a Button in the desktop table's row (`diff:N`), on the desktop's task page and on the terminal's (`detail:diff`).
+  // One key means "open the diff" everywhere. A press, as a Button's or a link's, is answered the same way.
+  if (diffAt !== undefined) {
     return async () => {
       const plan = await shownPlan($)
-      const item = plan === undefined ? undefined : deliverableGroups(plan).flatMap(group => group.items)[Number(changeAt)]
+      const item = plan === undefined ? undefined : deliverableGroups(plan).flatMap(group => group.items)[Number(diffAt)]
 
-      if (item !== undefined && !isWebLink(item.path)) {
+      if (item !== undefined && isDiffable(item.path)) {
         await showDiff($, item)
       }
     }
   }
 
-  if (element === 'detail:change') {
+  if (element === 'detail:diff') {
     return async () => {
       const plan = await shownPlan($)
       const row = plan?.rows[detailOf(plan, await read($, card)) ?? -1]
 
-      if (row?.deliverable !== undefined && !isWebLink(row.deliverable)) {
+      if (row?.deliverable !== undefined && isDiffable(row.deliverable)) {
         await showDiff($, { path: row.deliverable, started: row.started, updated: row.updated, changed_at: row.changed_at })
       }
     }
@@ -902,8 +928,7 @@ async function openInEditor($: EngineInterface, editor: 'cursor' | 'vscode', top
 }
 
 /**
- * A press on a deliverable's WHAT CHANGED text (the table's `change:N` link, the task page's `detail:change` link or `Diff ›`
- * button): the diff of the commit that made the change. It runs only here, never on a redraw. The path has to pass `vetPath` before
+ * A press on a deliverable's Diff (the table's `diff:N` Button, the task page's `detail:diff` Button): the diff of the commit that made the change. It runs only here, never on a redraw. The path has to pass `vetPath` before
  * any git call, and be a file; `git -C <toplevel>` then finds the commit (`commitFor`: the newest after the row started and before its
  * `changed_at` (else `updated`) plus 30 minutes, else the newest that touched the file) and the diff of that file in it. Inside Cursor or VS Code the editor's
  * diff view opens (`openInEditor`); anywhere else, or when that fails, the diff is a page of the board (`diffViewOf`). A toast says
@@ -1056,29 +1081,42 @@ export const register: Register = (on, options) => {
     // "‹ Board" only while the pane is up and shows the plan file.
     const isFile = (await read($, file)) && (await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE_ID && pane.isPlaced)
 
-    // Only a plan that moves (a rainbow, or a row In Progress for the mascot) reads the frame, so only then is the band
-    // redrawn at each one. The row gets what the mascot and its space leave.
-    return drawBand($.ui.resolve(e), {
+    const plans = (await boardOf($))?.plans ?? []
+    const at = Date.now()
+    // Everything the drawing is made of but its closures. It reads the session's other plans only through the plan list, the time only through
+    // the plan's state text, and what the hooks below drew only when that holds something (their press handles are part of it).
+    // `now` above is the animation frame; `at` is the time the state word's `since` is compared with.
+    const view = {
       plan,
-      plans: (await boardOf($))?.plans ?? [],
+      plans: plans.map(one => listedOf(one, at)),
+      stateText: planStateText(plan, at),
       columns: e.props.bodyColumns - BAND_MASCOT_SPACE,
-      below,
+      below: holdsSomething(below) ? below : null,
       maxRows: e.props.maxRows,
       isOpen: await read($, bandMenu),
       isFile,
       frame: isRainbowUp ? now : null,
       pose: bandPose(plan, now),
-      // `now` above is the animation frame; this one is the time the state word's `since` is compared with.
-      now: Date.now(),
       spritePose: MASCOT[bandPoseIndex(plan, now)],
       isProportional: isDesktop,
       isMoving: isDesktop && hasWorking(plan),
-      onBar: () => void pressByKey($, 'band:bar', false, e.surface),
-      onMenu: () => void pressByKey($, 'band:plans', false, e.surface),
-      onPick: anchor => void pressByKey($, `band:plan:${anchor}`, false, e.surface),
-      onFile: () => void pressByKey($, 'band:file', false, e.surface),
-      onBoard: () => void pressByKey($, 'band:board', false, e.surface),
-    })
+    }
+
+    // Only a plan that moves (a rainbow, or a row In Progress for the mascot) reads the frame, so only then is the band
+    // redrawn at each one. The row gets what the mascot and its space leave. The same data draws the same tree, as the pane does.
+    return steadily(`band:${e.surface}`, view, () =>
+      drawBand($.ui.resolve(e), {
+        ...view,
+        plans,
+        now: at,
+        below,
+        onBar: () => void pressByKey($, 'band:bar', false, e.surface),
+        onMenu: () => void pressByKey($, 'band:plans', false, e.surface),
+        onPick: anchor => void pressByKey($, `band:plan:${anchor}`, false, e.surface),
+        onFile: () => void pressByKey($, 'band:file', false, e.surface),
+        onBoard: () => void pressByKey($, 'band:board', false, e.surface),
+      }),
+    )
   })
 
   // A press on any button of the mod, run by its key with no closure: a press can arrive with a handle the host no longer holds.
@@ -1160,18 +1198,17 @@ export const register: Register = (on, options) => {
     const isFile = await read($, file)
     const detail = detailOf(plan, open)
     const shownDiff = await read($, diff)
-
-    return drawPane($.ui.resolve(e), {
+    const now = Date.now()
+    // Everything the drawing is made of but its closures (which depend on the plan's anchor and the surface, both here).
+    const view = {
       plans: board.plans,
       plan,
       columns: e.props.bodyColumns,
       bodyRows: e.props.scroll.bodyRows,
       message: board.message,
       matches: board.matches ?? [],
-      onMatch: anchor => void pressByKey($, `match:${anchor}`, false, e.surface),
       detail: isFile ? null : detail,
       diff: isFile ? null : shownDiff,
-      now: Date.now(),
       file: isFile ? await loadFile($, plan) : null,
       home: await $.env.get('HOME'),
       // Only a board with an In Progress card reads the frame, so only that is redrawn at each one.
@@ -1180,6 +1217,15 @@ export const register: Register = (on, options) => {
       hasClient: e.surface === 'terminal' || e.surface === 'desktop',
       surface: e.surface,
       expanded: (await read($, expanded)).flatMap(key => (key.startsWith(`${plan.anchor}:`) ? [key.slice(plan.anchor.length + 1) as LaneKey] : [])),
+    }
+
+    // The drawing reads the session's other plans only through the plan list, and the time only to the minute (a relative age, today or a date).
+    const data = { ...view, plans: board.plans.map(one => listedOf(one, now)), minute: Math.floor(now / 60_000) }
+
+    return steadily(`pane:${e.surface}`, data, () => drawPane($.ui.resolve(e), {
+      ...view,
+      now,
+      onMatch: anchor => void pressByKey($, `match:${anchor}`, false, e.surface),
       onLane: lane => void pressByKey($, `lane:${lane}:more`, false, e.surface),
       onMenu: () => void pressByKey($, 'menu:name', false, e.surface),
       onPick: anchor => void pressByKey($, `plan:${anchor}`, false, e.surface),
@@ -1190,8 +1236,9 @@ export const register: Register = (on, options) => {
           .then(() => refocus($, true)),
       onBack: () => void pressByKey($, 'back', false, e.surface),
       onFile: () => void pressByKey($, 'plan-file', false, e.surface),
-      onDiff: () => void pressByKey($, 'detail:change', false, e.surface),
-    })
+      onDiff: () => void pressByKey($, 'detail:diff', false, e.surface),
+      onDiffAt: index => void pressByKey($, `diff:${index}`, false, e.surface),
+    }))
   })
 
   // The script prints a PLAN-DONE block when a write makes a row Done; the Bash result is never changed. Each block is a toast
