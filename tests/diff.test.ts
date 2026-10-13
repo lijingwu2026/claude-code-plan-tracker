@@ -62,8 +62,8 @@ describe('which commit a deliverable is about', () => {
     const started = '2026-10-12T22:44:00+09:00'
     const updated = '2026-10-13T00:28:00+09:00'
     const changed = '2026-10-12T23:20:00+09:00'
-    const own = commit('d7c487e', '2026-10-12T23:13:00+09:00', 'row 76 work')
-    const next = commit('0ca7b74', '2026-10-12T23:53:00+09:00', 'row 79 work')
+    const own = commit('d7c487e', '2026-10-12T23:13:00+09:00', 'first step work')
+    const next = commit('0ca7b74', '2026-10-12T23:53:00+09:00', 'next step work')
 
     // before: the window ran to updated + 30 minutes and took the later task's commit
     expect(commitFor([next, own], { started, updated })?.sha).toBe('0ca7b74')
