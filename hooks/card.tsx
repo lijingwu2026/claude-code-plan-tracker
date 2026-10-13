@@ -28,12 +28,16 @@ export type CardRow = {
   tagBold: boolean
 }
 
+/** The colours of the text on a `fill` the theme does not know (the desktop's hover box): raw hex, since the default text colour follows the theme. */
+export type CardInk = { text: string; dim: string; error: string }
+
 /**
- * `fill` paints every row's background: the hover box over a cut card covers the card beneath it. `isProportional` is a
- * surface with a proportional font (the desktop app): the tag cannot be aligned with spaces there, so a row is the name in a
- * Box that grows, then the tag.
+ * `fill` paints every row's background: the hover box over a cut card covers the card beneath it. `ink` gives the text its own colours
+ * (the default one follows the theme and may be dark on the fill); a dim row is then in `ink.dim`, not drawn with `dimColor`.
+ * `isProportional` is a surface with a proportional font (the desktop app): the tag cannot be aligned with spaces there, so a row is
+ * the name in a Box that grows, then the tag; its row Box is filled too, so no gap between the parts shows what is under the card.
  */
-export type CardProps = { index: number; rows: CardRow[]; fill?: string; isProportional?: boolean }
+export type CardProps = { index: number; rows: CardRow[]; fill?: string; ink?: CardInk; isProportional?: boolean }
 
 /** The local state: whether the left button went down in the card and has not come up yet. */
 type State = { isDown: boolean }
@@ -42,6 +46,10 @@ const Card: ClientModule<CardProps, State> = (props, surface) => {
   const { Box, Text } = surface.elements
   const open = () => surface.post({ open: props.index })
   const bg = props.fill === undefined ? {} : { backgroundColor: props.fill }
+  const ink = props.ink
+  // The text's colour: red for a blocked card, else the ink's when the card has one; a dim row is dim by its colour with an ink, else by `dimColor`.
+  const colour = (row: CardRow) => (row.isRed ? { color: ink?.error ?? 'error' } : ink === undefined ? {} : { color: row.isDim === true ? ink.dim : ink.text })
+  const dim = (row: CardRow) => (row.isDim === true && ink === undefined ? { dimColor: true } : {})
 
   surface.onPointer(event => {
     if (event.type === 'down' && event.button === 'left') {
@@ -83,7 +91,7 @@ const Card: ClientModule<CardProps, State> = (props, surface) => {
   return (
     <Box flexDirection="column">
       {props.rows.map(row => (
-        <Box flexDirection="row">
+        <Box flexDirection="row" {...(props.isProportional === true ? bg : {})}>
           {row.art === '' ? null : <Text color={row.artColor} {...bg}>{row.art}</Text>}
           {row.marker === '' ? null : (
             <Text bold color={row.markerColor} {...bg}>
@@ -101,12 +109,12 @@ const Card: ClientModule<CardProps, State> = (props, surface) => {
                   </Box>
                 )
               }
-              <Text {...(row.isRed ? { color: 'error' } : {})} {...(row.isBold ? { bold: true } : {})} {...(row.isDim === true ? { dimColor: true } : {})} {...bg}>
+              <Text {...colour(row)} {...(row.isBold ? { bold: true } : {})} {...dim(row)} {...bg}>
                 {row.name}
               </Text>
             </Box>
           ) : (
-            <Text {...(row.isRed ? { color: 'error' } : {})} {...(row.isBold ? { bold: true } : {})} {...(row.isDim === true ? { dimColor: true } : {})} {...bg}>
+            <Text {...colour(row)} {...(row.isBold ? { bold: true } : {})} {...dim(row)} {...bg}>
               {name(row)}
             </Text>
           )}

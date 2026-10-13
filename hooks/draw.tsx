@@ -21,6 +21,7 @@ import {
   spriteSvg,
   spriteSvgAnimated,
   CHIPS,
+  DESKTOP_BOX,
   diffTitleLines,
   chipOf,
   planStateText,
@@ -114,8 +115,8 @@ export function holdsSomething(drawn: RenderElement | null | undefined): boolean
 }
 
 /**
- * The fill of a revealed card: the theme's inverse-text color, which is the color its text is drawn on, so it follows a light
- * or a dark theme and nothing underneath shows through.
+ * The fill of a revealed card on the terminal: the theme's inverse-text color, which is the color its text is drawn on, so it follows a
+ * light or a dark theme and nothing underneath shows through. The desktop does not paint it: its box is filled with `DESKTOP_BOX.fill`.
  */
 const FILL = 'inverseText'
 
@@ -719,6 +720,10 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
     const inner = Math.max(1, width - left - BORDER_COLUMNS)
     const isStuck = isBlocked(row)
     const marker = markerOf(row)
+    // The desktop's box has a fill and an ink of its own, raw hex: a theme-key fill is not painted there (`DESKTOP_BOX`).
+    const ink = isProportional ? DESKTOP_BOX : undefined
+    const fill = ink?.fill ?? FILL
+    const markerColor = isStuck ? (ink?.error ?? 'error') : (ink?.needsYou ?? NEEDS_YOU_COLOR)
     const rows: CardRow[] = [
       ...full.lines.map((line, at) => {
         const lead = at === 0 && marker !== '' && line.startsWith(marker) ? marker : ''
@@ -727,7 +732,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
           art: '',
           artColor: 'claude',
           marker: lead,
-          markerColor: isStuck ? 'error' : NEEDS_YOU_COLOR,
+          markerColor,
           name: isProportional ? line.slice(lead.length) : padTo(line.slice(lead.length), inner - lead.length),
           isRed: isStuck,
           isBold: false,
@@ -762,7 +767,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
           ]),
     ]
     const text = (label: string, extra: { bold?: boolean; color?: string; dimColor?: boolean } = {}) => (
-      <Text wrap="truncate" backgroundColor={FILL} {...(extra.color === undefined ? { color: isStuck ? 'error' : 'text' } : { color: extra.color })} {...(extra.bold === true ? { bold: true } : {})} {...(extra.dimColor === true ? { dimColor: true } : {})}>
+      <Text wrap="truncate" backgroundColor={fill} {...(extra.color === undefined ? { color: isStuck ? 'error' : 'text' } : { color: extra.color })} {...(extra.bold === true ? { bold: true } : {})} {...(extra.dimColor === true ? { dimColor: true } : {})}>
         {label}
       </Text>
     )
@@ -778,12 +783,12 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
         flexDirection="column"
         borderStyle="bold"
         borderColor={STYLE[row.status].color}
-        backgroundColor={FILL}
+        backgroundColor={fill}
         paddingX={1}
       >
         {Client ? (
           // The box covers the card's own click region, so it posts the same `{ open }` itself.
-          <Client key={`reveal:${index}`} module="./card.tsx" width={inner} height={rows.length} props={{ index, rows, fill: FILL, ...proportional }} />
+          <Client key={`reveal:${index}`} module="./card.tsx" width={inner} height={rows.length} props={{ index, rows, fill, ...(ink === undefined ? {} : { ink }), ...proportional }} />
         ) : (
           <Box flexDirection="column">
             {full.lines.map((line, at) => {
@@ -802,7 +807,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
             {full.tag === '' ? null : (
               <Box flexDirection="row">
                 {text(' '.repeat(full.pad))}
-                <Text color={chipOf(full.tag)?.fg ?? 'text'} backgroundColor={chipOf(full.tag)?.bg ?? FILL} {...(chipOf(full.tag)?.bold === true ? { bold: true } : {})}>{` ${full.tag} `}</Text>
+                <Text color={chipOf(full.tag)?.fg ?? 'text'} backgroundColor={chipOf(full.tag)?.bg ?? fill} {...(chipOf(full.tag)?.bold === true ? { bold: true } : {})}>{` ${full.tag} `}</Text>
               </Box>
             )}
           </Box>

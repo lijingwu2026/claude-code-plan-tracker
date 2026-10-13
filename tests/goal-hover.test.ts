@@ -1,7 +1,7 @@
 import { describe, expect, test } from './testing'
 import type { Engine } from 'claude-code/testing'
 
-import { REVEAL_LEFT, cardRows, cardView, displayWidth, fullCard, hasReveal, laneWidth, wrap } from '../hooks/board'
+import { DESKTOP_BOX, REVEAL_LEFT, cardRows, cardView, displayWidth, fullCard, hasReveal, laneWidth, wrap } from '../hooks/board'
 import type { PlanBoard, PlanRow } from '../types'
 import type { Node } from './fixtures'
 import { ALPHA_ROWS, BOARD, PANE_ID, SESSION, cardRowsIn, kids, paneProps, textIn, textOf, world } from './fixtures'
@@ -49,6 +49,9 @@ const revealsOf = async (ui: Pick<Pane, 'find'>, lane: string): Promise<Node[]> 
 const boxRows = async (ui: Pane, index: number): Promise<Node[]> => kids(await ui.find({ type: 'Box', in: `reveal:${index}` }))
 
 const isDim = (node: Node | undefined): boolean => node?.props?.dimColor === true || kids(node).some(isDim)
+
+/** Whether a row is drawn in the desktop box's dim ink. */
+const isDimInk = (node: Node | undefined): boolean => node?.props?.color === DESKTOP_BOX.dim || kids(node).some(isDimInk)
 
 describe('the goal in the hover box: what the pure parts say', () => {
   test('a card whose row has a goal has a hover box; one with neither a goal nor a cut name has none', () => {
@@ -238,7 +241,9 @@ describe('the goal in the hover box: the desktop', () => {
     const goal = rows.filter(row => textOf(row).trim() !== '' && textOf(row) !== ' Haiku ' && !ROWS[1]!.task.includes(textOf(row)))
 
     expect(goal.length).toBeGreaterThan(0)
-    expect(goal.every(isDim)).toBe(true)
+    // on the desktop the box carries its own ink (raw hex on a raw fill): the goal rows are dim by their colour, not by `dimColor`
+    expect(goal.every(isDimInk)).toBe(true)
+    expect(rows.some(isDim)).toBe(false)
     expect(textOf(rows.at(-1))).toBe(' Haiku ')
     expect(rows.map(textOf).filter(text => text !== text.trim() && text !== ' Haiku ')).toEqual([])
     await pane.unmount()

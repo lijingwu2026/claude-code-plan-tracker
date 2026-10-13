@@ -1742,6 +1742,22 @@ export const CHIPS: Readonly<Record<string, Chip>> = {
 /** The chip of a card tag's word: `you`, a model, or the grey one of `stalled` with its time (`stalled 19:23`, `stalled Oct 11`); undefined for none. */
 export const chipOf = (word: string): Chip | undefined => CHIPS[word] ?? (/^stalled( |$)/.test(word) ? CHIPS.stalled : undefined)
 
+/**
+ * The colours of a card's hover box on the desktop, all raw hex. The box was filled with the theme key `inverseText` (a fill that
+ * follows a light or a dark theme) and the desktop did not paint it: the box was see-through. The desktop paints raw hex backgrounds
+ * (the type chips, the tag chips and the solid progress bars are all raw hex and all show), so the box is filled with one. A raw colour
+ * does not follow the theme, and the plugin is not told the theme, so the box carries its own ink as well: a dark box with light text
+ * is as legible on a light page as on a dark one, and every colour keeps its contrast on the fill (`tests/reveal.test.ts`). The
+ * terminal's box keeps the theme keys.
+ */
+export const DESKTOP_BOX = {
+  fill: '#2b2a27',
+  text: '#f4f2ea',
+  dim: '#b7b3a7',
+  error: '#ff8c90',
+  needsYou: '#c7a6ff',
+} as const
+
 /** The grey chip of a deliverable's type. */
 export const TYPE_CHIP: Chip = { bg: '#E4E2D9', fg: '#44413A' }
 
