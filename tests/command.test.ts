@@ -163,11 +163,11 @@ describe('one command: /plan-tracker', () => {
     expect(opened).toEqual([])
   })
 
-  test('its description and hint say it takes words from a plan name', async ($, on) => {
+  test('its hint says the plan-name words need a board command', async ($, on) => {
     const { registered } = world(on)
     await $.session.start(SESSION)
 
-    expect(registered).toEqual([{ name: 'plan-tracker', argumentHint: '<words from a plan name>' }])
+    expect(registered).toEqual([{ name: 'plan-tracker', argumentHint: '[words from a plan name, with a board command]' }])
   })
 })
 

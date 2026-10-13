@@ -997,8 +997,8 @@ export const register: Register = (on, options) => {
     try {
       await $.command.register({
         name: COMMAND,
-        description: "Show this session's plans; /plan-tracker <words from a plan name> shows one plan",
-        argumentHint: '<words from a plan name>',
+        description: 'Open the plan board; when your board command lists several plans, add words from a plan name to open that one',
+        argumentHint: '[words from a plan name, with a board command]',
       })
     } catch (error) {
       // The engine refuses a name another command already defines: the band and the board still work.
