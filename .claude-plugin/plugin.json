@@ -1,7 +1,7 @@
 {
   "name": "plan-tracker",
-  "version": "0.6.27",
-  "description": "Your approved plan, live: which step is done, running, or waiting on you. A one-row band above the prompt (plan, state word, progress bar, Plan file) and a pane with lanes of task cards (the whole task name on each), a state word (In progress, Idle since, Stalled since, Done at) after the plan name in the header, the plan dropdown and the band, big figures under the plan name (tokens, cost) and on each task page (time, tokens, cost), task pages (a labelled table: goal, status, who, progress, note, deliverable with its artifact) and a deliverables table (the artifacts first, then the files, each file with a Diff button on the Desktop; long lists fold into +N more, a narrow pane stacks each entry with its summary under its path or title), in the terminal and the Claude Desktop app. It reads PROGRESS.md (or the output of a command you set) and redraws whenever it changes. Read-only for your board.",
+  "version": "0.7.0",
+  "description": "Your approved plan, live: which step is done, running, or waiting on you. A one-row band above the prompt (plan, state word, progress bar, Plan file) and a pane with lanes of task cards (the whole task name on each), a state word (In progress, Idle since, Stalled since, Done at) after the plan name in the header, the plan dropdown and the band, big figures under the plan name (tokens, cost) and on each task page (time, tokens, cost), task pages (a labelled table: goal, status, who, progress, note), in the terminal and the Claude Desktop app. It reads PROGRESS.md (or the output of a command you set) and redraws whenever it changes. Read-only for your board.",
   "types": "./types/index.d.ts",
   "author": {
     "name": "lijingwu2026"

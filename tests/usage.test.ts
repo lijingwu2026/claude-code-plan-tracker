@@ -4,7 +4,6 @@ import type { Engine } from 'claude-code/testing'
 import {
   chipCols,
   compactCount,
-  deliverableGroups,
   displayWidth,
   durationText,
   laneWidth,
@@ -16,7 +15,6 @@ import {
   statusWords,
   usageStatsOf,
   fitStats,
-  typeOf,
   usageArgv,
   whoLineOf,
   assigneeOf,
@@ -49,11 +47,11 @@ const ROWS: PlanRow[] = [
   row('Phase 2 plugin export', 'In Progress', { route: 'serial × inline · Opus — x', progress: '3/5', started: '2026-10-11T10:00:00+09:00', usage: USAGE }),
   row('Public push after her yes', 'Todo', { route: 'serial × Sam · — — y' }),
   row('README cover', 'Needs Verification', { route: 'serial × Sam · — — y', progress: '4/5' }),
-  row('done a', 'Done', { deliverable: 'knowledge/a.md', deliverable_mtime: 100 }),
-  row('done b', 'Done', { deliverable: 'automation/b.py', deliverable_mtime: 300 }),
-  row('done c', 'Done', { deliverable: 'knowledge/c.md', deliverable_mtime: 200 }),
-  row('done d', 'Done', { deliverable: 'plugin/' }),
-  row('done e', 'Done', { deliverable: 'Makefile', deliverable_mtime: 50 }),
+  row('done a', 'Done'),
+  row('done b', 'Done'),
+  row('done c', 'Done'),
+  row('done d', 'Done'),
+  row('done e', 'Done'),
 ]
 
 const PLAN: PlanEntry = { anchor: 'alpha', name: 'Alpha plan', goal: 'g', plan_file: '/plans/alpha-plan.md', rows: ROWS }
@@ -300,93 +298,6 @@ describe('the progress bar', () => {
     const without = await cardRowsIn(pane, 1)
 
     expect(without.map(textOf).join('')).not.toMatch(/[▰▱]/)
-    await pane.unmount()
-  })
-})
-
-describe('the deliverables table', () => {
-  test('a type is the extension, "folder" for a trailing slash, "file" for none', () => {
-    expect(typeOf('a/b/c.md')).toBe('.md')
-    expect(typeOf('a/B.PY')).toBe('.py')
-    expect(typeOf('a/plugin/')).toBe('folder')
-    expect(typeOf('Makefile')).toBe('file')
-    expect(typeOf('a.d/Makefile')).toBe('file')
-    expect(typeOf('a/.gitignore')).toBe('file')
-  })
-
-  test('grouped by type, newest first inside a group, groups by their newest item, no mtime last', () => {
-    expect(deliverableGroups(PLAN).map(group => [group.type, group.items.map(item => item.path)])).toEqual([
-      ['.py', ['automation/b.py']],
-      ['.md', ['knowledge/c.md', 'knowledge/a.md']],
-      ['file', ['Makefile']],
-      ['folder', ['plugin/']],
-    ])
-  })
-
-  test('an item with no mtime sorts after the dated ones of its group', () => {
-    const plan: PlanEntry = {
-      ...PLAN,
-      rows: [row('u', 'Done', { deliverable: 'u.md' }), row('v', 'Done', { deliverable: 'v.md', deliverable_mtime: 5 }), row('w', 'Done', { deliverable: 'w.md' })],
-    }
-
-    expect(deliverableGroups(plan)[0]?.items.map(item => item.path)).toEqual(['v.md', 'u.md', 'w.md'])
-  })
-
-  test('terminal: a dim header, the type chip on the first row of a group only, the task dim, the path a link', async ($, on) => {
-    world(on, { fixture: WITH_ROWS })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal')
-    const section = await pane.find({ key: 'deliverables' })
-    const [title, header, ...lines] = kids(section)
-
-    expect(textOf(title)).toBe('Deliverables')
-    expect(textOf(header)).toMatch(/^TYPE\s+DELIVERABLE\s+SUMMARY$/)
-    expect(header?.props.dimColor).toBe(true)
-    expect(lines.map(line => textOf(line).replace(/\s+/g, ' ').trim())).toEqual([
-      '.py automation/b.py —',
-      '.md knowledge/c.md —',
-      'knowledge/a.md —',
-      'file Makefile —',
-      'folder plugin/ —',
-    ])
-    expect(kids(lines[1]).some(node => node.props?.backgroundColor === '#E4E2D9')).toBe(true)
-    expect(kids(lines[2]).some(node => node.props?.backgroundColor === '#E4E2D9')).toBe(false)
-    expect(kids(lines[0]).some(node => node.props?.dimColor === true && textOf(node).includes('—'))).toBe(true)
-    // the type chip and the path are in one line of text: nothing can push the chip off its path's line
-    expect(lines.every(line => line.type === 'Text')).toBe(true)
-    expect(await pane.findAll({ type: 'Link' })).toEqual([])
-    expect(textOf(section)).not.toContain('file://')
-    expect(textOf(section)).not.toMatch(/[─│]/)
-    await pane.unmount()
-  })
-
-  test('terminal: a narrow pane cuts the path to its column, within the width', async ($, on) => {
-    world(on, { fixture: { ...WITH_ROWS, plans: [{ ...PLAN, rows: [row('a very long task name indeed', 'Done', { deliverable: 'knowledge/a/very/long/path/to/some-file-name.md' })] }] } })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 50)
-    const section = await pane.find({ key: 'deliverables' })
-
-    for (const line of kids(section).slice(1)) {
-      expect(displayWidth(textOf(line))).toBeLessThanOrEqual(50)
-    }
-
-    await pane.unmount()
-  })
-
-  test('desktop: the same columns as Boxes, with a blank one for the Diff cell; the chip is one unbreakable word in a Box wider than it', async ($, on) => {
-    world(on, { fixture: WITH_ROWS })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'desktop')
-    const section = await pane.find({ key: 'deliverables' })
-    const [, header, first] = kids(section)
-
-    expect(kids(header).map(textOf)).toEqual(['TYPE', 'DELIVERABLE', '', 'SUMMARY'])
-    expect(kids(first).map(node => node.type)).toEqual(['Box', 'Box', 'Box', 'Box'])
-    // a proportional font makes ' .py ' wider than its cells: a breaking space lets the Text wrap and the word falls a line down
-    expect(textOf(kids(first)[0])).toBe('\u00A0.py\u00A0')
-    expect(kids(first)[0]?.props.width).toBeGreaterThan(5)
-    expect(textOf(kids(first)[2])).toBe('Diff')
-    expect(textOf(kids(first)[3])).toBe('—')
     await pane.unmount()
   })
 })
@@ -865,11 +776,11 @@ describe('the task page stats row', () => {
     await pane.unmount()
   })
 
-  test('a Done row with a deliverable: the link and the change, then Checked by', async ($, on) => {
+  test('a Done row checked by a subagent: Checked by, then the note', async ($, on) => {
     const route = 'serial × inline · Opus — a — check by main session · Sonnet: x → y'
     const board: PlanBoard = {
       ...WITH_ROWS,
-      plans: [{ ...PLAN, rows: [row('summary page', 'Done', { route, started: '2026-10-11T10:00:00+09:00', usage: USAGE, note: 'installed', deliverable: 'hooks/draw.tsx', change: 'plan line under the name' })] }],
+      plans: [{ ...PLAN, rows: [row('summary page', 'Done', { route, started: '2026-10-11T10:00:00+09:00', usage: USAGE, note: 'installed' })] }],
     }
 
     world(on, { fixture: board })
@@ -882,24 +793,22 @@ describe('the task page stats row', () => {
     const words = (node: unknown) => textOf(node as Node).replace(/[│╭╮╰╯├┤┬┴┼─]/g, ' ').replace(/\s+/g, ' ').trim()
 
     expect(kids(await pane.find({ key: 'detail:fields' })).filter(node => String(node.props?.key ?? '').startsWith('field:')).map(node => String(node.props?.key))).toEqual([
-      'field:status', 'field:who', 'field:checker', 'field:note', 'field:deliverable',
+      'field:status', 'field:who', 'field:checker', 'field:note',
     ])
-    // the terminal's Deliverable row ends with the `Diff ›` button that opens the diff of the commit that made the change
-    expect(words(await pane.find({ key: 'field:deliverable' }))).toBe('Deliverable hooks/draw.tsx plan line under the name Diff ›')
     expect(words(await pane.find({ key: 'field:checker' }))).toBe('Checked by main session · Sonnet')
     await pane.unmount()
   })
 })
 
 describe('the board data accepts the new fields', () => {
-  test('progress, started, finished, usage and deliverable_mtime come through; a damaged usage is dropped', () => {
+  test('progress, started, finished, usage and goal come through; a damaged usage is dropped', () => {
     const json = JSON.stringify({
       plans: [
         {
           anchor: 'a',
           rows: [
-            { task: 't', status: 'Done', progress: '3/5', started: 's', finished: 'f', usage: USAGE, deliverable: 'x.md', change: 'adds x', goal: 'why x', deliverable_mtime: 7 },
-            { task: 'u', status: 'Todo', usage: { working_ms: 'x' }, deliverable_mtime: null },
+            { task: 't', status: 'Done', progress: '3/5', started: 's', finished: 'f', usage: USAGE, goal: 'why x' },
+            { task: 'u', status: 'Todo', usage: { working_ms: 'x' } },
           ],
         },
       ],
@@ -907,10 +816,8 @@ describe('the board data accepts the new fields', () => {
     const parsed = parseBoard(json)
     const rows = 'board' in parsed ? parsed.board.plans[0]?.rows : []
 
-    expect(rows?.[0]).toMatchObject({ progress: '3/5', started: 's', finished: 'f', usage: USAGE, change: 'adds x', goal: 'why x', deliverable_mtime: 7 })
+    expect(rows?.[0]).toMatchObject({ progress: '3/5', started: 's', finished: 'f', usage: USAGE, goal: 'why x' })
     expect(rows?.[1]).not.toHaveProperty('usage')
-    expect(rows?.[1]).not.toHaveProperty('deliverable_mtime')
-    expect(rows?.[1]).not.toHaveProperty('change')
   })
 })
 
@@ -953,166 +860,6 @@ describe('opening a task page asks the tracker for its usage', () => {
 
   test('the command is one named place', () => {
     expect(usageArgv('a', 3, 'my task', 's').slice(2)).toEqual(['a', '--usage', '--task', 'my task'])
-  })
-})
-
-describe('the deliverables table: the SUMMARY column', () => {
-  const CHANGE = 'adds the SUMMARY column to the table'
-  const board = (change: string | undefined): PlanBoard => ({
-    ...WITH_ROWS,
-    plans: [{ ...PLAN, rows: [row('done a', 'Done', { deliverable: 'knowledge/a.md', ...(change === undefined ? {} : { change }) }), row('done b', 'Done', { deliverable: 'knowledge/b.md' })] }],
-  })
-
-  test('terminal: the change sits after the deliverable, "—" when the row has none', async ($, on) => {
-    world(on, { fixture: board(CHANGE) })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal')
-    const [, header, ...lines] = kids(await pane.find({ key: 'deliverables' }))
-
-    expect(textOf(header).trimEnd()).toMatch(/^TYPE\s+DELIVERABLE\s+SUMMARY$/)
-    expect(lines.map(line => textOf(line).replace(/\s+/g, ' ').trim())).toEqual([`.md knowledge/a.md ${CHANGE}`, 'knowledge/b.md —'])
-    await pane.unmount()
-  })
-
-  test('terminal: a pane too narrow for three columns stacks each deliverable: chip and whole path, then its change dim and wrapped under it; no column header', async ($, on) => {
-    world(on, { fixture: board(CHANGE) })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 30)
-    const section = await pane.find({ key: 'deliverables' })
-    const [title, first, second] = kids(section)
-
-    expect(textOf(title)).toBe('Deliverables')
-    expect(textOf(section)).not.toMatch(/TYPE|DELIVERABLE|TASK/)
-    expect(kids(first).map(textOf)[0]?.replace(/\s+/g, ' ').trim()).toBe('.md knowledge/a.md')
-    // the change wraps in the room under the path, every line dim and inside the pane
-    const under = kids(first).slice(1)
-
-    expect(under.length).toBeGreaterThan(1)
-    expect(under.map(line => textOf(line).trim()).join(' ')).toBe(CHANGE)
-    expect(under.every(line => kids(line).every(node => node.props?.dimColor === true) || line.props?.dimColor === true)).toBe(true)
-
-    for (const line of kids(section).flatMap(block => kids(block))) {
-      expect(displayWidth(textOf(line))).toBeLessThanOrEqual(30)
-    }
-
-    // a deliverable with no change is its one line, no "—" line
-    expect(kids(second).map(line => textOf(line).replace(/\s+/g, ' ').trim())).toEqual(['knowledge/b.md'])
-    await pane.unmount()
-  })
-
-  test('terminal: wide enough, the three columns stay (header and a SUMMARY cell on every row)', async ($, on) => {
-    world(on, { fixture: board(CHANGE) })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 100)
-    const [, header, ...lines] = kids(await pane.find({ key: 'deliverables' }))
-
-    expect(textOf(header)).toMatch(/^TYPE\s+DELIVERABLE\s+SUMMARY/)
-    expect(lines.every(line => line.type === 'Text')).toBe(true)
-    await pane.unmount()
-  })
-
-  // Type column 6 (the chip '.md' + 2), path 'knowledge/a.md' 14, gaps 2 + 2: the column is 7 wide at 31 columns, 6 at 30.
-  test('terminal: at the narrowest width that keeps the column (7 cells) the header is whole, not cut to "SUMMA…"', async ($, on) => {
-    world(on, { fixture: board(CHANGE) })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 31)
-    const [, header, ...lines] = kids(await pane.find({ key: 'deliverables' }))
-
-    expect(textOf(header)).toMatch(/^TYPE\s+DELIVERABLE\s+SUMMARY$/)
-    expect(displayWidth(textOf(header))).toBeLessThanOrEqual(31)
-    expect(lines.every(line => line.type === 'Text')).toBe(true)
-    await pane.unmount()
-  })
-
-  test('terminal: one cell narrower (6) the column is dropped and each deliverable stacks, with no header to cut', async ($, on) => {
-    world(on, { fixture: board(CHANGE) })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 30)
-    const section = await pane.find({ key: 'deliverables' })
-
-    expect(textOf(section)).not.toMatch(/TYPE|DELIVERABLE|WHAT/)
-    expect(textOf(section)).toContain('knowledge/a.md')
-    await pane.unmount()
-  })
-
-  test('desktop: a SUMMARY Box after the deliverable, "—" when none; a narrow pane stacks instead: path row, then the change dim under it', async ($, on) => {
-    world(on, { fixture: board(CHANGE) })
-    await $.session.start(SESSION)
-
-    const wide = await mountPane($, 'desktop', 140)
-    const [, header, first, second] = kids(await wide.find({ key: 'deliverables' }))
-
-    // a blank column between the path and SUMMARY holds each row's Diff Button (keyed diff:N); the change text is plain
-    expect(kids(header).map(textOf)).toEqual(['TYPE', 'DELIVERABLE', '', 'SUMMARY'])
-    const cells = kids(first).map(textOf)
-
-    expect(cells[0]).toBe('\u00A0.md\u00A0')
-    expect(cells[1]).toMatch(/^\[knowledge\/a\.md\]\(file:\/\/.+knowledge\/a\.md\)$/)
-    expect(cells.slice(2)).toEqual(['Diff', CHANGE])
-    expect(kids(second).map(textOf).slice(2)).toEqual(['Diff', '—'])
-    expect(await wide.find({ key: 'diff:0' })).toBeDefined()
-    expect(await wide.find({ key: 'diff:1' })).toBeDefined()
-    await wide.unmount()
-
-    const narrow = await mountPane($, 'desktop', 50)
-    const section = await narrow.find({ key: 'deliverables' })
-    const [title, one, two] = kids(section)
-
-    expect(textOf(title)).toBe('Deliverables')
-    expect(textOf(section)).not.toMatch(/TYPE|DELIVERABLE/)
-    expect(String(one?.props.key)).toBe('deliverable:0:item')
-    expect(textOf(one)).toContain('knowledge/a.md')
-
-    const [pathRow, changeText] = kids(one)
-
-    expect(textOf(pathRow)).toContain('knowledge/a.md')
-    // the Diff cell stays in the path's row when the row stacks; the change is plain text under it
-    expect(textOf(pathRow)).toContain('Diff')
-    expect(textOf(changeText)).toBe(CHANGE)
-    expect(changeText?.props.dimColor === true || kids(changeText).every(node => node.props?.dimColor === true)).toBe(true)
-    expect(kids(two).length).toBe(1)
-    await narrow.unmount()
-  })
-})
-
-describe('the deliverables table: rows that do not fit are counted, not dropped', () => {
-  const PATHS = ['src/csv.ts', 'src/cli/export.ts', 'src/stream.ts', 'web/ExportButton.tsx', 'docs/export.md', 'docs/cli.md', 'README.md', 'CHANGELOG.md']
-  const eight: PlanBoard = {
-    ...WITH_ROWS,
-    plans: [{ ...PLAN, rows: PATHS.map((path, at) => row(`task ${at}`, 'Done', { deliverable: path, deliverable_mtime: 1000 - at })) }],
-  }
-
-  for (const surface of ['terminal', 'desktop'] as const) {
-    test(`${surface}: 8 deliverables show 5, then a pressable "+3 more ▾"; pressing shows all 8 and "Show less ▴"; pressing again folds`, async ($, on) => {
-      world(on, { fixture: eight })
-      await $.session.start(SESSION)
-      const pane = await mountPane($, surface, 140)
-      const text = async () => textOf(await pane.find({ key: 'deliverables' }))
-      const more = async () => String((await pane.find({ key: 'lane:Deliverables:more' }))?.props.label)
-      const count = (all: string) => PATHS.filter(path => all.includes(path)).length
-
-      expect(count(await text())).toBe(5)
-      expect(await text()).not.toContain('CHANGELOG.md')
-      expect(await more()).toBe('+3 more ▾')
-
-      await pane.press({ key: 'lane:Deliverables:more' })
-      expect(count(await text())).toBe(8)
-      expect(await more()).toBe('Show less ▴')
-
-      await pane.press({ key: 'lane:Deliverables:more' })
-      expect(count(await text())).toBe(5)
-      expect(await more()).toBe('+3 more ▾')
-      await pane.unmount()
-    })
-  }
-
-  test('five or fewer deliverables: no overflow button', async ($, on) => {
-    world(on, { fixture: { ...WITH_ROWS, plans: [{ ...PLAN, rows: PATHS.slice(0, 5).map((path, at) => row(`task ${at}`, 'Done', { deliverable: path })) }] } })
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal', 140)
-
-    expect(await pane.find({ key: 'lane:Deliverables:more' })).toBeUndefined()
-    await pane.unmount()
   })
 })
 

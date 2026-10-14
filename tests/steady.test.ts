@@ -33,12 +33,9 @@ const handlesOf = async (pane: Pane): Promise<string[]> =>
 /** The board with plan `at` changed by `change` and the others as they were. */
 const withPlan = (board: PlanBoard, at: number, change: (plan: PlanEntry) => PlanEntry): PlanBoard => ({ ...board, plans: board.plans.map((plan, index) => (index === at ? change(plan) : plan)) })
 
-/** The fixture with a change text on a deliverable, so the table has a `diff:0` Button besides the others. */
-const START: PlanBoard = withPlan(BOARD, 0, plan => ({ ...plan, rows: plan.rows.map(row => (row.task === 'd4 newest' ? { ...row, change: 'adds the thing' } : row)) }))
-
 /** Opens the pane with its 10 s refresh running, on a session that draws on one surface only. */
 const open = async ($: Engine, on: Parameters<typeof world>[0], surface: 'terminal' | 'desktop' = 'desktop') => {
-  const w = world(on, { fixture: START, surfaces: [surface] })
+  const w = world(on, { fixture: BOARD, surfaces: [surface] })
 
   await $.session.start(SESSION)
   await $.command.run(plans())
@@ -67,11 +64,11 @@ describe('the pane keeps its handles while nothing it shows changes', () => {
     const first = await handlesOf(pane)
     const seen = new Set([first.join(' ')])
 
-    expect(first.some(handle => handle.startsWith('diff:0#'))).toBe(true)
+    expect(first.some(handle => handle.startsWith('plan-file#'))).toBe(true)
     expect(first.some(handle => handle.startsWith('menu:name#'))).toBe(true)
 
     for (let at = 1; at <= 6; at += 1) {
-      w.fixture = withPlan(START, 1, plan => ({ ...plan, goal: `edited ${at} times` }))
+      w.fixture = withPlan(BOARD, 1, plan => ({ ...plan, goal: `edited ${at} times` }))
       await w.clock.advance(10_000)
       seen.add((await handlesOf(pane)).join(' '))
     }
@@ -85,7 +82,7 @@ describe('the pane keeps its handles while nothing it shows changes', () => {
     const { w, pane } = await open($, on)
     const first = await handlesOf(pane)
 
-    w.fixture = withPlan(START, 0, plan => ({ ...plan, rows: plan.rows.map(row => (row.task === 't3 third todo' ? { ...row, task: 't3 renamed todo' } : row)) }))
+    w.fixture = withPlan(BOARD, 0, plan => ({ ...plan, rows: plan.rows.map(row => (row.task === 't3 third todo' ? { ...row, task: 't3 renamed todo' } : row)) }))
     await w.clock.advance(10_000)
 
     expect(await textIn(pane, await pane.find({ key: 'lane:Todo' }))).toContain('t3 renamed todo')
@@ -97,7 +94,7 @@ describe('the pane keeps its handles while nothing it shows changes', () => {
     const { w, pane } = await open($, on)
     const first = await handlesOf(pane)
 
-    w.fixture = withPlan(START, 2, plan => ({ ...plan, rows: plan.rows.map(row => ({ ...row, status: 'Done' as const })) }))
+    w.fixture = withPlan(BOARD, 2, plan => ({ ...plan, rows: plan.rows.map(row => ({ ...row, status: 'Done' as const })) }))
     await w.clock.advance(10_000)
 
     expect(await handlesOf(pane)).not.toEqual(first)

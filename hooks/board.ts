@@ -4,7 +4,7 @@
  * screen, and what the band and the board show. Nothing here draws or touches `$`.
  * It shows only what the tracker records.
  */
-import type { CardRef, DiffView, PlanBoard, PlanEntry, PlanMatch, PlanRow, PlanStatus, PlanTotals, PlanUsage } from '../types'
+import type { CardRef, PlanBoard, PlanEntry, PlanMatch, PlanRow, PlanStatus, PlanTotals, PlanUsage } from '../types'
 
 export const STATUSES: readonly PlanStatus[] = ['Todo', 'In Progress', 'Verifying', 'Needs Verification', 'Blocked', 'Done', 'Canceled']
 
@@ -31,8 +31,8 @@ export const STYLE: Record<PlanStatus, Style> = {
 export const NEEDS_YOU_COLOR = 'merged'
 
 /**
- * The color of a link, in the deliverables and the note of a task page: the theme's accent for suggestions, which reads on a
- * dark and on a light theme (`remember` is a dark blue on a dark one).
+ * The color of a link, in the note of a task page: the theme's accent for suggestions, which reads on a dark and on a light
+ * theme (`remember` is a dark blue on a dark one).
  */
 export const LINK_COLOR = 'suggestion'
 
@@ -164,11 +164,6 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
       const note = asText(row.note)
       const route = asText(row.route)
       const who = asText(row.who)
-      const deliverable = asText(row.deliverable)
-      const artifactText = asText(row.artifact)
-      const artifact = artifactText !== undefined && parseArtifact(artifactText) !== undefined ? artifactText : undefined
-      const artifactNote = asText(row.artifact_note)
-      const change = asText(row.change)
       const goal = asText(row.goal)
       const progress = asText(row.progress)
       const started = asText(row.started)
@@ -176,8 +171,6 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
       const stalledAt = asText(row.stalled_since)
       const stalledSince = stalledAt === undefined || Number.isNaN(Date.parse(stalledAt)) ? undefined : stalledAt
       const usage = usageOf(row.usage)
-      const changedText = asText(row.changed_at)
-      const changedAt = changedText === undefined || Number.isNaN(Date.parse(changedText)) ? undefined : changedText
 
       return {
         task: row.task as string,
@@ -186,18 +179,12 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
         ...(note === undefined ? {} : { note }),
         ...(route === undefined ? {} : { route }),
         ...(who === undefined ? {} : { who }),
-        ...(deliverable === undefined ? {} : { deliverable }),
-        ...(artifact === undefined ? {} : { artifact }),
-        ...(artifactNote === undefined ? {} : { artifact_note: artifactNote }),
-        ...(change === undefined ? {} : { change }),
         ...(goal === undefined ? {} : { goal }),
         ...(progress === undefined ? {} : { progress }),
         ...(started === undefined ? {} : { started }),
         ...(finished === undefined ? {} : { finished }),
         ...(stalledSince === undefined ? {} : { stalled_since: stalledSince }),
         ...(usage === undefined ? {} : { usage }),
-        ...(changedAt === undefined ? {} : { changed_at: changedAt }),
-        ...(isNumber(row.deliverable_mtime) ? { deliverable_mtime: row.deliverable_mtime } : {}),
       }
     }),
   }))
@@ -604,7 +591,7 @@ export const rainbowAt = (cell: number, frame: number): string => RAINBOW[(cell 
 /** A row on a lane; `index` is its place in the plan's `rows`, which names the card. */
 export type Card = { row: PlanRow; index: number }
 
-export type LaneKey = 'Todo' | 'In Progress' | 'Verify' | 'Done' | 'Other' | 'Deliverables'
+export type LaneKey = 'Todo' | 'In Progress' | 'Verify' | 'Done' | 'Other'
 
 /** `more` is how many cards the lane does not show; `moreLabel` the line that says so (`+2 more`, `+1 blocked · 12 running`). */
 export type Lane = { key: LaneKey; header: string; color: string; cards: Card[]; more: number; moreLabel: string }
@@ -617,12 +604,6 @@ export const moreButton = (label: string): string => `${label} ${label === SHOW_
 
 /** Todo and Done show this many cards, then `+N more`. */
 export const CAPPED = 3
-
-/** The deliverables table (the artifacts first, then the files) shows this many rows, then `+N more`; the same press that unfolds a lane unfolds it. */
-export const DELIVERABLES_SHOWN = 5
-
-/** Folders besides the project root and ~/.claude from which a press opens an artifact (a regular file only): where a session leaves its scratch pages. */
-export const ARTIFACT_EXTRA_ROOTS: readonly string[] = ['/tmp', '/private/tmp']
 
 /** In Progress shows this many cards, Blocked ones first, then a line counting the rest. */
 export const DOING_SHOWN = 5
@@ -939,7 +920,7 @@ export function movement(plan: PlanEntry, view: { finished: string | null; isPan
   }
 }
 
-// ---------------------------------------------------------------- deliverables
+// ---------------------------------------------------------------- settings and file links
 
 /** What the person set in the plugin's settings (`userConfig`); `applyOptions` fills it when the module loads. */
 export const settings = { boardLocation: 'PROGRESS.md', boardCommand: '', usageCommand: '', yourName: '', root: '' }
@@ -969,450 +950,22 @@ export const isYou = (name: string | undefined): boolean => {
 const linkOf = (absolute: string) => `file://${absolute.split('/').map(encodeURIComponent).join('/')}`
 
 /**
- * Whether a deliverable is a web link (`http://` or `https://`). Rows written before the tracker refused links there stored a claude.ai
- * page as their deliverable; it is a link to open as it is, never a path in the project (that is the surface's "Couldn't find this file").
+ * The `file://` link of a file path in a note: `~/…` is under `home`, a path that starts with `/` is as it is and any other is relative to
+ * the project root. null for a `~` path when the home directory is not known.
  */
-export const isWebLink = (path: string): boolean => /^\s*https?:\/\//i.test(path)
-
-/** Whether a deliverable can have a diff: a file, not a web link and not a folder (a path that ends in `/`). */
-export const isDiffable = (path: string): boolean => !isWebLink(path) && !path.endsWith('/')
-
-/**
- * The link of a deliverable: a web link as it is (null with a space in it, which no surface opens); otherwise its `file://` link:
- * `~/…` is under `home`, a path that starts with `/` is as it is and any other is relative to the project root. null for a `~` path when the
- * home directory is not known.
- */
-export function deliverableHref(path: string, home: string | undefined): string | null {
-  if (isWebLink(path)) {
-    return /\s/.test(path.trim()) ? null : path.trim()
-  }
-
+export function fileHref(path: string, home: string | undefined): string | null {
   const absolute = absolutePath(path, home)
 
   return absolute === null ? null : linkOf(absolute)
 }
 
-/** The absolute path of a deliverable: `~/…` is under `home` (null when not known), `/…` is as it is, any other is relative to the project root (null while that is not known). */
+/** The absolute path of a file path in a note: `~/…` is under `home` (null when not known), `/…` is as it is, any other is relative to the project root (null while that is not known). */
 export function absolutePath(path: string, home: string | undefined): string | null {
   if (path === '~' || path.startsWith('~/')) {
     return home === undefined || home === '' ? null : `${home.replace(/\/+$/, '')}${path.slice(1)}`
   }
 
   return path.startsWith('/') ? path : settings.root === '' ? null : `${settings.root.replace(/\/+$/, '')}/${path}`
-}
-
-/**
- * Whether the deliverable sits in the project root, whose files the desktop opens from a link itself (`..` folded, no symlink
- * followed). A path outside it, or one placed while the root is unknown, is the plugin's to open.
- */
-export function isInsideProject(path: string, home: string | undefined): boolean {
-  const absolute = absolutePath(path, home)
-  const root = settings.root.replace(/\/+$/, '')
-
-  if (absolute === null || root === '') {
-    return false
-  }
-
-  const folded = foldedPath(absolute)
-
-  return folded === root || folded.startsWith(`${root}/`)
-}
-
-/**
- * Why a deliverable must not be opened or revealed by a press, or null when it may: once its `.` and `..` segments are
- * folded it has to sit under one of `roots`, or under `home` with no segment starting with `.` (a hidden folder or file).
- */
-export function openRefusal(absolute: string, roots: readonly string[], home?: string): string | null {
-  if (!absolute.startsWith('/')) {
-    return 'not an absolute path'
-  }
-
-  const path = foldedPath(absolute)
-
-  return roots.some(root => path === root || path.startsWith(`${root}/`)) || isVisibleHomePath(path, home) ? null : 'outside the project, home and ~/.claude'
-}
-
-/** Whether `path` (folded) is below `home` and none of its segments below `home` starts with `.`. */
-export function isVisibleHomePath(path: string, home: string | undefined): boolean {
-  const base = home === undefined || home === '' ? '' : home.replace(/\/+$/, '')
-
-  return base !== '' && path.startsWith(`${base}/`) && !path.slice(base.length + 1).split('/').some(part => part.startsWith('.'))
-}
-
-/** The file types `open` only shows in a viewer or editor. Nothing here is an application, a script or an installer. */
-const VIEWABLE = new Set([
-  'md', 'markdown', 'txt', 'json', 'csv', 'tsv', 'yaml', 'yml', 'html', 'htm', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg',
-  'py', 'ts', 'tsx', 'js', 'mjs', 'css', 'toml', 'log',
-])
-
-/**
- * What a press does with a deliverable's real (symlink-free) path: `open` it when its type is one of `VIEWABLE` (the caller also checks it is a regular file), otherwise
- * `reveal` it in Finder, so a file `open` would run (an extensionless executable, `.app`, `.command`, `.tool`, `.terminal`,
- * `.workflow`, `.jar`, `.pkg`, `.fileloc`, `.webloc`) is shown and never launched.
- */
-export function openMode(resolved: string): 'open' | 'reveal' {
-  const ext = /\.([^./]+)$/.exec(resolved)?.[1]?.toLowerCase()
-
-  return ext !== undefined && VIEWABLE.has(ext) ? 'open' : 'reveal'
-}
-
-/** An absolute path with its `.`, `..` and empty segments folded away: the path `openRefusal` judges and `open` is given. */
-export function foldedPath(absolute: string): string {
-  const folded: string[] = []
-
-  for (const part of absolute.split('/')) {
-    if (part === '..') {
-      folded.pop()
-    } else if (part !== '' && part !== '.') {
-      folded.push(part)
-    }
-  }
-
-  return `/${folded.join('/')}`
-}
-
-/**
- * `mtime` is the file's modification time in epoch seconds; absent when the path does not exist (or the tracker did not say).
- * `started`, `updated` and `changed_at` are the times of the row that names it (ISO), which pick the commit its diff shows; absent for a row with none.
- */
-export type Deliverable = { path: string; task: string; change?: string; mtime?: number; started?: string; updated?: string; changed_at?: string; title?: string }
-
-/** Whether `item` is an artifact entry of the deliverables table, not a file. */
-export const isArtifactEntry = (item: Deliverable): boolean => item.title !== undefined
-
-/**
- * The plan's deliverables in row order, each path once, with the task of the first row that names it; a Canceled row names none. A web
- * link that is also the target of an artifact is that artifact, not a deliverable.
- */
-export function deliverablesOf(plan: PlanEntry): Deliverable[] {
-  const seen = new Set<string>()
-  const artifactTargets = new Set(artifactsOf(plan).map(artifact => artifact.target))
-  const out: Deliverable[] = []
-
-  for (const row of plan.rows.filter(one => one.status !== 'Canceled')) {
-    const path = row.deliverable
-
-    if (typeof path === 'string' && path !== '' && !seen.has(path) && !(isWebLink(path) && artifactTargets.has(path.trim()))) {
-      seen.add(path)
-      out.push({
-        path,
-        task: row.task,
-        ...(row.change === undefined || row.change === '' ? {} : { change: row.change }),
-        ...(typeof row.deliverable_mtime === 'number' ? { mtime: row.deliverable_mtime } : {}),
-        ...(row.started === undefined ? {} : { started: row.started }),
-        ...(row.updated === null ? {} : { updated: row.updated }),
-        ...(row.changed_at === undefined ? {} : { changed_at: row.changed_at }),
-      })
-    }
-  }
-
-  return out
-}
-
-/**
- * The type column's label of a deliverable: its extension (`.md`), `folder` for a path that ends in `/`, `file` for a name
- * with no extension, `link` for a web link. The tracker says nothing of a directory but its trailing slash.
- */
-export function typeOf(path: string): string {
-  if (isWebLink(path)) {
-    return 'link'
-  }
-
-  if (path.endsWith('/')) {
-    return 'folder'
-  }
-
-  const name = path.split('/').pop() ?? path
-  const ext = /^.+\.([^.]+)$/.exec(name)?.[1]
-
-  return ext === undefined ? 'file' : `.${ext.toLowerCase()}`
-}
-
-export type DeliverableGroup = { type: string; items: Deliverable[] }
-
-/**
- * The deliverables grouped by type: newest first inside a group (no mtime last), groups ordered by their newest item (a
- * group with no mtime at all last), equals in the order the plan lists them.
- */
-export function deliverableGroups(plan: PlanEntry): DeliverableGroup[] {
-  const groups = new Map<string, Deliverable[]>()
-
-  for (const item of deliverablesOf(plan)) {
-    groups.set(typeOf(item.path), [...(groups.get(typeOf(item.path)) ?? []), item])
-  }
-
-  const stamp = (item: Deliverable) => item.mtime ?? Number.NEGATIVE_INFINITY
-  // Not a subtraction: two missing times would be -Infinity - -Infinity.
-  const newer = (a: Deliverable, b: Deliverable) => (stamp(a) === stamp(b) ? 0 : stamp(b) > stamp(a) ? 1 : -1)
-
-  return [...groups.entries()]
-    .map(([type, items]) => ({ type, items: [...items].sort(newer) }))
-    .sort((a, b) => newer(a.items[0] as Deliverable, b.items[0] as Deliverable))
-}
-
-/** The type column's label of an artifact entry. */
-export const ARTIFACT_TYPE = 'artifact'
-
-/**
- * What the deliverables table lists: the artifacts first, as one group of type `artifact` (in row order, each target once; `change` is the
- * artifact's note), then the files grouped as `deliverableGroups` has them.
- */
-export function tableGroupsOf(plan: PlanEntry): DeliverableGroup[] {
-  const artifacts = artifactsOf(plan).map(
-    (artifact): Deliverable => ({ path: artifact.target, task: artifact.task, title: artifact.title, ...(artifact.note === undefined ? {} : { change: artifact.note }) }),
-  )
-
-  return [...(artifacts.length === 0 ? [] : [{ type: ARTIFACT_TYPE, items: artifacts }]), ...deliverableGroups(plan)]
-}
-
-// ---------------------------------------------------------------- the diff of a deliverable
-
-/** One commit as `git log --format=%H%x09%ct%x09%s` prints it: the full sha, the commit time in epoch seconds, the subject. */
-export type Commit = { sha: string; time: number; subject: string }
-
-/** The commits in `git log --format=%H%x09%ct%x09%s` output, one per line; a line of any other shape is skipped. */
-export function commitsOf(stdout: string): Commit[] {
-  return stdout.split('\n').flatMap((line): Commit[] => {
-    const match = /^([0-9a-f]{7,64})\t(\d+)\t(.*)$/.exec(line)
-
-    return match === null ? [] : [{ sha: match[1] as string, time: Number(match[2]), subject: match[3] as string }]
-  })
-}
-
-/** How long after a row's last update a commit still counts as its work. */
-export const COMMIT_WINDOW_MS = 30 * 60_000
-
-/**
- * The commit a deliverable's diff shows: the newest one made after its row `started` and before the row's `changed_at` plus 30 minutes
- * (the time its deliverable or change was last written; each edge counts). A row from before the tracker kept `changed_at` ends the
- * window at its `updated` plus 30 minutes, which a later status write (a check marking it Done) moves on to the next task's commits.
- * With no commit in the window, or no times (a plain `PROGRESS.md`), the newest commit that touched the file. Undefined for none.
- */
-export function commitFor(commits: readonly Commit[], times: { started?: string | null; updated?: string | null; changed_at?: string | null }): Commit | undefined {
-  const newest = [...commits].sort((a, b) => b.time - a.time)
-  const end = times.changed_at ?? times.updated
-  const from = times.started == null ? Number.NaN : Date.parse(times.started)
-  const to = end == null ? Number.NaN : Date.parse(end) + COMMIT_WINDOW_MS
-
-  return (
-    newest.find(commit => (Number.isNaN(from) || commit.time * 1000 >= from) && (Number.isNaN(to) || commit.time * 1000 <= to)) ?? newest[0]
-  )
-}
-
-/** The most characters of one `Code` element of format `diff`. */
-export const DIFF_HUNK_CHARS = 10_000
-
-/** The most characters of diff the pane draws in all; the lines past them are counted, not shown. */
-export const DIFF_TOTAL_CHARS = 60_000
-
-/** What the diff page says for a commit with no hunks. */
-export const NO_HUNKS = 'No text changes to show (binary file, rename or mode change only)'
-
-/** Characters kept free in a piece for a header written afresh (`@@ -a,b +c,d @@`). */
-const HEADER_ROOM = 40
-
-const HUNK_HEAD = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
-
-type Hunk = { header: string; oldStart: number; newStart: number; lines: string[] }
-
-/**
- * The hunks in `git show` output: each `@@` header and the lines it counts (its old and new line counts say where it ends, so a
- * line of a file that looks like a header cannot start another hunk), with `\ No newline at end of file` kept. Git's file header, and
- * anything else outside a hunk, is left out.
- */
-function hunksOf(lines: readonly string[]): Hunk[] {
-  const out: Hunk[] = []
-
-  for (let at = 0; at < lines.length; at += 1) {
-    const head = HUNK_HEAD.exec(lines[at] ?? '')
-
-    if (head === null) {
-      continue
-    }
-
-    let oldLeft = Number(head[2] ?? 1)
-    let newLeft = Number(head[4] ?? 1)
-    const hunk: Hunk = { header: lines[at] as string, oldStart: Number(head[1]), newStart: Number(head[3]), lines: [] }
-
-    for (let next = lines[at + 1]; next !== undefined; next = lines[at + 1]) {
-      const kind = next[0]
-
-      if (kind === '\\') {
-        hunk.lines.push(next)
-      } else if (oldLeft === 0 && newLeft === 0) {
-        break
-      } else if (kind === '+') {
-        newLeft -= 1
-        hunk.lines.push(next)
-      } else if (kind === '-') {
-        oldLeft -= 1
-        hunk.lines.push(next)
-      } else if (kind === ' ' || kind === undefined) {
-        oldLeft -= 1
-        newLeft -= 1
-        hunk.lines.push(next === '' ? ' ' : next)
-      } else {
-        break
-      }
-
-      at += 1
-    }
-
-    out.push(hunk)
-  }
-
-  return out
-}
-
-/** Where a hunk piece starts on one side: `first` plus the lines before it; a side with no lines in the piece starts at the line before. */
-const startOf = (count: number, first: number, before: number) => (count > 0 ? first + before : before === 0 ? first : first + before - 1)
-
-/**
- * A hunk as pieces a `Code` element takes (at most `DIFF_HUNK_CHARS` each): the hunk as it is when it fits, else split at line
- * boundaries into hunks of their own with headers written afresh, so each is valid and no line is lost. A line that is alone over the
- * limit is cut. `lines` counts the diff lines of a piece.
- */
-function diffPiecesOf(hunk: Hunk): { source: string; lines: number }[] {
-  const whole = [hunk.header, ...hunk.lines].join('\n')
-
-  if (whole.length <= DIFF_HUNK_CHARS) {
-    return [{ source: whole, lines: hunk.lines.length }]
-  }
-
-  const out: { source: string; lines: number }[] = []
-  let at = 0
-  let oldBefore = 0
-  let newBefore = 0
-
-  while (at < hunk.lines.length) {
-    const body: string[] = []
-    let size = HEADER_ROOM
-    let oldCount = 0
-    let newCount = 0
-
-    for (let line = hunk.lines[at]; line !== undefined; line = hunk.lines[at]) {
-      const room = DIFF_HUNK_CHARS - HEADER_ROOM - 1
-      const kept = line.length > room ? `${line.slice(0, room - 1)}…` : line
-
-      if (body.length > 0 && !kept.startsWith('\\') && size + kept.length + 1 > DIFF_HUNK_CHARS) {
-        break
-      }
-
-      body.push(kept)
-      size += kept.length + 1
-      oldCount += kept.startsWith('+') || kept.startsWith('\\') ? 0 : 1
-      newCount += kept.startsWith('-') || kept.startsWith('\\') ? 0 : 1
-      at += 1
-    }
-
-    const header = `@@ -${startOf(oldCount, hunk.oldStart, oldBefore)},${oldCount} +${startOf(newCount, hunk.newStart, newBefore)},${newCount} @@`
-
-    out.push({ source: [header, ...body].join('\n'), lines: body.length })
-    oldBefore += oldCount
-    newBefore += newCount
-  }
-
-  return out
-}
-
-/**
- * The diff page for `git show <sha> --format= -- <file>` output (`path` is the file as the row wrote it, `subject` the commit's): the hunks as `Code` sources (`diffPiecesOf`), up to `DIFF_TOTAL_CHARS`
- * in all, then in `note` how many diff lines are not shown; with no hunk (binary, rename or mode change only) `note` says so.
- * Carriage returns are dropped and control characters other than tab and newline replaced, as a `Code` element requires.
- */
-export function diffViewOf(raw: string, title: string, path?: string, subject?: string): DiffView {
-  const hunks = hunksOf(raw.replace(/\r/g, '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '\uFFFD').split('\n'))
-  const pieces = hunks.flatMap(diffPiecesOf)
-  const shown: string[] = []
-  let total = 0
-  let at = 0
-
-  for (; at < pieces.length; at += 1) {
-    const source = (pieces[at] as { source: string }).source
-
-    if (total + source.length > DIFF_TOTAL_CHARS) {
-      break
-    }
-
-    shown.push(source)
-    total += source.length
-  }
-
-  const rest = pieces.slice(at).reduce((all, piece) => all + piece.lines, 0)
-  const note = hunks.length === 0 ? NO_HUNKS : rest > 0 ? `Rest of the diff not shown (${rest} more lines)` : undefined
-
-  return { title, ...(subject === undefined ? {} : { subject }), hunks: shown, ...(note === undefined ? {} : { note }), ...(path === undefined ? {} : { path }) }
-}
-
-/** Columns the commit subject needs beside the path and sha to share their line; with less it takes a line of its own. */
-const MIN_SUBJECT_ROOM = 8
-
-/**
- * The lines of the diff page's title for a pane `columns` wide: `head` (`<path> · <short sha>`, whole) and the commit subject on one
- * line, cut with `…`. The subject shares the line with `head` when at least `MIN_SUBJECT_ROOM` columns are left after it, else it is
- * a line of its own, cut to the width. A `head` wider than the pane is the Text's to wrap; it is never cut. No subject: `head` alone.
- */
-export function diffTitleLines(head: string, subject: string, columns: number): string[] {
-  if (subject === '') {
-    return [head]
-  }
-
-  const room = columns - displayWidth(head) - 3
-
-  return room >= MIN_SUBJECT_ROOM ? [`${head} · ${truncate(subject, room)}`] : [head, truncate(subject, columns)]
-}
-
-// ---------------------------------------------------------------- artifacts
-
-/** An artifact's title and where it is: the two parts of the markdown link `[Title](target)`. */
-export type ArtifactLink = { title: string; target: string }
-
-/** `target` is an `https://` URL, which the drawing surface opens itself, as opposed to a local path, which the plugin opens. */
-export const isWebTarget = (target: string): boolean => /^https:\/\//i.test(target)
-
-/**
- * The title and target of an artifact written as the markdown link `[Title](target)`, or undefined when it is not one. A target is an
- * `https://` URL (no whitespace) or a local path (absolute, `~/` or relative to the project root); a target with any other scheme
- * (`http:`, `file:`, `javascript:`) is malformed.
- */
-export function parseArtifact(text: string): ArtifactLink | undefined {
-  const match = /^\[(.+?)\]\((.+)\)$/.exec(text.trim())
-  const title = match?.[1]?.trim()
-  const target = match?.[2]?.trim()
-
-  if (title === undefined || title === '' || target === undefined || target === '') {
-    return undefined
-  }
-
-  if (isWebTarget(target)) {
-    return /\s/.test(target) ? undefined : { title, target }
-  }
-
-  return /^[a-z][a-z0-9+.-]*:/i.test(target) ? undefined : { title, target }
-}
-
-/** The link of an artifact: an `https://` target as it is, a local path as its `file://` link (null for a `~` path when the home directory is not known). */
-export const artifactHref = (artifact: ArtifactLink, home: string | undefined): string | null =>
-  isWebTarget(artifact.target) ? artifact.target : deliverableHref(artifact.target, home)
-
-/** `task` is the first row that names the artifact; `note` is that row's one line on it. */
-export type Artifact = ArtifactLink & { task: string; note?: string }
-
-/** The plan's artifacts in row order, each target once, with the title and note of the first row that names it; a Canceled row names none. */
-export function artifactsOf(plan: PlanEntry): Artifact[] {
-  const seen = new Set<string>()
-  const out: Artifact[] = []
-
-  for (const row of plan.rows.filter(one => one.status !== 'Canceled')) {
-    const link = row.artifact === undefined ? undefined : parseArtifact(row.artifact)
-
-    if (link !== undefined && !seen.has(link.target)) {
-      seen.add(link.target)
-      out.push({ ...link, task: row.task, ...(row.artifact_note === undefined || row.artifact_note === '' ? {} : { note: row.artifact_note }) })
-    }
-  }
-
-  return out
 }
 
 // ---------------------------------------------------------------- usage on the task page
@@ -1757,15 +1310,12 @@ export const CHIPS: Readonly<Record<string, Chip>> = {
   Sonnet: { bg: '#D3E2F4', fg: '#163F70' },
   Haiku: { bg: '#D6ECD9', fg: '#1E5631' },
   you: { bg: '#4B2FB8', fg: '#FFFFFF', bold: true },
-  // The grey of a deliverable's type chip: a stalled row has no model tag.
+  // Grey: a stalled row has no model tag.
   stalled: { bg: '#E4E2D9', fg: '#44413A' },
 }
 
 /** The chip of a card tag's word: `you`, a model, or the grey one of `stalled` with its time (`stalled 19:23`, `stalled Oct 11`); undefined for none. */
 export const chipOf = (word: string): Chip | undefined => CHIPS[word] ?? (/^stalled( |$)/.test(word) ? CHIPS.stalled : undefined)
-
-/** The grey chip of a deliverable's type. */
-export const TYPE_CHIP: Chip = { bg: '#E4E2D9', fg: '#44413A' }
 
 /** Columns a chip of `word` takes: the word and a space each side; 0 for no word. */
 export const chipCols = (word: string): number => (word === '' ? 0 : displayWidth(word) + 2)
@@ -2184,7 +1734,7 @@ const plainCell = (cell: string): string => cell.replace(/[*_`]/g, '').trim()
 /**
  * The board file's markdown as a board, or one line saying why it cannot be read. The first table with `task` and `status`
  * columns is the board; the columns are found by their header (any case), so their order does not matter. `evidence` is the
- * note; `executor`, `check`, `route`, `deliverable`, `change`, `artifact`, `artifact_note`, `goal` and `progress` are read when present. A status the reader does not know keeps its
+ * note; `executor`, `check`, `route`, `goal` and `progress` are read when present. A status the reader does not know keeps its
  * own text on a row of status `Other`, which has its own lane. `file` is the board file's absolute path; `name` the plan's name
  * unless the file's first `# ` heading gives one.
  */
@@ -2242,14 +1792,6 @@ export function parseProgress(text: string, file: string, name: string): { board
     const route = raw(cells, 'route') ?? (executor === undefined ? undefined : `step × ${executor.includes(' · ') ? executor : `${executor} · —`}`)
     const check = cell(cells, 'check')
     const note = raw(cells, 'evidence')
-    // The deliverable is read raw, as the artifact is: `_` and `*` are part of the path. A path wrapped in one code span is its inside.
-    const deliverableText = raw(cells, 'deliverable')
-    const deliverable = deliverableText === undefined ? undefined : asText(/^`([^`]+)`$/.exec(deliverableText)?.[1]?.trim() ?? deliverableText)
-    // The artifact is read raw: `_`, `*` and backticks in its title and path are part of them.
-    const artifactText = raw(cells, 'artifact')
-    const artifact = artifactText !== undefined && parseArtifact(artifactText) !== undefined ? artifactText : undefined
-    const artifactNote = raw(cells, 'artifact_note')
-    const change = raw(cells, 'change')
     const goal = raw(cells, 'goal')
     const progress = cell(cells, 'progress')
 
@@ -2261,10 +1803,6 @@ export function parseProgress(text: string, file: string, name: string): { board
       ...(note === undefined ? {} : { note }),
       ...(route === undefined ? {} : { route }),
       ...(check === undefined ? {} : { check }),
-      ...(deliverable === undefined ? {} : { deliverable }),
-      ...(artifact === undefined ? {} : { artifact }),
-      ...(artifactNote === undefined ? {} : { artifact_note: artifactNote }),
-      ...(change === undefined ? {} : { change }),
       ...(goal === undefined ? {} : { goal }),
       ...(progress === undefined ? {} : { progress }),
     })

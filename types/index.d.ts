@@ -22,9 +22,6 @@ export type PlanRow = {
   who?: string
   /** Who checks the work, from the board file's `check` column (`script (grep)`, `you`, `subagent · Opus`); absent when the file has none. */
   check?: string
-  deliverable?: string
-  /** One line on what the deliverable changed, written with the file; absent when not given. */
-  change?: string
   /** One sentence on what the task is for; absent when not given. */
   goal?: string
   /** `n/m` steps done of total, as the agent reported it; absent until it has. */
@@ -38,16 +35,8 @@ export type PlanRow = {
    * stops, and the task page says `stalled since 14:02` (`stalled since Oct 11 14:02`). A `PROGRESS.md` never has it.
    */
   stalled_since?: string
-  /** When the row's `deliverable` or `change` was last written (ISO): the diff of the deliverable ends its commit window 30 minutes after it. Absent on rows written before the tracker kept it (not backfilled); the window then ends after `updated`. */
-  changed_at?: string
   /** What the row's work cost, as the usage command wrote it; absent until computed. */
   usage?: PlanUsage
-  /** The deliverable's modification time in epoch seconds; null when the path does not exist; absent on old output. */
-  deliverable_mtime?: number | null
-  /** An artifact made for the person to view, as a markdown link `[Title](target)`: target an `https://` URL or a local path. Absent when not given or not a link. */
-  artifact?: string
-  /** One line on what the artifact is; absent when not given. */
-  artifact_note?: string
 }
 
 /** Time, effort, tokens and cost of one row's work. `effort` holds shares that sum to 1; `cost_usd` is null when a model has no price. */
@@ -133,14 +122,6 @@ export type Live = { board: PlanBoard } | { error: string }
 /** The card whose page the pane shows: a plan and the index of the row in its `rows`. */
 export type CardRef = { anchor: string; index: number }
 
-/**
- * The diff page of a deliverable's commit, ready to draw: `title` is `<path> · <short sha>` and `subject` the commit's subject (the page puts it on the
- * title's line, cut to the room that is left), `hunks` the diff as unified-diff
- * hunks of at most 10000 characters each (what a `Code` element with `format: 'diff'` takes), `note` one plain line: why there is nothing
- * to draw (no text changes), or that the rest of a long diff is not shown. `path` is the file as the row wrote it, which names the language.
- */
-export type DiffView = { title: string; subject?: string; hunks: string[]; note?: string; path?: string }
-
 declare module 'claude-code' {
   interface PluginState {
     'plan-tracker': {
@@ -154,8 +135,6 @@ declare module 'claude-code' {
       card: CardRef | null
       /** Whether the pane shows the plan file instead of the board. */
       file: boolean
-      /** The diff page the pane shows in place of the board (or a task page); null for none. */
-      diff: DiffView | null
       /** The anchor of the plan a PLAN-DONE with 0 left just finished, until the person's next prompt; null for none. */
       finished: string | null
       /** The animation frame, advanced by the one timer while something moves on screen. */

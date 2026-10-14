@@ -1,7 +1,7 @@
 /** The two drawings of the mod, as trees: the band above the prompt and the pane. */
-import type { BoxProps, ButtonProps, ClientProps, CodeProps, ElementConstructor, LinkProps, MarkdownProps, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
+import type { BoxProps, ButtonProps, ClientProps, ElementConstructor, LinkProps, MarkdownProps, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
 
-import type { DiffView, PlanEntry, PlanMatch, PlanRow } from '../types'
+import type { PlanEntry, PlanMatch, PlanRow } from '../types'
 import {
   BAND_MASCOT_SPACE,
   BAND_SPRITE_CELLS,
@@ -20,10 +20,8 @@ import {
   spriteSvg,
   spriteSvgAnimated,
   CHIPS,
-  diffTitleLines,
   chipOf,
   planStateText,
-  TYPE_CHIP,
   FILE_LABEL,
   LINK_COLOR,
   MASCOT,
@@ -39,15 +37,7 @@ import {
   countText,
   STATE_COLUMNS,
   STATE_STYLE,
-  artifactHref,
-  isArtifactEntry,
-  isDiffable,
-  tableGroupsOf,
-  deliverableHref,
-  isInsideProject,
-  isWebLink,
-  isWebTarget,
-  parseArtifact,
+  fileHref,
   planStatsOf,
   notStartedText,
   recapLabel,
@@ -58,9 +48,7 @@ import {
   fitStats,
   statLines,
   STAT_GAP,
-  DELIVERABLES_SHOWN,
   whoLineOf,
-  chipCols,
   displayWidth,
   noteLinesOf,
   isBlocked,
@@ -82,7 +70,7 @@ import {
   worstStatus,
 } from './board'
 import type { CardRow } from './card'
-import type { ArtifactLink, Card, Chip, Deliverable, DeliverableGroup, Lane, LaneKey, PlanState, Pose, Progress, Stat } from './board'
+import type { Card, Chip, Lane, LaneKey, PlanState, Pose, Progress, Stat } from './board'
 
 /** The elements both drawings use; every surface's table has them. */
 export type Kit = {
@@ -91,8 +79,6 @@ export type Kit = {
   Button: ElementConstructor<ButtonProps>
   Link: ElementConstructor<LinkProps>
   Markdown: ElementConstructor<MarkdownProps>
-  /** Every surface draws it; the diff page uses it for the hunks. */
-  Code: ElementConstructor<CodeProps>
   /** Absent on a surface with no `Client` (vscode, mobile): a card is then Buttons. */
   Client?: ElementConstructor<ClientProps>
   /** Only the remote surfaces (desktop, vscode, mobile) draw it. */
@@ -490,13 +476,11 @@ type PaneArgs = {
   detail: number | null
   /** The plan file view replaces the board (and the page): its text, or why it cannot be read. */
   file: FileView | null
-  /** The diff page of a deliverable's commit replaces the board (or a task page); null for none. */
-  diff: DiffView | null
   /** The time a shown time (`updated`, a state word's `since`, a stalled mark) is compared with, to say today's as a clock time and another day's with its day (`Date.now()`); a parameter so a test can pin it. */
   now: number
   /** Rows the pane shows (`scroll.bodyRows`); undefined when the surface does not say. */
   bodyRows?: number
-  /** The person's home directory, which a `~/` deliverable is under; undefined when not known. */
+  /** The person's home directory, which a `~/` path in a note is under; undefined when not known. */
   home: string | undefined
   /** The animation frame the mascot is drawn at. */
   frame: number
@@ -513,23 +497,19 @@ type PaneArgs = {
   onCard: (index: number) => void
   onBack: () => void
   onFile: () => void
-  /** The task page's `Diff` button. */
-  onDiff: () => void
-  /** The `Diff` cell of the deliverables table's row `index` (counted as `deliverable:N` is). */
-  onDiffAt: (index: number) => void
   onLane: (key: LaneKey) => void
 }
 
 /** Columns of plan name the pane's header keeps beside "Plan file ›"; a narrower room puts that button on a row of its own. */
 const MIN_HEAD_NAME = 8
 
-/** The pane: the plan dropdown, "Plan file ›" and the plan line on top, then the four lanes and the deliverables, the artifacts among them (or one card's page, or the plan file). */
+/** The pane: the plan dropdown, "Plan file ›" and the plan line on top, then the four lanes (or one card's page, or the plan file). */
 export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
-  const { Box, Text, Button, Markdown, Code } = kit
+  const { Box, Text, Button, Markdown } = kit
   // Only the terminal and the desktop draw a Client; another surface's table has the name but drops the element.
   const Client = args.hasClient ? kit.Client : undefined
-  const { plans, plan, columns, message, matches, detail, file, diff, home, frame, isOpen, expanded, now } = args
-  const { onMenu, onPick, onMatch, onCard, onBack, onFile, onDiff, onDiffAt, onLane, bodyRows } = args
+  const { plans, plan, columns, message, matches, detail, file, home, frame, isOpen, expanded, now } = args
+  const { onMenu, onPick, onMatch, onCard, onBack, onFile, onLane, bodyRows } = args
   const isProportional = args.surface === 'desktop'
   // A Client's props: the terminal's stay as they were.
   const proportional = isProportional ? ({ isProportional: true } as const) : {}
@@ -743,7 +723,6 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   }
 
   const row = detail === null ? undefined : plan.rows[detail]
-  const groups = tableGroupsOf(plan)
 
   if (file !== null) {
     return (
@@ -762,32 +741,6 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
             <Box marginTop={1}>
               <Markdown text={file.text} />
             </Box>
-          )}
-        </Box>
-      </Box>
-    )
-  }
-
-  if (diff !== null) {
-    return (
-      <Box flexDirection="column">
-        {message === null ? null : <Text dimColor>{message}</Text>}
-        <Box key="diff" flexDirection="column">
-          <Button key="back" label="‹ Back" onPress={onBack} />
-          {diffTitleLines(diff.title, diff.subject ?? '', columns).map((line, at) => (
-            <Text key={`diff:title:${at}`} dimColor wrap="wrap">
-              {line}
-            </Text>
-          ))}
-          <Box key="diff:hunks" flexDirection="column" marginTop={1}>
-            {diff.hunks.map((source, at) => (
-              <Code key={`diff:${at}`} source={source} format="diff" {...(diff.path === undefined ? {} : { path: diff.path })} />
-            ))}
-          </Box>
-          {diff.note === undefined ? null : (
-            <Text dimColor wrap="wrap">
-              {diff.note}
-            </Text>
           )}
         </Box>
       </Box>
@@ -836,253 +789,13 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
           {lanesOf(plan, expanded).map(lane)}
         </Box>
       ) : (
-        drawDetail(kit, { row, columns, home, onBack, onDiff, isProportional, now })
+        drawDetail(kit, { row, columns, home, onBack, isProportional, now })
       )}
-      {row === undefined && groups.length > 0 ? drawDeliverables(kit, { groups, columns, home, isProportional, isOpen: expanded.includes('Deliverables'), onLane: () => onLane('Deliverables'), onDiff: onDiffAt }) : null}
     </Box>
   )
 }
 
-type DeliverablesArgs = {
-  groups: readonly DeliverableGroup[]
-  columns: number
-  home: string | undefined
-  isProportional: boolean
-  /** Whether every row shows, not only the first `DELIVERABLES_SHOWN`. */
-  isOpen: boolean
-  /** The overflow button's press. */
-  onLane: () => void
-  /** The press of a row's Diff cell: `index` counts the files as `deliverable:N` does. */
-  onDiff: (index: number) => void
-}
-
-/**
- * A markdown link to `href` with `label` as its text: the label's markdown characters are escaped and the href's
- * parentheses percent-encoded, so a path with `_`, `[` or `(` stays one link.
- */
-const markdownLink = (label: string, href: string) =>
-  `[${label.replace(/[\\`*_[\]<>~&]/g, '\\$&')}](${href.replace(/\(/g, '%28').replace(/\)/g, '%29')})`
-
-/** The press a desktop deliverable link takes: none for a path inside the project root and for a web link (the surface opens both itself), else the plugin's. */
-const deliverablePress = (path: string, home: string | undefined) => (isWebLink(path) || isInsideProject(path, home) ? {} : { onLinkPress: () => undefined })
-
-/** Columns between two cells of the terminal table. */
-const TABLE_GAP = 2
-
-/** The narrowest path column the terminal table keeps before it drops the summary column. */
-const MIN_PATH_COLUMNS = 12
-
-/** The narrowest the terminal's SUMMARY column is kept at: its header's width, so the header is never cut; a narrower column is dropped and each summary stacks under its path. */
-const MIN_CHANGE_COLUMNS = displayWidth('SUMMARY')
-
-/** The desktop pane width from which the deliverables table has a SUMMARY column. */
-const DESKTOP_CHANGE_FROM = 100
-
-/** Columns of the desktop's Diff cell, between the path and SUMMARY. */
-const DIFF_COLUMNS = 6
-
-/** A no-break space: the desktop's type chip is padded with it, so the Text cannot wrap between the padding and the word. */
-const NBSP = ' '
-
-/**
- * `Deliverables`, then a table of Type, Deliverable and Summary with a dim header and no ruled lines, grouped by type (the
- * type as a grey chip on the first row of its group). The artifacts come first, as the group `artifact`: the title is the link (never the
- * URL), the artifact's note is its summary, and its Diff cell is empty; an `https://` artifact is the surface's own link to open, a
- * local page is a link the plugin answers (`artifact:N`, N counting the artifacts), which opens it in the browser. The files follow: the path is a
- * link that opens it, the change is its summary, dim. On the desktop the whole path wraps (nothing is cut to the column count) and is a `Markdown`
- * link: a `Link` opens only `https:` on a remote surface, and a path inside the project root has no `onLinkPress` (the desktop opens it itself);
- * one outside it has it, so the plugin answers the press and opens it. Also on the desktop a narrow cell right after the path holds a `Diff` Button
- * keyed `diff:N` (N counts the files as `deliverable:N` does) that opens the diff of the commit that made the change; a web link, a folder and an
- * artifact have an empty cell, and its header is blank. The summary text is plain. Past `DELIVERABLES_SHOWN` rows (artifacts and files together) a
- * `+N more` button unfolds the rest. The terminal's table text stays plain (a file path is not a Link there; an artifact's title is), and the task
- * page has the `Diff ›` button.
- */
-function drawDeliverables(kit: Kit, { groups, columns, home, isProportional, isOpen, onLane, onDiff }: DeliverablesArgs): RenderElement {
-  const { Box, Text, Link, Markdown, Button } = kit
-  const all: { item: Deliverable; type: string; at: number }[] = []
-  let files = 0
-  let artifacts = 0
-
-  // `at` counts the files from the first file and the artifacts from the first artifact: it is the number in the keys of `deliverable:N`,
-  // `diff:N` and `artifact:N`, which a folded table does not renumber.
-  for (const group of groups) {
-    for (const [index, item] of group.items.entries()) {
-      all.push({ item, type: index === 0 ? group.type : '', at: isArtifactEntry(item) ? artifacts++ : files++ })
-    }
-  }
-
-  const hidden = Math.max(0, all.length - DELIVERABLES_SHOWN)
-  const rows = isOpen ? all : all.slice(0, DELIVERABLES_SHOWN)
-  const typeCols = Math.max(4, ...groups.map(group => displayWidth(group.type))) + 2
-  const prefixOf = (item: Deliverable) => (isArtifactEntry(item) ? 'artifact' : 'deliverable')
-  /** What the table shows of an entry: an artifact's title, a file's path. */
-  const nameOf = (item: Deliverable) => item.title ?? item.path
-
-  const chip = (type: string, padding = ' ') => (
-    <Text color={TYPE_CHIP.fg} backgroundColor={TYPE_CHIP.bg}>{`${padding}${type}${padding}`}</Text>
-  )
-
-  const hasChange = isProportional && columns >= DESKTOP_CHANGE_FROM
-
-  // Inside the project the desktop opens the link itself (no `onLinkPress`), and a web link too; outside it the plugin answers the press (`ui.press`, `e.link`).
-  // An artifact is a page for the browser, which the surface does not open for a local path: the plugin answers every local one.
-  const pressOf = (item: Deliverable) =>
-    isArtifactEntry(item) ? (isWebTarget(item.path) ? {} : { onLinkPress: () => undefined }) : deliverablePress(item.path, home)
-
-  // The desktop's Diff cell: a Button, not a link, since a Button's press survives a redraw better (a link's press waits out the double-click, so more of
-  // them meet a new drawing and are dropped); empty for an entry with no diff, so the cells of the other rows line up.
-  const diffCell = ({ item, at }: { item: Deliverable; at: number }) => (
-    <Box key={`${prefixOf(item)}:${at}:diff`} width={DIFF_COLUMNS} flexShrink={0}>
-      {!isArtifactEntry(item) && isDiffable(item.path) ? (
-        <Button plain key={`diff:${at}`} label="Diff" onPress={() => onDiff(at)}>
-          <Text color={LINK_COLOR}>Diff</Text>
-        </Button>
-      ) : null}
-    </Box>
-  )
-
-  const desktopRow = ({ item, type, at }: { item: Deliverable; type: string; at: number }) => {
-    const href = deliverableHref(item.path, home)
-    const typeCell = (
-      <Box key={`${prefixOf(item)}:${at}:type`} width={typeCols + 2} flexShrink={0}>
-        {type === '' ? null : chip(type, NBSP)}
-      </Box>
-    )
-    const pathCell = (
-      <Box key={`${prefixOf(item)}:${at}:path`} flexGrow={1} flexShrink={1}>
-        {href === null ? <Text wrap="wrap">{nameOf(item)}</Text> : <Markdown key={`${prefixOf(item)}:${at}`} text={markdownLink(nameOf(item), href)} {...pressOf(item)} />}
-      </Box>
-    )
-
-    // A proportional font sets ' .tsx ' wider than its cells: with a breaking space the Text wraps and the word falls a line below its path.
-    if (!hasChange) {
-      return (
-        <Box key={`${prefixOf(item)}:${at}:item`} flexDirection="column">
-          <Box flexDirection="row" gap={1} alignItems="flex-start">
-            {typeCell}
-            {pathCell}
-            {diffCell({ item, at })}
-          </Box>
-          {item.change === undefined || item.change === '' ? null : (
-            <Box marginLeft={typeCols + 3}>
-              <Text dimColor wrap="wrap">{item.change}</Text>
-            </Box>
-          )}
-        </Box>
-      )
-    }
-
-    return (
-      <Box key={`${prefixOf(item)}:${at}:item`} flexDirection="row" gap={1} alignItems="flex-start">
-        {typeCell}
-        {pathCell}
-        {diffCell({ item, at })}
-        <Box width="34%" flexShrink={0}>
-          <Text dimColor wrap="wrap">{item.change ?? '—'}</Text>
-        </Box>
-      </Box>
-    )
-  }
-
-  const pathNatural = Math.max(0, ...all.map(({ item }) => displayWidth(nameOf(item))))
-  const changeNatural = Math.max(displayWidth('SUMMARY'), ...all.map(({ item }) => displayWidth(item.change ?? '—')))
-  const avail = columns - typeCols - TABLE_GAP
-  let pathCols = avail
-  let changeCols = 0
-
-  if (pathNatural + changeNatural + TABLE_GAP <= avail) {
-    pathCols = pathNatural
-    changeCols = changeNatural
-  } else {
-    // The path keeps its whole width up to two thirds of the table, SUMMARY the rest; SUMMARY is the first to go.
-    pathCols = Math.min(pathNatural, Math.floor(avail * 0.65))
-    changeCols = avail - TABLE_GAP - pathCols
-
-    if (pathCols < MIN_PATH_COLUMNS || changeCols < MIN_CHANGE_COLUMNS) {
-      changeCols = 0
-      pathCols = avail
-    }
-  }
-
-  const gap = ' '.repeat(TABLE_GAP)
-
-  const line = ({ item, type }: { item: Deliverable; type: string }) => {
-    const href = deliverableHref(item.path, home)
-    const label = truncate(nameOf(item), pathCols)
-    const change = changeCols === 0 ? '' : padTo(truncate(item.change ?? '—', changeCols), changeCols)
-
-    return (
-      <Text wrap="truncate">
-        {type === '' ? ' '.repeat(typeCols) : chip(type)}
-        {type === '' ? '' : ' '.repeat(typeCols - chipCols(type))}
-        {gap}
-        {/* A file path is not a Link: a terminal without OSC 8 support draws a Link as its text and then the URL, so the path would show twice and the columns shift. An artifact's label is its title, not the URL. */}
-        {href === null ? (
-          label
-        ) : isArtifactEntry(item) ? (
-          <Text color={LINK_COLOR}>
-            <Link href={href} label={label} />
-          </Text>
-        ) : (
-          <Text color={LINK_COLOR}>{label}</Text>
-        )}
-        {changeCols === 0 ? null : <Text dimColor>{`${' '.repeat(pathCols - displayWidth(label))}${gap}${change}`}</Text>}
-      </Text>
-    )
-  }
-
-  // Too narrow for three columns: each entry is a block, its path first and its summary dim and wrapped under it.
-  const indent = typeCols + TABLE_GAP
-
-  const stacked = (one: { item: Deliverable; type: string; at: number }) => (
-    <Box key={`${prefixOf(one.item)}:${one.at}:item`} flexDirection="column">
-      {line(one)}
-      {wrap(one.item.change ?? '', Math.max(1, columns - indent)).filter(text => text !== '').map(text => (
-        <Text dimColor wrap="truncate">{`${' '.repeat(indent)}${text}`}</Text>
-      ))}
-    </Box>
-  )
-
-  const header = (
-    <Text dimColor wrap="truncate">
-      {`${padTo('TYPE', typeCols)}${gap}${changeCols === 0 ? 'DELIVERABLE' : `${padTo('DELIVERABLE', pathCols)}${gap}${padTo('SUMMARY', changeCols)}`}`}
-    </Text>
-  )
-
-  const isStacked = isProportional ? !hasChange : changeCols === 0
-  const fold =
-    hidden === 0 ? null : (
-      <Button key="lane:Deliverables:more" label={overflowLabel({ moreLabel: isOpen ? SHOW_LESS : `+${hidden} more`, more: hidden }, columns)} onPress={onLane} />
-    )
-
-  return (
-    <Box key="deliverables" flexDirection="column" marginTop={1}>
-      <Text bold>Deliverables</Text>
-      {isStacked ? null : isProportional ? (
-        <Box key="deliverables:head" flexDirection="row" gap={1}>
-          <Box width={typeCols + 2} flexShrink={0}>
-            <Text dimColor>TYPE</Text>
-          </Box>
-          <Box flexGrow={1} flexShrink={1}>
-            <Text dimColor>DELIVERABLE</Text>
-          </Box>
-          <Box width={DIFF_COLUMNS} flexShrink={0} />
-          <Box width="34%" flexShrink={0}>
-            <Text dimColor>SUMMARY</Text>
-          </Box>
-        </Box>
-      ) : (
-        header
-      )}
-      {isProportional ? rows.map(desktopRow) : isStacked ? rows.map(stacked) : rows.map(line)}
-      {fold}
-    </Box>
-  )
-}
-
-type DetailArgs = Pick<PaneArgs, 'columns' | 'home' | 'onBack' | 'onDiff' | 'now'> & { row: PlanRow; isProportional: boolean }
-
-
+type DetailArgs = Pick<PaneArgs, 'columns' | 'home' | 'onBack' | 'now'> & { row: PlanRow; isProportional: boolean }
 
 /** Columns of the table's label cell, at the most (the longest label is "Blocked because"). */
 const LABEL_COLUMNS = 15
@@ -1091,10 +804,10 @@ const LABEL_COLUMNS = 15
 const MIN_VALUE_COLUMNS = 12
 
 /** A piece of a cell's line: text, its colour, and the file link it opens, if any. */
-type Part = { text: string; color?: string; bold?: boolean; dim?: true; href?: string | null; /** Drawn as this chip: the text padded one space each side. */ chip?: Chip; /** Drawn as a solid bar of Boxes (the desktop). */ bar?: { fraction: number; color: string }; /** Drawn as a plain Button with this key and the text as its label (`Diff ›`). */ button?: string; /** On the desktop this line is the row's artifact link, or its path link with the Diff Button: the table draws it. */ link?: 'artifact' | 'deliverable' }
+type Part = { text: string; color?: string; bold?: boolean; dim?: true; href?: string | null; /** Drawn as this chip: the text padded one space each side. */ chip?: Chip; /** Drawn as a solid bar of Boxes (the desktop). */ bar?: { fraction: number; color: string } }
 
 /** One row of the table: the label and its lines, each a list of parts. */
-type TableRow = { key: string; label: string; isRed?: boolean; lines: Part[][]; /** The deliverable's path as the tracker wrote it: on the desktop a `Markdown` link where a `link: 'deliverable'` line is. */ path?: string; /** The artifact's title and target: on the desktop a `Markdown` link where a `link: 'artifact'` line is. */ artifact?: ArtifactLink; /** The deliverable has a diff: on the desktop a `Diff` Button (key `detail:diff`) right after the path. */ diff?: true }
+type TableRow = { key: string; label: string; isRed?: boolean; lines: Part[][] }
 
 /** Columns a desktop cell wraps at: none, since its Box wraps the text itself. */
 const UNWRAPPED_COLUMNS = 100_000
@@ -1110,15 +823,12 @@ const chipParts = (words: string): Part[] =>
  * work ran at one: bold values over dim labels), left out for a row with no usage and for her own rows; then a bordered table of labelled
  * rows, each left out when the tracker records nothing for it: Goal, Status (in words and its color), Done by (the tier a chip
  * and the executor, or the you chip), Checked by (once the row is Done), Progress (a bar), "Latest note" (the reason, on a
- * Blocked row; its date, then one bulleted point per line, its file paths links) and Deliverable: the artifact first (its title as a link, its
- * note in dim text under it), then the file (the path as a link, the change in dim text under it; the diff of the commit that made it opens from a `Diff`
- * Button keyed `detail:diff` right after the path on the desktop, a `Diff ›` button of that key on a line of its own on the terminal). A row that has
- * one of them shows that one; the same web link in both fields is the artifact alone.
+ * Blocked row; its date, then one bulleted point per line, its file paths links).
  * The frame is box characters on the terminal: a label cell and a value cell, a rule between rows;
  * values wrap inside their cell. On the desktop each row is a round-bordered Box, a label Box of fixed width and a value Box that
- * wraps its text; the path is a `Markdown` link.
+ * wraps its text.
  */
-function drawDetail(kit: Kit, { row, columns, home, onBack, onDiff, isProportional, now }: DetailArgs): RenderElement {
+function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, now }: DetailArgs): RenderElement {
   const { Box, Text, Button } = kit
   const { color, ...dim } = STYLE[row.status]
   const stuck = isBlocked(row)
@@ -1132,7 +842,6 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, onDiff, isProportion
   // Nothing is shown before the row started, nor for a row written before the tracker kept usage: never a guessed window.
   // Her own tasks show no usage: the numbers are Claude's session, which does not measure her work.
   const usage = usageStatsOf(row.started === undefined || isYou(executorOf(row)) ? undefined : row.usage)
-  const deliverable = row.deliverable === undefined || row.deliverable === '' ? undefined : row.deliverable
   const plain = (text: string): Part[][] => wrap(text, valueWidth).map(line => [{ text: line }])
   // The chips stay when the cell holds the line whole; a narrower cell wraps the plain words instead.
   const chipped = (words: string): Part[][] => (widthOf(chipParts(words)) <= valueWidth ? [chipParts(words)] : plain(words))
@@ -1145,34 +854,6 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, onDiff, isProportion
       : isProportional
         ? [{ text: '', bar: { fraction: bar.done / bar.total, color: HEX[color] ?? HEX.inactive ?? '#8A8A85' } }, { text: ` ${bar.count}` }]
         : [{ text: '▰'.repeat(bar.filled), color }, { text: '▱'.repeat(bar.empty), dim: true }, { text: ` ${bar.count}` }]
-  const changeLines: Part[][] = row.change === undefined || row.change === '' ? [] : wrap(row.change, valueWidth).map((text): Part[] => [{ text, dim: true }])
-  // A file has a diff of the commit that made its change: a `Diff` Button right after the path on the desktop, a `Diff ›` button under the change on the terminal.
-  // A web link and a folder have none.
-  const artifact = row.artifact === undefined ? undefined : parseArtifact(row.artifact)
-  const artifactLink = artifact === undefined ? null : artifactHref(artifact, home)
-  const artifactNote: Part[][] = row.artifact_note === undefined || row.artifact_note === '' ? [] : wrap(row.artifact_note, valueWidth).map((text): Part[] => [{ text, dim: true }])
-  // The same web link in both fields is the artifact alone: the file part is left out.
-  const file = deliverable !== undefined && artifact !== undefined && isWebLink(deliverable) && deliverable.trim() === artifact.target ? undefined : deliverable
-  const fileLink = file === undefined ? null : deliverableHref(file, home)
-  const canDiff = file !== undefined && isDiffable(file)
-  // The artifact first: its title as a link, its note dim. On the desktop a placeholder line stands for the Markdown link the table draws there.
-  const artifactLines: Part[][] =
-    artifact === undefined
-      ? []
-      : [
-          ...(isProportional && artifactLink !== null ? [[{ text: '', link: 'artifact' as const }]] : wrap(artifact.title, valueWidth).map((text): Part[] => [{ text, color: LINK_COLOR, href: artifactLink }])),
-          ...artifactNote,
-        ]
-  // Then the file: its path, its change, its Diff.
-  const fileLines: Part[][] =
-    file === undefined
-      ? []
-      : [
-          ...(isProportional && (fileLink !== null || canDiff) ? [[{ text: '', link: 'deliverable' as const }]] : []),
-          ...(isProportional && fileLink !== null ? [] : wrap(file, valueWidth).map((text): Part[] => [{ text, color: LINK_COLOR, href: fileLink }])),
-          ...changeLines,
-          ...(canDiff && !isProportional ? [[{ text: 'Diff ›', button: 'detail:diff' }]] : []),
-        ]
 
   const rows: TableRow[] = [
     ...(row.goal === undefined || row.goal === '' ? [] : [{ key: 'goal', label: 'Goal', lines: plain(row.goal) }]),
@@ -1197,21 +878,9 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, onDiff, isProportion
                 ...(line.dim === true ? { dim: true as const } : {}),
                 ...(line.needsYou === true ? { color: NEEDS_YOU_COLOR, bold: true } : {}),
                 ...(line.tag === true ? { bold: true, ...(stuck ? { color: 'error' } : {}) } : {}),
-                ...(piece.path === undefined ? {} : { color: LINK_COLOR, href: deliverableHref(piece.path, home) }),
+                ...(piece.path === undefined ? {} : { color: LINK_COLOR, href: fileHref(piece.path, home) }),
               })),
             ),
-          },
-        ]),
-    ...(file === undefined && artifact === undefined
-      ? []
-      : [
-          {
-            key: 'deliverable',
-            label: 'Deliverable',
-            ...(file === undefined ? {} : { path: file }),
-            ...(artifact === undefined ? {} : { artifact }),
-            lines: [...artifactLines, ...fileLines],
-            ...(canDiff && isProportional ? { diff: true as const } : {}),
           },
         ]),
   ]
@@ -1228,16 +897,16 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, onDiff, isProportion
         </Text>
       </Box>
       {usage === undefined ? null : drawStats(kit, { stats: fitStats(usage, columns), isProportional, boxKey: 'detail:usage' })}
-      {drawTable(kit, { rows, columns, home, isProportional, onDiff })}
+      {drawTable(kit, { rows, columns, isProportional })}
     </Box>
   )
 }
 
-type TableArgs = Pick<DetailArgs, 'columns' | 'home' | 'isProportional' | 'onDiff'> & { rows: readonly TableRow[] }
+type TableArgs = Pick<DetailArgs, 'columns' | 'isProportional'> & { rows: readonly TableRow[] }
 
 /** The bordered table of label and value rows: box characters on the terminal, one round-bordered Box per row on the desktop. */
-function drawTable(kit: Kit, { rows, columns, home, isProportional, onDiff }: TableArgs): RenderElement {
-  const { Box, Text, Link, Markdown, Button } = kit
+function drawTable(kit: Kit, { rows, columns, isProportional }: TableArgs): RenderElement {
+  const { Box, Text, Link } = kit
   const labelWidth = Math.max(4, Math.min(LABEL_COLUMNS, columns - 7 - MIN_VALUE_COLUMNS))
   const valueWidth = isProportional ? UNWRAPPED_COLUMNS : Math.max(1, columns - 7 - labelWidth)
 
@@ -1248,10 +917,6 @@ function drawTable(kit: Kit, { rows, columns, home, isProportional, onDiff }: Ta
           {kit.Svg === undefined ? null : <kit.Svg source={barSvg(one.bar.fraction, one.bar.color)} alt="progress" width={BAR_PX.width} height={BAR_PX.height} />}
         </Box>
       )
-    }
-
-    if (one.button !== undefined) {
-      return <Button plain key={one.button} label={one.text} onPress={onDiff} />
     }
 
     if (one.chip !== undefined) {
@@ -1320,47 +985,18 @@ function drawTable(kit: Kit, { rows, columns, home, isProportional, onDiff }: Ta
     )
   }
 
-  const field = (one: TableRow) => {
-    const href = one.path === undefined ? null : deliverableHref(one.path, home)
-    const path = one.path
-    const artifact = one.artifact
-    const artifactLink = artifact === undefined ? null : artifactHref(artifact, home)
-
-    // A placeholder line of the row (`link`) is drawn as the artifact's Markdown link, or as the path's with its Diff Button.
-    const linkLine = (parts: Part[], at: number) => {
-      if (parts[0]?.link === 'artifact' && artifact !== undefined && artifactLink !== null) {
-        return <Markdown key="detail:artifact" text={markdownLink(artifact.title, artifactLink)} {...(isWebTarget(artifact.target) ? {} : { onLinkPress: () => undefined })} />
-      }
-
-      if (parts[0]?.link === 'deliverable' && path !== undefined) {
-        return (
-          <Box key={`value:${at}`} flexDirection="row" gap={1} alignItems="flex-start">
-            {href === null ? null : <Markdown key="detail:deliverable" text={markdownLink(path, href)} {...deliverablePress(path, home)} />}
-            {one.diff === true ? (
-              <Button plain key="detail:diff" label="Diff" onPress={onDiff}>
-                <Text color={LINK_COLOR}>Diff</Text>
-              </Button>
-            ) : null}
-          </Box>
-        )
-      }
-
-      return null
-    }
-
-    return (
-      <Box key={`field:${one.key}`} flexDirection="row" borderStyle="round" borderDimColor paddingX={1}>
-        <Box width={labelBox} flexShrink={0}>
-          <Text bold {...(one.isRed === true ? { color: 'error' } : {})}>
-            {one.label}
-          </Text>
-        </Box>
-        <Box flexGrow={1} flexShrink={1} flexDirection="column">
-          {one.lines.map((parts, at) => (parts[0]?.link === undefined ? valueLine(parts, at) : linkLine(parts, at)))}
-        </Box>
+  const field = (one: TableRow) => (
+    <Box key={`field:${one.key}`} flexDirection="row" borderStyle="round" borderDimColor paddingX={1}>
+      <Box width={labelBox} flexShrink={0}>
+        <Text bold {...(one.isRed === true ? { color: 'error' } : {})}>
+          {one.label}
+        </Text>
       </Box>
-    )
-  }
+      <Box flexGrow={1} flexShrink={1} flexDirection="column">
+        {one.lines.map(valueLine)}
+      </Box>
+    </Box>
+  )
 
   return isProportional ? (
     <Box key="detail:fields" flexDirection="column" marginTop={1}>

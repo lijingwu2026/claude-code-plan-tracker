@@ -63,7 +63,7 @@ const row = (task: string, status: PlanStatus, updated: string | null = null, ro
 })
 
 /**
- * One row per case of the board: 4 Done (one with a deliverable), 1 Canceled, 1 Needs Verification routed to Sam, 1 In
+ * One row per case of the board: 4 Done, 1 Canceled, 1 Needs Verification routed to Sam, 1 In
  * Progress (Sonnet), 1 Blocked (Opus, with its reason as the note), 5 Todo (the first routed to Sam, the second to
  * Haiku), and a Done row whose route is Sam's (it must not read "needs you").
  */
@@ -71,7 +71,7 @@ export const ALPHA_ROWS: PlanRow[] = [
   row('d1 oldest', 'Done', '2026-10-08T01:00:00+09:00'),
   row('d2 newest but one', 'Done', '2026-10-08T03:00:00+09:00'),
   row('d3 middle', 'Done', '2026-10-08T02:00:00+09:00', undefined, 'only the session id abc12345 here'),
-  { ...row('d4 newest', 'Done', '2026-10-08T04:00:00+09:00', undefined, 'built the suite; 9 tests ok'), deliverable: 'automation/plans/alpha-plan.md' },
+  row('d4 newest', 'Done', '2026-10-08T04:00:00+09:00', undefined, 'built the suite; 9 tests ok'),
   row('c1 dropped', 'Canceled'),
   row('v1 look at the prototype', 'Needs Verification', undefined, 'serial × Sam · — — only she can judge the look', 'built; waits for her eyes'),
   row('Build the eval suite (official claude plugin eval) and run it', 'In Progress', undefined, 'spawn × subagent · Sonnet — a mechanical change'),
@@ -98,7 +98,7 @@ export const BOARD: PlanBoard = {
   selected: 'alpha',
   message: null,
   plans: [
-    { ...plan('alpha', 'Alpha plan', ALPHA_ROWS, 'Show every plan, then its deliverables'), plan_file: ALPHA_FILE },
+    { ...plan('alpha', 'Alpha plan', ALPHA_ROWS, 'Show every plan, then its lanes'), plan_file: ALPHA_FILE },
     plan('beta', 'Beta', [row('only done 1', 'Done'), row('only done 2', 'Done')]),
     plan('gamma', 'Gamma', [row('g1', 'In Progress'), row('g2', 'Todo')]),
   ],
@@ -149,14 +149,8 @@ export type World = {
   jsonGate: () => Promise<void>
   /** Awaited by every `ui.open`: a test holds it to show that a press does not wait for the pane to open. */
   openGate: () => Promise<void>
-  /** every other process the mod ran: the log writer, `open`, git and the editor's command */
+  /** every other process the mod ran: the log writer */
   logRuns: { argv: readonly string[]; stdin: string | undefined }[]
-  /** Answers one of those processes (git, the editor's `--diff`): its exit code and output, or undefined for a clean exit with no output. */
-  answer: (argv: readonly string[]) => Partial<Pick<Run, 'exitCode' | 'stdout' | 'stderr'>> | undefined
-  /** every file the mod wrote through `fs.write`, in order */
-  written: { path: string; text: string }[]
-  /** environment variables besides HOME that `$.env.get` answers */
-  env: Record<string, string>
   /** every `command.register`, in order */
   registered: { name: string; argumentHint: string | undefined }[]
   /** a reason `command.register` refuses /plan-tracker (a command of that name exists), or null */
@@ -165,16 +159,6 @@ export type World = {
   openDenial: string | null
   /** a reason `ui.open` itself fails (an error, not an answer), or null */
   openFailure: string | null
-  /** paths that exist besides the plan files (`fs.exists` answers true for them) */
-  present: string[]
-  /** present paths that are folders (`fs.stat` answers kind `dir`; any other present path is a file) */
-  dirs: string[]
-  /** what `realpath` answers by path: the real path (a symlink's target), or null for a failure; a present path not here is its own real path */
-  realpaths: Record<string, string | null>
-  /** every `realpath` run, in order */
-  realpathRuns: (readonly string[])[]
-  /** how `open <path>` ends, or null for a clean exit */
-  openRun: { exitCode: number; stderr: string } | null
   /** a reason `session.append` refuses, or null (the kit stores the row) */
   appendDenial: string | null
   /** every message the mod appended to the conversation, in order, as JSON */
@@ -232,20 +216,12 @@ export function world(
     scriptRuns: [],
     jsonRuns: [],
     logRuns: [],
-    answer: () => undefined,
-    written: [],
-    env: {},
     jsonGate: async () => undefined,
     openGate: async () => undefined,
     registered: [],
     registerDenial: null,
     openDenial: null,
     openFailure: null,
-    present: [],
-    dirs: [],
-    realpaths: {},
-    realpathRuns: [],
-    openRun: null,
     appendDenial: null,
     appended: [],
     toasts: [],
@@ -308,8 +284,7 @@ export function world(
 
     return text === undefined ? { deny: `ENOENT: no such file ${e.path}` } : { value: text }
   })
-  on('fs.exists', ($, e) => ({ value: w.present.includes(e.path) || w.files[e.path] !== undefined }))
-  on('fs.stat', ($, e) => ({ value: { kind: w.dirs.includes(e.path) ? ('dir' as const) : ('file' as const), size: 0, mtimeMs: 0, isLink: false } }))
+  on('fs.exists', ($, e) => ({ value: w.files[e.path] !== undefined }))
   on('ui.render', () => {
     w.bandDraws += 1
 
@@ -337,28 +312,7 @@ export function world(
       return { value: { exitCode, stdout, stderr, ...FINISHED_RUN } }
     }
 
-    if (e.argv[0] === '/bin/realpath') {
-      const path = e.argv[1] ?? ''
-      const real = path in w.realpaths ? w.realpaths[path] : w.present.includes(path) || w.files[path] !== undefined ? path : null
-
-      w.realpathRuns.push(e.argv)
-
-      return real === null || real === undefined
-        ? { value: { exitCode: 1, stdout: '', stderr: `realpath: ${path}: No such file or directory`, ...FINISHED_RUN } }
-        : { value: { exitCode: 0, stdout: `${real}\n`, stderr: '', ...FINISHED_RUN } }
-    }
-
     w.logRuns.push({ argv: e.argv, stdin: e.init?.stdin })
-
-    const answered = w.answer(e.argv)
-
-    if (answered !== undefined) {
-      return { value: { exitCode: 0, stdout: '', stderr: '', ...FINISHED_RUN, ...answered } }
-    }
-
-    if (e.argv[0] === 'open' && w.openRun !== null) {
-      return { value: { exitCode: w.openRun.exitCode, stdout: '', stderr: w.openRun.stderr, ...FINISHED_RUN } }
-    }
 
     return { value: { exitCode: 0, stdout: '', stderr: '', ...FINISHED_RUN } }
   })
@@ -382,12 +336,7 @@ export function world(
     return { value: undefined }
   })
   on('tool.call', () => ({ result: { stdout: w.bash, stderr: '', interrupted: false }, text: w.bash }) as never)
-  on('fs.write', ($, e) => {
-    w.written.push({ path: e.path, text: e.text })
-
-    return { value: undefined }
-  })
-  mock.env(on, { HOME, ...w.env })
+  mock.env(on, { HOME })
 
   return w
 }

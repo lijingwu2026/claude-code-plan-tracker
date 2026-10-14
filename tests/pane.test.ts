@@ -61,7 +61,7 @@ describe('plan-tracker pane: the header', () => {
       expect(kids(header)[0]?.props.color).toBe('error')
       expect(await ui.find({ key: 'goal' })).toBeUndefined()
       expect(textOf(await ui.drawn())).not.toContain('Goal')
-      expect(textOf(await ui.drawn())).not.toContain('Show every plan, then its deliverables')
+      expect(textOf(await ui.drawn())).not.toContain('Show every plan, then its lanes')
       expect(await ui.find({ key: 'summary' })).toBeUndefined()
       expect(textOf(await ui.drawn())).not.toContain('Summary')
       const strip = kids(await ui.find({ key: 'strip' })).map(node => String(node.props?.key))
@@ -238,8 +238,6 @@ describe('plan-tracker pane: the header', () => {
     // one plan: nothing to pick, so no ▾
     expect(textOf(await ui.find({ key: 'menu' }))).toBe('● MVP  Idle  1/2Plan file ›')
     expect(await ui.find({ key: 'goal' })).toBeUndefined()
-    // the only deliverable is a Canceled row's: the board lists none
-    expect(await ui.find({ key: 'deliverables' })).toBeUndefined()
     await ui.unmount()
   })
 })
@@ -625,40 +623,6 @@ describe('plan-tracker pane: the cards', () => {
   })
 })
 
-describe('plan-tracker pane: deliverables', () => {
-  test('the section shows the paths that rows recorded, each once, in a link colour that reads on a dark and a light theme (not `remember`, a dark blue on a dark theme)', async ($, on) => {
-    world(on)
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal')
-
-    const section = await pane.find({ key: 'deliverables' })
-
-    expect(textOf(section)).toContain('DELIVERABLE')
-    expect(textOf(section)).not.toContain('TASK')
-    expect(textOf(section)).not.toContain('d4 newest')
-    expect(textOf(section)).toContain(' .md ')
-    expect(textOf(section)).toContain('automation/plans/alpha-plan.md  —')
-    expect(await pane.findAll({ type: 'Link' })).toEqual([])
-    expect(textOf(section).split('automation/plans/alpha-plan.md')).toHaveLength(2)
-    expect(JSON.stringify(section)).toContain('"color":"suggestion"')
-    expect(JSON.stringify(section)).not.toContain('"color":"remember"')
-    await pane.unmount()
-  })
-
-  test('with none recorded there is no section at all, not "Deliverables 0"', async ($, on) => {
-    world(on)
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal')
-
-    await pane.press({ key: 'menu:name' })
-    await pane.press({ key: 'plan:gamma' })
-
-    expect(await pane.find({ key: 'deliverables' })).toBeUndefined()
-    expect(textOf(await pane.drawn())).not.toContain('Deliverables')
-    await pane.unmount()
-  })
-})
-
 /** The lines of a task page's note, top to bottom (the heading is the first child). */
 const noteRows = async (pane: Pane): Promise<Node[]> =>
   kids(await pane.find({ key: 'field:note' })).map((line): Node => ({ type: 'Box', props: {}, children: kids(line).slice(3, -2) }))
@@ -813,14 +777,11 @@ describe('plan-tracker pane: the task page', () => {
     await pane.unmount()
   })
 
-  test('a task with a deliverable shows it under "Deliverable" as a link; a task with no route has no who', async ($, on) => {
+  test('a Done task shows its status and its latest note; a task with no route has no who', async ($, on) => {
     world(on)
     await $.session.start(SESSION)
     const first = await open($, 'd4')
 
-    // the terminal's Deliverable row ends with the `Diff ›` button (the row has a file)
-    expect(await fieldText(first.pane, 'deliverable')).toBe('Deliverable automation/plans/alpha-plan.md Diff ›')
-    expect((await first.pane.find({ type: 'Link' }))?.props.label).toBe('automation/plans/alpha-plan.md')
     expect(await fieldText(first.pane, 'status')).toBe('Status Done')
     expect(await fieldText(first.pane, 'note')).toStartWith('Latest note • built the suite')
     await first.pane.unmount()
@@ -833,7 +794,6 @@ describe('plan-tracker pane: the task page', () => {
 
     expect(await pane.find({ key: 'strip' })).toBeUndefined()
     expect(await pane.find({ key: 'plan-stats' })).toBeUndefined()
-    expect(await pane.find({ key: 'deliverables' })).toBeUndefined()
     await pane.unmount()
   })
 })
@@ -938,17 +898,6 @@ describe('plan-tracker pane: v4 review changes', () => {
 
     expect(path).toBe('…pha-plan.md')
     expect(displayWidth(path)).toBeLessThanOrEqual(12)
-    await pane.unmount()
-  })
-
-  test('m3: the deliverable links of the board and the task page use the plan file view\'s link color', async ($, on) => {
-    world(on)
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal')
-
-    expect(JSON.stringify(await pane.find({ key: 'deliverables' }))).toContain('"color":"suggestion"')
-    await openCard(pane, indexOfTask('d4'))
-    expect(JSON.stringify(await pane.find({ key: 'field:deliverable' }))).toContain('"color":"suggestion"')
     await pane.unmount()
   })
 

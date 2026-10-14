@@ -5,7 +5,7 @@ import { RAINBOW, assigneeOf, checkerOf, executorOf, isYou, lanesOf, markerOf, n
 import type { PlanEntry, PlanRow } from '../types'
 import { PROGRESS_REAL } from './fixtures/progress-real'
 import { PROGRESS_REAL_EXECUTOR } from './fixtures/progress-real-executor'
-import { BOARD, HOME, PANE_ID, ROOT, SESSION, bandProps, openCard, paneProps, promptSubmit, textIn, textOf, world } from './fixtures'
+import { BOARD, PANE_ID, ROOT, SESSION, bandProps, openCard, paneProps, promptSubmit, textIn, textOf, world } from './fixtures'
 
 /** PROGRESS.md as plan-orchestrator's route skill wrote it in a real run (a 3-step plan, `claude -p`). */
 const REAL = PROGRESS_REAL
@@ -65,22 +65,19 @@ describe('the board file: a real PROGRESS.md', () => {
 
   test('columns are found by the header row, in any order and any case; optional ones are read when present', () => {
     const plan = planOf(
-      '| Evidence | STATUS | Task | Executor | Deliverable | Change |\n|---|---|---|---|---|---|\n| ok | **In Progress** | build it | subagent | out/a.md | adds a |\n',
+      '| Evidence | STATUS | Task | Executor | Goal |\n|---|---|---|---|---|\n| ok | **In Progress** | build it | subagent | prove it |\n',
     )
     const row = plan.rows[0]!
 
-    expect(row).toMatchObject({ task: 'build it', status: 'In Progress', note: 'ok', deliverable: 'out/a.md', change: 'adds a' })
+    expect(row).toMatchObject({ task: 'build it', status: 'In Progress', note: 'ok', goal: 'prove it' })
     expect(executorOf(row)).toBe('subagent')
   })
 
-  test('optional goal and change columns are read, wherever they stand in the header', () => {
-    const plan = planOf(
-      '| goal | task | change | status |\n|---|---|---|---|\n| Prove the export works | build it | Create src/csv.ts | Done |\n| | plain | | Todo |\n',
-    )
+  test('an optional goal column is read, wherever it stands in the header', () => {
+    const plan = planOf('| goal | task | status |\n|---|---|---|\n| Prove the export works | build it | Done |\n| | plain | Todo |\n')
 
-    expect(plan.rows[0]).toMatchObject({ task: 'build it', goal: 'Prove the export works', change: 'Create src/csv.ts' })
+    expect(plan.rows[0]).toMatchObject({ task: 'build it', goal: 'Prove the export works' })
     expect(plan.rows[1]).not.toHaveProperty('goal')
-    expect(plan.rows[1]).not.toHaveProperty('change')
   })
 
   test('an executor equal to your_name is you; with no name set nobody is', () => {
@@ -351,49 +348,72 @@ describe('the board file: the plan state', () => {
   })
 })
 
-describe('the board file: a deliverable path is read as written', () => {
-  const rowsOf = (...cells: string[]) =>
-    planOf(`| task | status | deliverable |\n|---|---|---|\n${cells.map((cell, at) => `| t${at} | Done | ${cell} |`).join('\n')}\n`).rows
+describe('columns and keys the board no longer reads are ignored', () => {
+  const OLD_COLUMNS =
+    '# Progress\n\n| task | status | goal | deliverable | change | artifact | artifact_note |\n|---|---|---|---|---|---|---|\n' +
+    '| one | Done | Prove it works | docs/a.md | adds the a page | [Review page](https://claude.ai/x) | the page to read |\n' +
+    '| two | In Progress | | out/b.py | | | |\n'
 
-  test('`_`, `*` and `~` in the path survive; a path wrapped in one code span is its inside', () => {
-    const rows = rowsOf('docs/a_b_c.md', '`docs/a_b_c.md`', 'docs/*final*_v2.md', '`~/code/x/a_b.html`', ' docs/plain.md ')
+  const REMOVED = /deliverable|artifact|\bdiff\b|docs\/a\.md|adds the a page|Review page|the page to read|out\/b\.py/i
 
-    expect(rows.map(row => row.deliverable)).toEqual(['docs/a_b_c.md', 'docs/a_b_c.md', 'docs/*final*_v2.md', '~/code/x/a_b.html', 'docs/plain.md'])
+  /** What the pane shows: the board (and whether a Deliverables table is in it), then the first card's page (and whether it has a Deliverable row). */
+  async function drawn(pane: Awaited<ReturnType<typeof mountPane>>) {
+    const lanes = await textIn(pane, await pane.drawn())
+    const hasTable = (await pane.find({ key: 'deliverables' })) !== undefined
+
+    await openCard(pane, 0)
+
+    return { lanes, hasTable, page: await textIn(pane, await pane.drawn()), hasRow: (await pane.find({ key: 'field:deliverable' })) !== undefined }
+  }
+
+  test('the reader leaves them out of the row and keeps the rest', () => {
+    const row = planOf(OLD_COLUMNS).rows[0]!
+
+    expect(row).toMatchObject({ task: 'one', status: 'Done', goal: 'Prove it works' })
+
+    for (const key of ['deliverable', 'change', 'artifact', 'artifact_note']) {
+      expect(row).not.toHaveProperty(key)
+    }
   })
 
-  for (const cell of ['docs/a_b_c.md', '`docs/a_b_c.md`']) {
-    test(`desktop: ${cell} is listed with the exact path, not docs/abc.md`, FILE_MODE, async ($, on) => {
-      world(on, { surfaces: ['desktop'], files: { [FILE]: `| task | status | deliverable |\n|---|---|---|\n| one | Done | ${cell} |\n` } })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`${surface}: a PROGRESS.md that still has deliverable, change and artifact columns draws the lanes with no table, and the task page has no Deliverable row`, FILE_MODE, async ($, on) => {
+      world(on, { surfaces: [surface], files: { [FILE]: OLD_COLUMNS } })
       await $.session.start(SESSION)
-      const pane = await mountPane($, 'desktop')
+      const pane = await mountPane($, surface)
+      const { lanes, hasTable, page, hasRow } = await drawn(pane)
 
-      expect((await pane.find({ type: 'Markdown', key: 'deliverable:0' }))?.props.text).toBe(`[docs/a\\_b\\_c.md](file://${ROOT}/docs/a_b_c.md)`)
+      expect(lanes).toContain('Done 1')
+      expect(lanes).toContain('In Progress 1')
+      expect(lanes).toContain('one')
+      expect(hasTable).toBe(false)
+      expect(lanes).not.toMatch(REMOVED)
+      expect(hasRow).toBe(false)
+      expect(page).toContain('Prove it works')
+      expect(page).not.toMatch(REMOVED)
       await pane.unmount()
     })
   }
 
-  test('terminal: the path is drawn as written', FILE_MODE, async ($, on) => {
-    world(on, { surfaces: ['terminal'], files: { [FILE]: '| task | status | deliverable |\n|---|---|---|\n| one | Done | `docs/a_b_c.md` |\n' } })
+  test('a board command\'s JSON that still has the removed keys draws the same', async ($, on) => {
+    const row = (task: string, status: string, more: object) => ({ task, status, updated: '2026-10-14T09:00:00+09:00', ...more })
+    const rows = [
+      row('one', 'Done', { goal: 'Prove it works', deliverable: 'docs/a.md', change: 'adds the a page', changed_at: '2026-10-14T09:05:00+09:00', deliverable_mtime: 1760400000, artifact: '[Review page](https://claude.ai/x)', artifact_note: 'the page to read' }),
+      row('two', 'In Progress', { deliverable: 'out/b.py', deliverable_mtime: null }),
+    ]
+
+    world(on, { fixture: JSON.stringify({ selected: 'p', message: null, plans: [{ anchor: 'p', name: 'Plan P', goal: 'g', plan_file: '/plans/p.md', rows }] }) })
     await $.session.start(SESSION)
-    const pane = await mountPane($, 'terminal')
+    const pane = await mountPane($)
+    const { lanes, hasTable, page, hasRow } = await drawn(pane)
 
-    expect(textOf(await pane.find({ key: 'deliverables' }))).toContain('docs/a_b_c.md')
-    await pane.unmount()
-  })
-
-  test('a press on a path outside the project root opens that exact path', FILE_MODE, async ($, on) => {
-    const path = `${HOME}/code/x/a_b_c.html`
-    const w = world(on, { surfaces: ['desktop'], files: { [FILE]: '| task | status | deliverable |\n|---|---|---|\n| one | Done | `~/code/x/a_b_c.html` |\n' }, present: [path] })
-
-    await $.session.start(SESSION)
-    const pane = await mountPane($, 'desktop')
-
-    await pane.press({ key: 'deliverable:0', link: { href: `file://${path}` } })
-    for (let at = 0; at < 20; at += 1) {
-      await w.clock.advance(10)
-    }
-
-    expect(w.logRuns.filter(run => run.argv[0] === 'open').map(run => run.argv)).toEqual([['open', path]])
+    expect(lanes).toContain('Done 1')
+    expect(lanes).toContain('In Progress 1')
+    expect(hasTable).toBe(false)
+    expect(lanes).not.toMatch(REMOVED)
+    expect(hasRow).toBe(false)
+    expect(page).toContain('Prove it works')
+    expect(page).not.toMatch(REMOVED)
     await pane.unmount()
   })
 })

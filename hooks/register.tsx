@@ -1,20 +1,16 @@
 /**
  * The plan board for a terminal: a one-row band above the prompt (`● <plan> ▾ <bar> n/m  Plan file ›`: "▾" opens the plan
  * list above the prompt, the bar opens or closes the board, "Plan file ›" opens the board on the plan file) and a pane with
- * the plan dropdown, the plan line, four lanes (Todo, In Progress, Verify, Done) of bordered cards (press one for its page) and the
- * plan's deliverables, the artifacts listed first among them. Picking a plan in the band or in the pane switches both.
+ * the plan dropdown, the plan line and four lanes (Todo, In Progress, Verify, Done) of bordered cards (press one for its page).
+ * Picking a plan in the band or in the pane switches both.
  *
  * The data is the board file (PROGRESS.md, read again every 1.5 s, so the board follows the file) or, with the setting
  * `board_command`, that command's JSON; read on session.start, on each prompt, after a Bash call that runs the command, and every
  * 10 s while the pane is open; one run is in flight at a time, and none holds a prompt or a Bash
  * result. `/plan-tracker [words from a plan name]` opens the board on that plan, with no text, whatever the surface says (a Desktop client may
- * not have attached yet); when the board cannot be drawn a toast says why. On the desktop app a deliverable is a link a press
- * opens with `open`, if it is under the project or ~/.claude; an artifact is a link too: an https one the app opens itself, a local
- * page the plugin opens with `open` (the same allowlist). A PLAN-DONE block in a Bash result becomes a toast, a chime and a
- * notice in the conversation, and one with `0 left` makes the band's bar a rainbow until the person's next prompt. With no
- * `board_command`, a row of the board file that goes Done does the same, with no block: the file is the only source. A deliverable's
- * Diff button opens the diff of the commit that made the change (git runs only on that press, after the same path check): in the
- * diff view of Cursor or VS Code when the session runs inside them, else as a page of the board with a `Code` element per hunk.
+ * not have attached yet); when the board cannot be drawn a toast says why. A PLAN-DONE block in a Bash result becomes a toast, a chime
+ * and a notice in the conversation, and one with `0 left` makes the band's bar a rainbow until the person's next prompt. With no
+ * `board_command`, a row of the board file that goes Done does the same, with no block: the file is the only source.
  */
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
@@ -23,36 +19,22 @@ import type { Live, PlanBoard, PlanEntry, PlanStatus } from '../types'
 import {
   BAND_MASCOT_SPACE,
   MASCOT,
-  ARTIFACT_EXTRA_ROOTS,
-  absolutePath,
-  artifactsOf,
   bandPlanOf,
   bandPose,
   bandPoseIndex,
-  commitFor,
-  commitsOf,
-  deliverableGroups,
   detailOf,
-  diffViewOf,
   FRAME_MS,
   doneBlocks,
   doneHeader,
   failureText,
   finishedAnchor,
-  foldedPath,
   hasWorking,
   isComplete,
   isOpen,
   isRainbow,
-  isDiffable,
-  isWebLink,
-  isWebTarget,
   messageOf,
   movement,
-  openMode,
-  openRefusal,
   noBoardFile,
-  parseArtifact,
   parseBoard,
   parseProgress,
   planOf,
@@ -93,8 +75,6 @@ const selected = atom({ plugin: 'plan-tracker', key: 'selected' } as const, null
 const card = atom({ plugin: 'plan-tracker', key: 'card' } as const, null)
 /** Whether the pane shows the plan file instead of the board. */
 const file = atom({ plugin: 'plan-tracker', key: 'file' } as const, false)
-/** The diff page the pane shows in place of the board or a task page; null for none. */
-const diff = atom({ plugin: 'plan-tracker', key: 'diff' } as const, null)
 /** The anchor of the plan a PLAN-DONE with 0 left finished; cleared by the person's next prompt. */
 const finished = atom({ plugin: 'plan-tracker', key: 'finished' } as const, null)
 /** The animation frame; advanced by the one timer, only while something on screen moves. */
@@ -106,7 +86,7 @@ const expanded = atom({ plugin: 'plan-tracker', key: 'expanded' } as const, [])
 /** Whether the band's plan list shows. */
 const bandMenu = atom({ plugin: 'plan-tracker', key: 'bandMenu' } as const, false)
 
-/** The session's project root: where the board file and a relative deliverable are looked up and what a press may open. */
+/** The session's project root: where the board file and a relative path in a note are looked up. */
 async function projectRoot($: EngineInterface): Promise<string> {
   if (settings.root === '') {
     settings.root = (await $.session.root().catch(() => '')).replace(/\/+$/, '')
@@ -499,26 +479,15 @@ async function refocus($: EngineInterface, top = false) {
 
 /** Opens the board (taking the keys) and shows the plan file in it. */
 async function openFile($: EngineInterface) {
-  await Promise.all([update($, file, () => true), update($, diff, () => null), update($, card, () => null), update($, menu, () => false), update($, bandMenu, () => false)])
+  await Promise.all([update($, file, () => true), update($, card, () => null), update($, menu, () => false), update($, bandMenu, () => false)])
 
   await $.ui.open(OPEN)
   await $.ui.scroll({ to: 'start', in: PANE_ID }).catch(() => undefined)
   await syncAnimation($)
 }
 
-/**
- * Goes back: from a diff page to what it was opened from (the board, or a task page); otherwise shows the board's lanes again. The keys
- * go to the pane.
- */
+/** Goes back to the board's lanes. The keys go to the pane. */
 async function showBoard($: EngineInterface) {
-  if ((await read($, diff)) !== null) {
-    await update($, diff, () => null)
-    await syncAnimation($)
-    await refocus($, true)
-
-    return
-  }
-
   await Promise.all([update($, card, () => null), update($, file, () => false)])
   await syncAnimation($)
   await refocus($, true)
@@ -528,7 +497,6 @@ async function showBoard($: EngineInterface) {
 async function pickPlan($: EngineInterface, anchor: string) {
   await Promise.all([
     update($, selected, () => anchor),
-    update($, diff, () => null),
     update($, card, () => null),
     update($, file, () => false),
     update($, menu, () => false),
@@ -546,7 +514,6 @@ async function pickMatch($: EngineInterface, anchor: string) {
   await Promise.all([
     update($, query, () => anchor),
     update($, selected, () => anchor),
-    update($, diff, () => null),
     update($, card, () => null),
     update($, file, () => false),
     update($, menu, () => false),
@@ -581,7 +548,7 @@ async function animates($: EngineInterface): Promise<boolean> {
   }
 
   const isPaneUp = (await $.ui.panes()).some(pane => pane.id === PANE_ID && pane.isPlaced && pane.isShown)
-  const isBoard = detailOf(plan, await read($, card)) === null && !(await read($, file)) && (await read($, diff)) === null
+  const isBoard = detailOf(plan, await read($, card)) === null && !(await read($, file))
   const { band, pane } = movement(plan, { finished: await read($, finished), isPaneUp, isBoard })
 
   return band || pane
@@ -594,16 +561,13 @@ let paneRows: number | undefined
 let loggedSurfaces = ''
 
 /**
- * What a press on the Button (or answered link) keyed `element` does: the same actions as the drawings' `onPress` closures,
+ * What a press on the Button keyed `element` does: the same actions as the drawings' `onPress` closures,
  * which call this too. It decides at once whether the key is the mod's (undefined if not) and returns the work, so a caller
  * can answer a press without waiting: the `ui.press` hook runs the work in the background, because opening a pane from
  * inside the press chain must not hold the chain.
  */
-export function actionFor($: EngineInterface, element: string, isLink: boolean, surface: string): (() => Promise<unknown>) | undefined {
+export function actionFor($: EngineInterface, element: string, surface: string): (() => Promise<unknown>) | undefined {
   const lane = /^lane:(.+):(?:more|less)$/.exec(element)?.[1]
-  const at = /^deliverable:(\d+)$/.exec(element)?.[1]
-  const artifactAt = /^artifact:(\d+)$/.exec(element)?.[1]
-  const diffAt = /^diff:(\d+)$/.exec(element)?.[1]
 
   if (element === 'band:bar' || element === 'band:head') {
     return () => toggleBoard($)
@@ -656,73 +620,12 @@ export function actionFor($: EngineInterface, element: string, isLink: boolean, 
     }
   }
 
-  if (isLink && (at !== undefined || element === 'detail:deliverable')) {
-    return async () => {
-      const plan = await shownPlan($)
-      const path =
-        at === undefined
-          ? plan?.rows[detailOf(plan, await read($, card)) ?? -1]?.deliverable
-          : plan === undefined
-            ? undefined
-            : deliverableGroups(plan).flatMap(group => group.items)[Number(at)]?.path
-
-      // A web link is the surface's to open; it never reaches here as a link press, and a path lookup of it would only fail.
-      if (path !== undefined && !isWebLink(path)) {
-        await openDeliverable($, path).catch(() => undefined)
-      }
-    }
-  }
-
-  // The Diff of a deliverable: a Button in the desktop table's row (`diff:N`), on the desktop's task page and on the terminal's (`detail:diff`).
-  // One key means "open the diff" everywhere. A press, as a Button's or a link's, is answered the same way.
-  if (diffAt !== undefined) {
-    return async () => {
-      const plan = await shownPlan($)
-      const item = plan === undefined ? undefined : deliverableGroups(plan).flatMap(group => group.items)[Number(diffAt)]
-
-      if (item !== undefined && isDiffable(item.path)) {
-        await showDiff($, item)
-      }
-    }
-  }
-
-  if (element === 'detail:diff') {
-    return async () => {
-      const plan = await shownPlan($)
-      const row = plan?.rows[detailOf(plan, await read($, card)) ?? -1]
-
-      if (row?.deliverable !== undefined && isDiffable(row.deliverable)) {
-        await showDiff($, { path: row.deliverable, started: row.started, updated: row.updated, changed_at: row.changed_at })
-      }
-    }
-  }
-
-  // An artifact's link that reaches the plugin is a local page (an https one is the surface's own): `open` shows it in the browser.
-  if (isLink && (artifactAt !== undefined || element === 'detail:artifact')) {
-    return async () => {
-      const plan = await shownPlan($)
-      let target: string | undefined
-
-      if (plan !== undefined && artifactAt !== undefined) {
-        target = artifactsOf(plan)[Number(artifactAt)]?.target
-      } else if (plan !== undefined) {
-        const text = plan.rows[detailOf(plan, await read($, card)) ?? -1]?.artifact
-
-        target = text === undefined ? undefined : parseArtifact(text)?.target
-      }
-
-      if (target !== undefined && !isWebTarget(target)) {
-        await openDeliverable($, target, true).catch(() => undefined)
-      }
-    }
-  }
-
   return undefined
 }
 
 /** Runs the press of `element` in the background (a failure is logged, never thrown); false for a key the mod does not draw. */
-function pressByKey($: EngineInterface, element: string, isLink: boolean, surface: string): boolean {
-  const action = actionFor($, element, isLink, surface)
+function pressByKey($: EngineInterface, element: string, surface: string): boolean {
+  const action = actionFor($, element, surface)
 
   if (action === undefined) {
     return false
@@ -785,209 +688,6 @@ async function runCommand($: EngineInterface, e: { args: string }) {
   }
 
   return {}
-}
-
-/** What `vetPath` found: the real path of a file or folder that may be opened, or why it may not (`shown` is the reason as a toast says it). */
-type Vetted = { resolved: string; isFile: boolean } | { reason: string; shown: string }
-
-/**
- * Whether `path` (a deliverable's, as the tracker wrote it) may be opened or read by git, and its real path. It has to exist and, both
- * as written (`..` folded) and as it really is (`realpath`, symlinks followed), sit under the project root or ~/.claude, or be a regular
- * file under the home directory outside hidden folders; an artifact (`isArtifact`) is a page for the browser that a session leaves in a
- * scratch folder, so `/tmp` and `/private/tmp` also count, for a regular file only. A folder is shown only inside the project root and
- * ~/.claude. Nothing is opened, logged or toasted here, and no git runs.
- */
-async function vetPath($: EngineInterface, path: string, isArtifact: boolean): Promise<Vetted> {
-  const home = await $.env.get('HOME')
-  const absolute = absolutePath(path, home)
-  const root = await projectRoot($)
-  const projectRoots = [root, ...(home === undefined || home === '' ? [] : [`${home.replace(/\/+$/, '')}/.claude`])].filter(one => one !== '')
-  const roots = isArtifact ? [...projectRoots, ...ARTIFACT_EXTRA_ROOTS] : projectRoots
-  const refusal = absolute === null ? 'cannot place that path' : openRefusal(absolute, roots, home)
-
-  if (absolute === null || refusal !== null) {
-    return { reason: refusal ?? 'no home directory', shown: refusal ?? 'no home directory' }
-  }
-
-  const target = foldedPath(absolute)
-
-  if (!(await $.fs.exists(target).catch(() => false))) {
-    return { reason: 'no such file', shown: `no such file ${target}` }
-  }
-
-  const real = await $.process.run(['/bin/realpath', target]).catch((error: unknown) => ({ exitCode: -1, stdout: '', stderr: messageOf(error) }))
-  const resolved = real.stdout.trim()
-  const resolvedRefusal = real.exitCode !== 0 || resolved === '' ? 'real path unknown' : openRefusal(resolved, roots, home)
-
-  if (resolvedRefusal !== null) {
-    return { reason: resolvedRefusal, shown: resolvedRefusal }
-  }
-
-  const isFile = (await $.fs.stat(resolved).catch(() => undefined))?.kind === 'file'
-
-  // Only a regular file is opened from the home directory at large; a folder is shown only inside the project and ~/.claude.
-  if (!isFile && openRefusal(resolved, projectRoots) !== null) {
-    return { reason: 'not a regular file', shown: 'not a regular file' }
-  }
-
-  return { resolved, isFile }
-}
-
-/**
- * A press on a deliverable's link that reaches the plugin (the desktop opens the links inside the project root itself; one outside it reaches here): the
- * file has to pass `vetPath`. Its real path is then opened with `open` when its
- * type is one that is only viewed and it is a regular file, and revealed in Finder with `open -R` for anything else. A refusal is logged and shown
- * as a toast. An artifact (`isArtifact`) is a page for the browser that a session leaves in a scratch folder: `/tmp` and `/private/tmp`
- * also count, for a regular file only.
- */
-export async function openDeliverable($: EngineInterface, path: string, isArtifact = false) {
-  const vetted = await vetPath($, path, isArtifact)
-
-  if ('reason' in vetted) {
-    await log($, 'open-path', vetted.reason, { path })
-    $.ui.toast(`Not opened: ${vetted.shown}`)
-
-    return
-  }
-
-  const { resolved, isFile } = vetted
-  const argv = isFile && openMode(resolved) === 'open' ? ['open', resolved] : ['open', '-R', resolved]
-  const { exitCode, stderr } = await $.process.run(argv).catch((error: unknown) => ({ exitCode: -1, stderr: messageOf(error) }))
-
-  if (exitCode !== 0) {
-    await log($, 'open-path', `open exited ${exitCode}: ${stderr.trim().slice(0, 200)}`, { path })
-    $.ui.toast(`Not opened: open exited ${exitCode}`)
-  }
-}
-
-// ---------------------------------------------------------------- the diff of a deliverable
-
-/** Cursor's own bundle id (`__CFBundleIdentifier` in a process it spawned): with `TERM_PROGRAM=vscode`, the session runs inside Cursor, else in VS Code. */
-const CURSOR_BUNDLE = 'com.todesktop.230313mzl4w4u92'
-/** Cursor's command line; it is not on PATH, so `cursor` is the fallback. */
-const CURSOR_BIN = '/Applications/Cursor.app/Contents/Resources/app/bin/cursor'
-const GIT_TIMEOUT_MS = 20_000
-
-/** The editor whose terminal the session runs in: `cursor` when `TERM_PROGRAM` is `vscode` and the app is Cursor, `vscode` for `vscode` in any other app, else undefined. */
-async function editorOf($: EngineInterface): Promise<'cursor' | 'vscode' | undefined> {
-  if ((await $.env.get('TERM_PROGRAM')) !== 'vscode') {
-    return undefined
-  }
-
-  return (await $.env.get('__CFBundleIdentifier')) === CURSOR_BUNDLE ? 'cursor' : 'vscode'
-}
-
-type GitRun = { exitCode: number; stdout: string; stderr: string; isStdoutTruncated: boolean }
-
-/** `git <args>` as one run; a failure to start is an exit code of -1. */
-const runGit = ($: EngineInterface, args: readonly string[]): Promise<GitRun> =>
-  $.process.run(['git', ...args], { timeoutMs: GIT_TIMEOUT_MS }).catch(
-    (error: unknown): GitRun => ({ exitCode: -1, stdout: '', stderr: messageOf(error), isStdoutTruncated: false }),
-  )
-
-/**
- * Opens the commit's change to `rel` in the editor's own diff view: the file as it was before the commit and after it go into one new
- * folder under the system temp folder (`plan-tracker-diff-<random>`, never cleaned up here) and `cursor --diff <before> <after>` (inside
- * Cursor) or `code --diff <before> <after>` (inside VS Code) is run. A file the commit added has an empty "before"; one it deleted, an
- * empty "after". False when it cannot: git or the editor fails, or the file is binary or too long to hold as text.
- */
-async function openInEditor($: EngineInterface, editor: 'cursor' | 'vscode', top: string, rel: string, sha: string, path: string): Promise<boolean> {
-  try {
-    const before = await runGit($, ['-C', top, 'show', '--no-textconv', `${sha}^:${rel}`])
-    const after = await runGit($, ['-C', top, 'show', '--no-textconv', `${sha}:${rel}`])
-    const isText = (run: GitRun) => !run.isStdoutTruncated && !run.stdout.includes('\u0000')
-
-    if ((before.exitCode !== 0 && after.exitCode !== 0) || !isText(before) || !isText(after)) {
-      return false
-    }
-
-    const tmp = ((await $.env.get('TMPDIR')) ?? '').replace(/\/+$/, '')
-    const folder = `${tmp === '' ? '/tmp' : tmp}/plan-tracker-diff-${(`${Math.random().toString(36)}00000000`).slice(2, 10)}`
-    const name = rel.split('/').pop() ?? rel
-    const left = `${folder}/before/${name}`
-    const right = `${folder}/after/${name}`
-
-    await $.fs.write(left, before.exitCode === 0 ? before.stdout : '')
-    await $.fs.write(right, after.exitCode === 0 ? after.stdout : '')
-
-    const bin = editor === 'vscode' ? 'code' : (await $.fs.exists(CURSOR_BIN).catch(() => false)) ? CURSOR_BIN : 'cursor'
-    const run = await $.process.run([bin, '--diff', left, right])
-
-    if (run.exitCode !== 0) {
-      await log($, 'diff', `${editor === 'vscode' ? 'code' : 'cursor'} --diff exited ${run.exitCode}: ${run.stderr.trim().slice(0, 200)}`, { path })
-
-      return false
-    }
-
-    return true
-  } catch (error) {
-    await log($, 'diff', `${editor === 'vscode' ? 'code' : 'cursor'} --diff not run: ${messageOf(error)}`, { path })
-
-    return false
-  }
-}
-
-/**
- * A press on a deliverable's Diff (the table's `diff:N` Button, the task page's `detail:diff` Button): the diff of the commit that made the change. It runs only here, never on a redraw. The path has to pass `vetPath` before
- * any git call, and be a file; `git -C <toplevel>` then finds the commit (`commitFor`: the newest after the row started and before its
- * `changed_at` (else `updated`) plus 30 minutes, else the newest that touched the file) and the diff of that file in it. Inside Cursor or VS Code the editor's
- * diff view opens (`openInEditor`); anywhere else, or when that fails, the diff is a page of the board (`diffViewOf`). A toast says
- * why when there is nothing to show.
- */
-async function showDiff($: EngineInterface, target: { path: string; started?: string | null; updated?: string | null; changed_at?: string | null }) {
-  const fail = async (text: string, why: string) => {
-    await log($, 'diff', why, { path: target.path })
-    $.ui.toast(text)
-  }
-  const vetted = await vetPath($, target.path, false)
-
-  if ('reason' in vetted) {
-    return fail(`No diff: ${vetted.shown}`, vetted.reason)
-  }
-
-  if (!vetted.isFile) {
-    return fail('No diff: not a file', 'not a file')
-  }
-
-  const { resolved } = vetted
-  const name = resolved.split('/').pop() ?? resolved
-  const top = await runGit($, ['-C', resolved.slice(0, resolved.lastIndexOf('/')) || '/', 'rev-parse', '--show-toplevel'])
-  const root = top.stdout.trim()
-
-  if (top.exitCode !== 0 || root === '' || !resolved.startsWith(`${root}/`)) {
-    return fail('Not in a git repo', top.stderr.trim().slice(0, 200) || 'not under the repository')
-  }
-
-  const rel = resolved.slice(root.length + 1)
-  const history = await runGit($, ['-C', root, 'log', '-n', '200', '--format=%H%x09%ct%x09%s', '--', rel])
-
-  if (history.exitCode !== 0) {
-    return fail(`No diff: git log exited ${history.exitCode}`, history.stderr.trim().slice(0, 200))
-  }
-
-  const commit = commitFor(commitsOf(history.stdout), target)
-
-  if (commit === undefined) {
-    return fail(`No commit found for ${name}`, 'no commit touched the file')
-  }
-
-  const editor = await editorOf($)
-
-  if (editor !== undefined && (await openInEditor($, editor, root, rel, commit.sha, target.path))) {
-    return
-  }
-
-  // No external diff program and no text conversion: a repository under the home folder is not one the plugin trusts to run commands.
-  const shown = await runGit($, ['-C', root, 'show', '--no-ext-diff', '--no-textconv', commit.sha, '--format=', '--', rel])
-
-  if (shown.exitCode !== 0) {
-    return fail(`No diff: git show exited ${shown.exitCode}`, shown.stderr.trim().slice(0, 200))
-  }
-
-  await update($, diff, () => diffViewOf(shown.stdout, `${target.path} · ${commit.sha.slice(0, 7)}`, target.path, commit.subject))
-  await $.ui.open(OPEN)
-  await $.ui.scroll({ to: 'start', in: PANE_ID }).catch(() => undefined)
-  await syncAnimation($)
 }
 
 export const register: Register = (on, options) => {
@@ -1110,11 +810,11 @@ export const register: Register = (on, options) => {
         plans,
         now: at,
         below,
-        onBar: () => void pressByKey($, 'band:bar', false, e.surface),
-        onMenu: () => void pressByKey($, 'band:plans', false, e.surface),
-        onPick: anchor => void pressByKey($, `band:plan:${anchor}`, false, e.surface),
-        onFile: () => void pressByKey($, 'band:file', false, e.surface),
-        onBoard: () => void pressByKey($, 'band:board', false, e.surface),
+        onBar: () => void pressByKey($, 'band:bar', e.surface),
+        onMenu: () => void pressByKey($, 'band:plans', e.surface),
+        onPick: anchor => void pressByKey($, `band:plan:${anchor}`, e.surface),
+        onFile: () => void pressByKey($, 'band:file', e.surface),
+        onBoard: () => void pressByKey($, 'band:board', e.surface),
       }),
     )
   })
@@ -1122,7 +822,7 @@ export const register: Register = (on, options) => {
   // A press on any button of the mod, run by its key with no closure: a press can arrive with a handle the host no longer holds.
   on('ui.press', { plugin: 'plan-tracker' }, async ($, e, next) => {
     // Answer at once: the work runs in the background, so nothing the press starts (opening the pane) can hold the chain.
-    const isHandled = actionFor($, e.element, e.link !== undefined, e.surface) !== undefined
+    const isHandled = actionFor($, e.element, e.surface) !== undefined
 
     void log($, 'press', null, { element: e.element, surface: e.surface, handled: isHandled })
 
@@ -1130,7 +830,7 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
-    pressByKey($, e.element, e.link !== undefined, e.surface)
+    pressByKey($, e.element, e.surface)
 
     return { element: e.element }
   })
@@ -1189,7 +889,7 @@ export const register: Register = (on, options) => {
       ) : (
         <Box flexDirection="column">
           <Text dimColor>{board.message ?? 'No plans in this session.'}</Text>
-          {drawMatches($.ui.resolve(e), { matches: board.matches, columns: e.props.bodyColumns, onPick: anchor => void pressByKey($, `match:${anchor}`, false, e.surface) })}
+          {drawMatches($.ui.resolve(e), { matches: board.matches, columns: e.props.bodyColumns, onPick: anchor => void pressByKey($, `match:${anchor}`, e.surface) })}
         </Box>
       )
     }
@@ -1197,7 +897,6 @@ export const register: Register = (on, options) => {
     const open = await read($, card)
     const isFile = await read($, file)
     const detail = detailOf(plan, open)
-    const shownDiff = await read($, diff)
     const now = Date.now()
     // Everything the drawing is made of but its closures (which depend on the plan's anchor and the surface, both here).
     const view = {
@@ -1208,7 +907,6 @@ export const register: Register = (on, options) => {
       message: board.message,
       matches: board.matches ?? [],
       detail: isFile ? null : detail,
-      diff: isFile ? null : shownDiff,
       file: isFile ? await loadFile($, plan) : null,
       home: await $.env.get('HOME'),
       // Only a board with an In Progress card reads the frame, so only that is redrawn at each one.
@@ -1225,19 +923,17 @@ export const register: Register = (on, options) => {
     return steadily(`pane:${e.surface}`, data, () => drawPane($.ui.resolve(e), {
       ...view,
       now,
-      onMatch: anchor => void pressByKey($, `match:${anchor}`, false, e.surface),
-      onLane: lane => void pressByKey($, `lane:${lane}:more`, false, e.surface),
-      onMenu: () => void pressByKey($, 'menu:name', false, e.surface),
-      onPick: anchor => void pressByKey($, `plan:${anchor}`, false, e.surface),
+      onMatch: anchor => void pressByKey($, `match:${anchor}`, e.surface),
+      onLane: lane => void pressByKey($, `lane:${lane}:more`, e.surface),
+      onMenu: () => void pressByKey($, 'menu:name', e.surface),
+      onPick: anchor => void pressByKey($, `plan:${anchor}`, e.surface),
       onCard: index =>
         void Promise.all([update($, menu, () => false), update($, card, () => ({ anchor: plan.anchor, index }))])
           .then(() => void loadUsage($, plan, index))
           .then(() => syncAnimation($))
           .then(() => refocus($, true)),
-      onBack: () => void pressByKey($, 'back', false, e.surface),
-      onFile: () => void pressByKey($, 'plan-file', false, e.surface),
-      onDiff: () => void pressByKey($, 'detail:diff', false, e.surface),
-      onDiffAt: index => void pressByKey($, `diff:${index}`, false, e.surface),
+      onBack: () => void pressByKey($, 'back', e.surface),
+      onFile: () => void pressByKey($, 'plan-file', e.surface),
     }))
   })
 

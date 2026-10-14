@@ -11,12 +11,12 @@ import {
   cardLines,
   cardView,
   countOf,
-  deliverablesOf,
   displayWidth,
   doneBlocks,
   doneHeader,
   executorOf,
   failureText,
+  fileHref,
   finishedAnchor,
   hang,
   hasInProgress,
@@ -47,7 +47,7 @@ import {
 } from '../hooks/board'
 import type { LaneKey } from '../hooks/board'
 import type { PlanEntry, PlanRow, PlanStatus } from '../types'
-import { ALPHA_ROWS, BOARD, ROOT, SCRIPT } from './fixtures'
+import { ALPHA_ROWS, BOARD, HOME, ROOT, SCRIPT } from './fixtures'
 
 const ALPHA = BOARD.plans[0] as PlanEntry
 const rowNamed = (start: string) => ALPHA_ROWS.find(one => one.task.startsWith(start))!
@@ -351,6 +351,14 @@ describe('notes', () => {
     expect(paths('see https://example.com/page.md for it')).toEqual([])
   })
 
+  test('the link of a path in a note: ~/ is under the home folder, a path from / is as it is, any other is under the project root; each segment is encoded', () => {
+    expect(fileHref('~/code/a.md', HOME)).toBe(`file://${HOME}/code/a.md`)
+    expect(fileHref('~/code/a.md', undefined)).toBeNull()
+    expect(fileHref('/plans/alpha.md', HOME)).toBe('file:///plans/alpha.md')
+    expect(fileHref('docs/plan.md', HOME)).toBe(`file://${ROOT}/docs/plan.md`)
+    expect(fileHref('docs/a b#c.md', HOME)).toBe(`file://${ROOT}/docs/a%20b%23c.md`)
+  })
+
   test('the plan file path is project-relative, and cut from the left so the file name stays', () => {
     expect(shortPath(`${ROOT}/docs/plans/sample-plan-2026-09-14.md`, 90)).toBe('docs/plans/sample-plan-2026-09-14.md')
 
@@ -636,24 +644,6 @@ describe('card lines', () => {
   })
 })
 
-describe('deliverables', () => {
-  test('only rows that record a deliverable name one, each path once', () => {
-    // a deliverable carries the `updated` of its row (and `started` when it has one): they pick the commit its diff shows
-    expect(deliverablesOf(ALPHA)).toEqual([{ path: 'automation/plans/alpha-plan.md', task: 'd4 newest', updated: '2026-10-08T04:00:00+09:00' }])
-    expect(deliverablesOf(BOARD.plans[1] as PlanEntry)).toEqual([])
-  })
-
-  test('a Canceled row lists no deliverable; a path a live row shares still shows, with that row\'s change', () => {
-    const rows: PlanRow[] = [
-      { ...ALPHA_ROWS[4], deliverable: 'dropped.md', change: 'created' } as PlanRow,
-      { ...ALPHA_ROWS[4], deliverable: 'shared.md', change: 'dropped edit' } as PlanRow,
-      { ...ALPHA_ROWS[0], task: 'kept', deliverable: 'shared.md', change: 'edited' } as PlanRow,
-    ]
-
-    expect(deliverablesOf({ ...ALPHA, rows })).toEqual([{ path: 'shared.md', task: 'kept', change: 'edited', updated: '2026-10-08T01:00:00+09:00' }])
-  })
-})
-
 describe('parseBoard', () => {
   test('a row of an unknown status is refused with one line', () => {
     const bad = JSON.stringify({ selected: 'x', message: null, plans: [{ anchor: 'x', rows: [{ task: 't', status: 'Review' }] }] })
@@ -673,12 +663,12 @@ describe('parseBoard', () => {
     expect(parseBoard('not json')).toEqual({ error: expect.stringMatching(/^plan-tracker: the board command did not print JSON: / ) })
   })
 
-  test('null fields of the tracker are dropped: no goal reads "", no note or route or deliverable is absent', () => {
+  test('null fields of the tracker are dropped: no goal reads "", no note or route or progress is absent', () => {
     const parsed = parseBoard(
       JSON.stringify({
         selected: null,
         message: 'none',
-        plans: [{ anchor: 'x', name: 'X', goal: null, plan_file: '/p.md', rows: [{ task: 't', status: 'Todo', who: 'unrouted', note: null, route: null, deliverable: null, updated: null }] }],
+        plans: [{ anchor: 'x', name: 'X', goal: null, plan_file: '/p.md', rows: [{ task: 't', status: 'Todo', who: 'unrouted', note: null, route: null, progress: null, updated: null }] }],
       }),
     )
 
