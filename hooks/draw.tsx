@@ -56,6 +56,7 @@ import {
   isYou,
   isRunning,
   isStalled,
+  LANE_GAP,
   laneWidth,
   lanesOf,
   SHOW_LESS,
@@ -785,7 +786,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
         </Box>
       ) : null}
       {row === undefined ? (
-        <Box key="kanban" flexDirection={isSideBySide ? 'row' : 'column'} gap={1} marginTop={1}>
+        <Box key="kanban" flexDirection={isSideBySide ? 'row' : 'column'} gap={isSideBySide ? LANE_GAP : 1} marginTop={1}>
           {lanesOf(plan, expanded).map(lane)}
         </Box>
       ) : (

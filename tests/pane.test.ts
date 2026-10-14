@@ -380,6 +380,17 @@ describe('plan-tracker pane: the lanes', () => {
     })
   }
 
+  test('side by side, lanes are two columns apart, so a title that fills its lane does not run into the next one', async ($, on) => {
+    world(on)
+    await $.session.start(SESSION)
+
+    const pane = await mountPane($, 'terminal', 110)
+
+    expect((await pane.find({ key: 'kanban' }))?.props.gap).toBe(2)
+    for (let columns = 100; columns <= 200; columns++) expect(laneWidth(columns) * 4 + 3 * 2).toBeLessThanOrEqual(columns)
+    await pane.unmount()
+  })
+
   test('100 columns and up lay the lanes side by side at a quarter of the width; under 100 they stack', async ($, on) => {
     world(on)
     await $.session.start(SESSION)
@@ -388,7 +399,7 @@ describe('plan-tracker pane: the lanes', () => {
 
     expect((await wide.find({ key: 'kanban' }))?.props.flexDirection).toBe('row')
     expect((await cardsOf(wide, 'Todo'))[0]?.props.width).toBe(laneWidth(140))
-    expect(laneWidth(140)).toBe(34)
+    expect(laneWidth(140)).toBe(33)
     await wide.unmount()
 
     const stacked = await mountPane($, 'terminal', 96)

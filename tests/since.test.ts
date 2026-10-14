@@ -149,7 +149,7 @@ describe('the longer state word and tag take their room', () => {
     expect(cardView(stalledRow('2026-10-12 14:02'), 28, NOW).tag).toBe('stalled')
   })
 
-  test('a card 25 columns wide (four lanes in a 105-column pane) has the bare tag, today or another day, on the line below its title', () => {
+  test('a card 25 columns wide (four lanes in a 108-column pane) has the bare tag, today or another day, on the line below its title', () => {
     for (const at of [STALLED, localTime(3, 14, 2)]) {
       const view = cardView(stalledRow(at), 25, NOW)
 

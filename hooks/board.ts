@@ -730,8 +730,11 @@ export function lanesOf(plan: PlanEntry, expanded: readonly LaneKey[] = []): Lan
 /** The pane lays the lanes side by side from this width, stacked below it. */
 export const SIDE_BY_SIDE_FROM = 100
 
-/** Columns one lane gets side by side: four lanes and three one-column gaps. */
-export const laneWidth = (bodyColumns: number, count = 4) => Math.floor((bodyColumns - (count - 1)) / count)
+/** Columns between two lanes side by side: two, so a title that fills its lane does not read as one phrase with the next. */
+export const LANE_GAP = 2
+
+/** Columns one lane gets side by side: four lanes and the gaps between them. */
+export const laneWidth = (bodyColumns: number, count = 4) => Math.floor((bodyColumns - (count - 1) * LANE_GAP) / count)
 
 /** A card is a Box with a round border and one column of padding on each side: four columns in all. */
 export const BORDER_COLUMNS = 4

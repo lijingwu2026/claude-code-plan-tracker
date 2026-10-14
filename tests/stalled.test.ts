@@ -199,11 +199,11 @@ describe('stalled_since: on screen', () => {
   })
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`${surface}: in a 105-column pane (cards 25 wide) a stalled card keeps a tag: the bare \`stalled\` where the time does not fit`, async ($, on) => {
+    test(`${surface}: in a 108-column pane (cards 25 wide) a stalled card keeps a tag: the bare \`stalled\` where the time does not fit`, async ($, on) => {
       world(on, { fixture: stalledBoard('Build') })
       await $.session.start(SESSION)
 
-      const narrow = await mountPane($, surface, 105)
+      const narrow = await mountPane($, surface, 108)
 
       expect(textOf((await cardRowsIn(narrow, BUILD)).at(-1))).toEndWith(' stalled ')
       expect(textOf((await cardRowsIn(narrow, BUILD)).at(-1))).not.toContain('14:02')
