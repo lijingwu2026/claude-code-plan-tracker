@@ -2,9 +2,9 @@
 
 A live board of your plan's steps in Claude Code: which are done, which are running and on which model, and which are waiting on you.
 
-![plan-tracker board: four lanes of task cards, a Deliverables table (the artifacts first) below them, and a band above the prompt showing the plan's done/total](docs/board.png)
+![plan-tracker board: the plan's name, state and recap, then four lanes of task cards, and a band above the prompt showing the plan's done/total](docs/board.png)
 
-*Shown with a board command that also supplies tokens and cost, and several plans (the `▾` after the plan name). From a plain `PROGRESS.md` you get the lanes, cards and Deliverables (with the `artifact` and `deliverable` columns), without the figures and with one plan.*
+*Shown from a plain `PROGRESS.md`. A board command can also supply tokens and cost, and several plans (the `▾` after the plan name).*
 
 plan-tracker draws the `PROGRESS.md` board that [plan-orchestrator](https://github.com/lijingwu2026/claude-code-plan-orchestrator)'s route skill keeps (or any `PROGRESS.md` with a `task | status` table) as a band above the prompt and a pane of lanes, in the terminal and the Claude Desktop app.
 
@@ -14,7 +14,7 @@ plan-tracker draws the `PROGRESS.md` board that [plan-orchestrator](https://gith
 
 ## Why
 
-Claude Code's todo list shows a session's steps. plan-tracker shows the approved plan's steps from a file on disk: who runs each one and on which model, which wait on your check, and what each one produced.
+Claude Code's todo list shows a session's steps. plan-tracker shows the approved plan's steps from a file on disk: who runs each one and on which model, and which wait on your check.
 
 ## What you see
 
@@ -22,8 +22,7 @@ Claude Code's todo list shows a session's steps. plan-tracker shows the approved
 - **Board:** four lanes, Todo, In Progress, Verify and Done. A Blocked card sits red at the top of In Progress.
 - **Lane order:** each lane lists its latest-updated task first; Blocked cards come first in In Progress, and in Verify the tasks being verified, then those waiting on you, then the rest. A board with no times, like a plain `PROGRESS.md`, keeps file order.
 - **Plan details** under the plan name when your board command supplies them: `54.8M` over `tokens` and `~$13.19` over `est. cost`; then the plan's recap, if it has one: a dim `Recap · updated 12 min ago` and Claude's short summary of the plan, wrapped to the pane.
-- **Card:** the whole task name, wrapped (nothing is cut); press for its page (goal, status, who did it, who checked it, progress, latest note, deliverable, and time, tokens and cost when your board command supplies them).
-- **Below the lanes:** one Deliverables table: the artifacts first (pages made for you, linked, with their note as the summary), then each file with a summary of what changed and, in the Desktop app, a `Diff` button after the path. Press `Diff` (in the Desktop table, or on a task page: `Diff` on the Desktop, `Diff ›` in the terminal, whose table is plain text) to see that file's diff from the task's commit, in Cursor's or VS Code's diff view when you run inside them and as a page of the board elsewhere. A deliverable that is a web link opens as a link and has no diff.
+- **Card:** the whole task name, wrapped (nothing is cut); press for its page (goal, status, who did it, who checked it, progress, latest note, and time, tokens and cost when your board command supplies them).
 - **When a step goes Done in `PROGRESS.md`:** a pop-up `✅ <step> · N left`, the same line in the conversation and, in the terminal, a chime; when the last open step is Done the band's bar turns to a rainbow until your next prompt. The first read of a session only sets the starting point, so steps already Done are silent.
 
 Plan state, in the header, the band and the plan list. The plan's only time is in the state word; a time from another day carries its day (`Done at Oct 11 21:40`).
@@ -66,10 +65,6 @@ Statuses: `Todo`, `In Progress`, `Verifying`, `Needs Verification`, `Blocked` (s
 | `check` | Who verifies it; `you` marks a waiting card `◆ needs you`. |
 | `evidence` | The latest note on the step. |
 | `goal` | One sentence on what the step is for. |
-| `deliverable` | The file the step produced. |
-| `change` | One line on what the deliverable changed. |
-| `artifact` | A page made for you, as a markdown link `[Title](https://… or a path)`; a local `.html` opens in your browser. |
-| `artifact_note` | One line on the artifact. |
 | `progress` | `n/m` steps done, drawn as a bar. |
 
 A line `Recap: <text>` above the table is the plan's recap. It carries no time, so its label reads `Recap`.
@@ -122,8 +117,7 @@ With a plain `PROGRESS.md` there is no usage and no start time: no figures are d
 - Every open Claude session on the same project polls the same `PROGRESS.md`, so each one shows the pop-up and plays the chime when a step goes Done. With `board_command` set, none of this is done from the file.
 - Tested on Claude Code 2.1.296 on macOS, in the terminal. The Desktop app is shown only as seen with the private build of the same code; this plugin has not run there yet.
 - An est. cost read from Claude Code transcripts is a lower bound: they store a reply's output tokens as counted at its start and keep no thinking text, so output is estimated from the visible text.
-- In the terminal, deliverable paths are plain coloured text and artifact titles are links; a terminal without OSC 8 hyperlink support prints the address after a link.
-- Opening a deliverable or artifact from the board: inside the project root the Desktop app opens the link itself. Anything else goes to the plugin, which runs macOS `open` on a file of a viewable type (any other type is shown in Finder), only for files under `~/.claude` or in your home directory outside hidden folders (artifact pages also from `/tmp`); other paths show a "Not opened" toast.
+- File paths in a task's latest note are links; a terminal without OSC 8 hyperlink support prints the address after a link.
 
 ## License
 
