@@ -37,6 +37,9 @@ const MATCHES: PlanMatch[] = [
 
 const MESSAGE = '3 plans match "board" — pick one'
 
+/** A letter in every plan name here: with it in the search field the list holds the Done plans too (an empty field leaves them out). */
+const EVERY = 'a'
+
 const SEVERAL: PlanBoard = { ...BOARD, message: MESSAGE, matches: MATCHES }
 
 /** The tracker's answer once the person has picked `p-share`: that plan is the tracker's own pick and is among the plans. */
@@ -47,6 +50,13 @@ const PICKED: PlanBoard = {
 }
 
 const flat = (node: unknown) => textOf(node).replace(/\s+/g, ' ').trim()
+
+/** Lets what a press started without being awaited (the pick's refresh) finish. */
+const settle = async (clock: { advance: (ms: number) => Promise<void> }) => {
+  for (let at = 0; at < 20; at += 1) {
+    await clock.advance(10)
+  }
+}
 
 describe('parseBoard keeps the matches the tracker lists', () => {
   const parse = (matches: unknown) => {
@@ -89,20 +99,22 @@ describe('parseBoard keeps the matches the tracker lists', () => {
   })
 })
 
-describe('the pane draws the list under the message', () => {
+describe('/plan-tracker lists the matches under the search field', () => {
   for (const surface of SURFACES) {
-    test(`${surface}: the message, then one pressable row per plan: name, state word, done/total; no ▶ mark`, async ($, on) => {
-      world(on, { fixture: SEVERAL })
+    test(`${surface}: the search field first, then one pressable row per plan: name, state word, done/total; no ▶, no message`, async ($, on) => {
+      const w = world(on, { fixture: SEVERAL })
       await $.session.start(SESSION)
+      await $.command.run(plans(EVERY))
+      await w.clock.settle()
       const pane = await mountPane($, surface, 120)
       const drawn = (await pane.drawn()) as Node
-      const [message, list] = kids(drawn)
+      const [field, list] = kids(drawn)
 
-      expect(textOf(message)).toBe(MESSAGE)
-      expect(message?.props.dimColor).toBe(true)
-      expect(String(list?.props.key)).toBe('matches')
+      expect(field).toMatchObject({ type: 'Input', props: { key: 'search', value: EVERY } })
+      expect(String(list?.props.key)).toBe('matches:list')
       expect(kids(list).map(flat)).toEqual(['Plan board rewrite In progress 4/12', 'Share the board as a plugin Done 5/5', 'Old board notes Idle 0/3'])
       expect(textOf(list)).not.toContain('▶')
+      expect(textOf(drawn)).not.toContain(MESSAGE)
 
       const buttons = await pane.findAll({ type: 'Button' })
 
@@ -112,10 +124,12 @@ describe('the pane draws the list under the message', () => {
   }
 
   test('the state words keep their colours and the count is in the accent colour, as in the plan list', async ($, on) => {
-    world(on, { fixture: SEVERAL })
+    const w = world(on, { fixture: SEVERAL })
     await $.session.start(SESSION)
+    await $.command.run(plans(EVERY))
+    await w.clock.settle()
     const pane = await mountPane($, 'terminal', 120)
-    const rows = kids(await pane.find({ key: 'matches' }))
+    const rows = kids(await pane.find({ key: 'matches:list' }))
     const colorOf = (row: Node | undefined, word: string) => kids(row).find(part => textOf(part).trim() === word)?.props.color
 
     expect(colorOf(rows[0], 'In progress')).toBe(STATE_STYLE['In progress'].color)
@@ -126,13 +140,15 @@ describe('the pane draws the list under the message', () => {
   })
 
   test('a narrow pane cuts the name, never the row: no line is wider than the pane', async ($, on) => {
-    world(on, {
+    const w = world(on, {
       fixture: { ...SEVERAL, matches: [{ anchor: 'long', name: 'A very long plan name that cannot fit in a narrow pane at all', state: 'In progress', done: 10, total: 12 }, ...MATCHES] },
     })
     await $.session.start(SESSION)
+    await $.command.run(plans(EVERY))
+    await w.clock.settle()
     const pane = await mountPane($, 'terminal', 40)
 
-    for (const row of kids(await pane.find({ key: 'matches' }))) {
+    for (const row of kids(await pane.find({ key: 'matches:list' }))) {
       expect(displayWidth(textOf(row))).toBeLessThanOrEqual(40)
     }
 
@@ -144,10 +160,74 @@ describe('the pane draws the list under the message', () => {
     await $.session.start(SESSION)
     const pane = await mountPane($, 'terminal', 120)
 
-    expect(await pane.find({ key: 'matches' })).toBeUndefined()
+    expect(await pane.find({ key: 'matches:list' })).toBeUndefined()
     expect(textOf((await pane.drawn()) as Node)).toContain('No plan matches "zzz".')
     await pane.unmount()
   })
+
+  test('matches in the answer to a query that is not `*` are not drawn: the list is drawn only while /plan-tracker has it on', async ($, on) => {
+    world(on, { fixture: SEVERAL })
+    await $.session.start(SESSION)
+    const pane = await mountPane($, 'terminal', 120)
+
+    expect(await pane.find({ key: 'matches' })).toBeUndefined()
+    expect(await pane.find({ key: 'matches:list' })).toBeUndefined()
+    expect(await pane.find({ key: 'search' })).toBeUndefined()
+    expect(await pane.find({ key: 'kanban' })).toBeDefined()
+    await pane.unmount()
+  })
+
+  test('once a plan is opened, a refresh that still has matches draws the board, not the list', async ($, on) => {
+    const w = world(on, { fixture: SEVERAL })
+    await $.session.start(SESSION)
+    await $.command.run(plans(EVERY))
+    await w.clock.settle()
+    const pane = await mountPane($, 'terminal', 140)
+
+    expect(await pane.find({ key: 'matches:list' })).toBeDefined()
+    w.fixture = PICKED
+    await pane.press({ key: 'match:p-share' })
+    await settle(w.clock)
+    await w.clock.advance(10_000)
+    await pane.redraw()
+
+    expect(w.jsonRuns.map(one => one.argv).at(-1)).toEqual(jsonArgv('p-share'))
+    expect(await pane.find({ key: 'matches:list' })).toBeUndefined()
+    expect(await pane.find({ key: 'kanban' })).toBeDefined()
+    await pane.unmount()
+  })
+})
+
+describe('the band stays what it is with no query', () => {
+  for (const surface of SURFACES) {
+    // A 10 s refresh on the terminal clock runs its animation frames: it gets room when the suite runs on a busy machine.
+    test(`${surface}: the band and its open plan list draw exactly as the same board without the matches`, { timeoutMs: 15_000 }, async ($, on) => {
+      const w = world(on, { fixture: SEVERAL })
+      await $.session.start(SESSION)
+      await $.command.run(plans(EVERY))
+      await w.clock.settle()
+      const band = await mountBand($, surface)
+      // a drawing without its press handles, which differ from draw to draw, and with the mascot's pose (it moves with the clock) fixed
+      const shape = (node: unknown) =>
+        JSON.stringify(node, (key, value: unknown) => (key === 'press' ? undefined : value)).replace(/[▜▞]▟█▙[▛▚]/g, 'mascot')
+      const withMatches = shape(await band.drawn())
+
+      await band.press({ key: 'band:plans' })
+      const listWith = shape(await band.find({ key: 'band:list' }))
+      await band.press({ key: 'band:plans' })
+
+      w.fixture = BOARD
+      await w.clock.advance(10_000)
+      await band.redraw()
+
+      expect(shape(await band.drawn())).toBe(withMatches)
+      await band.press({ key: 'band:plans' })
+      expect(shape(await band.find({ key: 'band:list' }))).toBe(listWith)
+      expect(textOf(await band.find({ key: 'band:list' }))).toContain('Alpha plan')
+      expect(textOf(await band.find({ key: 'band:list' }))).not.toContain('Plan board rewrite')
+      await band.unmount()
+    })
+  }
 })
 
 describe('a pick', () => {
@@ -155,15 +235,18 @@ describe('a pick', () => {
     test(`${surface}: sets both the query and the selected plan: the tracker is asked for that plan and the pane shows it, the list gone`, async ($, on) => {
       const w = world(on, { fixture: SEVERAL })
       await $.session.start(SESSION)
+      await $.command.run(plans(EVERY))
+      await w.clock.settle()
       const pane = await mountPane($, surface, 120)
 
       // The tracker answers a query for the picked plan with its own pick (alpha) and the plan among the plans: only the
       // plugin's own `selected` can put the picked plan on the screen.
       w.fixture = PICKED
       await pane.press({ key: 'match:p-share' })
+      await settle(w.clock)
 
       expect(w.jsonRuns.at(-1)?.argv).toEqual(jsonArgv('p-share'))
-      expect(await pane.find({ key: 'matches' })).toBeUndefined()
+      expect(await pane.find({ key: 'matches:list' })).toBeUndefined()
       expect(flat(await pane.find({ key: 'menu' }))).toContain('Share the board as a plugin')
       expect(textOf((await pane.drawn()) as Node)).not.toContain('pick one')
       await pane.unmount()
@@ -173,54 +256,41 @@ describe('a pick', () => {
   test('the refreshes after it keep the picked plan as their query', async ($, on) => {
     const w = world(on, { fixture: SEVERAL })
     await $.session.start(SESSION)
-    await $.command.run(plans('board'))
+    await $.command.run(plans(EVERY))
+    await w.clock.settle()
     const pane = await mountPane($, 'terminal', 120)
 
-    expect(w.jsonRuns.at(-1)?.argv).toEqual(jsonArgv('board'))
+    expect(w.jsonRuns.at(-1)?.argv).toEqual(jsonArgv('*'))
     w.fixture = PICKED
     await pane.press({ key: 'match:p-share' })
+    await settle(w.clock)
     await w.clock.advance(10_000)
 
     expect(w.jsonRuns.at(-1)?.argv).toEqual(jsonArgv('p-share'))
     await pane.unmount()
   })
-})
 
-describe('with several matches the rest of the board is the no-query board', () => {
-  for (const surface of SURFACES) {
-    test(`${surface}: the band and the plan dropdown are drawn as without the matches`, async ($, on) => {
-      const w = world(on, { fixture: BOARD })
-      await $.session.start(SESSION)
+  test('it leaves the plan file view, as picking from the dropdown does', async ($, on) => {
+    const w = world(on, { fixture: BOARD })
+    await $.session.start(SESSION)
+    await $.command.run(plans('alpha'))
+    await w.clock.settle()
+    const pane = await mountPane($, 'terminal', 140)
 
-      const draw = async () => {
-        const band = await mountBand($, surface)
-        const pane = await mountPane($, surface, 120)
+    await pane.press({ key: 'plan-file' })
+    expect(await pane.find({ key: 'file' })).toBeDefined()
+    w.fixture = SEVERAL
+    await $.command.run(plans(EVERY))
+    await w.clock.settle()
+    await pane.redraw()
+    expect(await pane.find({ key: 'matches:list' })).toBeDefined()
 
-        await band.press({ key: 'band:plans' })
-        await pane.press({ key: 'menu:name' })
+    w.fixture = PICKED
+    await pane.press({ key: 'match:p-share' })
+    await settle(w.clock)
 
-        // Every drawing hands its buttons new press handles: they are not part of what is drawn.
-        const shape = (node: unknown) => JSON.stringify(node).replace(/"handle":\d+/g, '"handle":0')
-        const out = { band: shape(await band.drawn()), bandList: shape(await band.find({ key: 'band:list' })), menu: shape(await pane.find({ key: 'menu:list' })), header: shape(await pane.find({ key: 'menu' })) }
-
-        await band.press({ key: 'band:plans' })
-        await pane.press({ key: 'menu:name' })
-        await pane.unmount()
-        await band.unmount()
-
-        return out
-      }
-
-      const without = await draw()
-
-      w.fixture = SEVERAL
-      await $.command.run(plans('board'))
-
-      const withMatches = await draw()
-
-      expect(withMatches).toEqual(without)
-      expect(without.menu).toContain('Alpha plan')
-      expect(without.menu).not.toContain('Plan board rewrite')
-    })
-  }
+    expect(await pane.find({ key: 'file' })).toBeUndefined()
+    expect(await pane.find({ key: 'kanban' })).toBeDefined()
+    await pane.unmount()
+  })
 })

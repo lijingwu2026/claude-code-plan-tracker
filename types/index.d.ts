@@ -95,19 +95,23 @@ export type PlanEntry = {
   rows: PlanRow[]
 }
 
-/** One plan the words of a query found, when several did: the light line the list in the pane draws. */
+/**
+ * One plan of the list `/plan-tracker` draws, as the board command lists it for the query `*`: a light line with the plan's state word
+ * (`Canceled` for an abandoned plan), `done` of `total` tasks, and when it was last updated (absent when no row has a time).
+ */
 export type PlanMatch = {
   anchor: string
   name: string
-  state: 'In progress' | 'Idle' | 'Done'
+  state: 'In progress' | 'Idle' | 'Done' | 'Canceled'
   done: number
   total: number
+  updated?: string
 }
 
 /**
  * What the board command prints as JSON (or the board file, read as one), read: the plans of the session and the one the band and
- * the board show. `matches` is present only when a query found several plans (then `message` says how many); `plans` and `selected`
- * are then what they are without a query.
+ * the board show. `matches` is the list of every plan, latest updated first, for the query `*`; without it the list is drawn from
+ * `plans` when there are two or more.
  */
 export type PlanBoard = {
   selected: string | null
@@ -127,8 +131,14 @@ declare module 'claude-code' {
     'plan-tracker': {
       /** The tracker's last answer; null until the first one is in. */
       live: Live | null
-      /** The `--query` the refreshes pass: the argument of the last `/plan-tracker`, or the plan that just finished; '' for none. */
+      /** The `--query` the refreshes pass: `*` while the pane lists the plans, else the plan opened from the list, the band or the plan menu, or the one that just finished; '' for none. */
       query: string
+      /** Whether the pane shows the plan list (set by `/plan-tracker`, cleared by opening a plan). */
+      listing: boolean
+      /** The text of the list's search field. */
+      search: string
+      /** Every plan, as the last answer to the query `*` listed them; null until one is in. The list is drawn from it while a new one is read. */
+      allPlans: PlanMatch[] | null
       /** The anchor picked in the band or the pane; null until one is picked (the tracker's `selected` stands). */
       selected: string | null
       /** The card whose page replaces the board; null shows the board. */

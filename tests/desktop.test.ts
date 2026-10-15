@@ -197,6 +197,7 @@ describe('the desktop: the mascot and the progress bar', () => {
     const w = world(on, ['terminal', 'desktop'], {})
     await $.session.start(SESSION)
     await $.command.run(plans())
+    await w.clock.settle()
     const pane = await mountPane($, 'desktop', 140)
     const band = await $.ui.mount({ plugin: 'plan-tracker', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', props: bandProps(120), viewport: { columns: 125, rows: 40, isFullscreen: true } })
     const shot = async () => JSON.stringify([await pane.drawn(), await band.drawn()])
@@ -213,7 +214,8 @@ describe('the desktop: the mascot and the progress bar', () => {
   test('a terminal beside it still changes pose with the frame', async ($, on) => {
     const w = world(on, ['terminal'], {})
     await $.session.start(SESSION)
-    await $.command.run(plans())
+    await $.command.run(plans('alpha'))
+    await w.clock.settle()
     const pane = await mountPane($, 'terminal', 140)
     const look = async () => textOf((await cardRowsIn(pane, indexOfTask('Build')))[0])
     const before = await look()

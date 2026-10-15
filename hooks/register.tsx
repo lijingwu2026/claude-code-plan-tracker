@@ -7,8 +7,12 @@
  * The data is the board file (PROGRESS.md, read again every 1.5 s, so the board follows the file) or, with the setting
  * `board_command`, that command's JSON; read on session.start, on each prompt, after a Bash call that runs the command, and every
  * 10 s while the pane is open; one run is in flight at a time, and none holds a prompt or a Bash
- * result. `/plan-tracker [words from a plan name]` opens the board on that plan, with no text, whatever the surface says (a Desktop client may
- * not have attached yet); when the board cannot be drawn a toast says why. A PLAN-DONE block in a Bash result becomes a toast, a chime
+ * result. With a `board_command`, `/plan-tracker` opens the pane at once on the list of the plans not Done or Canceled, latest updated first, under a
+ * search field that has the keys, with no text, whatever the surface says (a Desktop client may not have attached yet), and reads the list again
+ * behind it; `/plan-tracker <words>` puts the words in the field, and opens the plan when the answer is in if they are its name or anchor or leave
+ * one row. Typing filters every plan in the mod; Enter or a press on a row opens that plan, as do the band and the plan menus. A command that lists
+ * no `matches` but two or more `plans` has them listed; one that prints a single plan, and a plain board file, open that plan's board. When the
+ * board cannot be drawn a toast says why. A PLAN-DONE block in a Bash result becomes a toast, a chime
  * and a notice in the conversation, and one with `0 left` makes the band's bar a rainbow until the person's next prompt. With no
  * `board_command`, a row of the board file that goes Done does the same, with no block: the file is the only source.
  */
@@ -23,6 +27,7 @@ import {
   bandPose,
   bandPoseIndex,
   detailOf,
+  directPick,
   FRAME_MS,
   doneBlocks,
   doneHeader,
@@ -32,6 +37,8 @@ import {
   isComplete,
   isOpen,
   isRainbow,
+  listOf,
+  listedMatches,
   messageOf,
   movement,
   noBoardFile,
@@ -48,7 +55,7 @@ import {
 } from './board'
 import type { LaneKey } from './board'
 import type { FileView } from './draw'
-import { drawBand, drawMatches, drawPane, holdsSomething, listedOf } from './draw'
+import { drawBand, drawPane, drawPicker, holdsSomething, listedMatchOf, listedOf } from './draw'
 
 const COMMAND = 'plan-tracker'
 const PANE_ID = 'plan-tracker'
@@ -68,8 +75,16 @@ const OPEN = { id: PANE_ID, title: PANE_TITLE, focus: true, rows: 60 } as const
 
 /** The tracker's last answer: a board, or the one line saying why there is none; null until the first answer. */
 const live = atom({ plugin: 'plan-tracker', key: 'live' } as const, null)
-/** The `--query` the refreshes pass: the argument of the last `/plan-tracker`, or the plan that just finished. */
+/** The `--query` the refreshes pass: `*` while the pane lists the plans, else the plan opened from the list, the band or a plan menu, or the one that just finished. */
 const query = atom({ plugin: 'plan-tracker', key: 'query' } as const, '')
+/** The query that asks the board command for the list of every plan. */
+const ALL_PLANS = '*'
+/** Whether the pane shows the plan list: `/plan-tracker` turns it on, opening a plan turns it off. */
+const listing = atom({ plugin: 'plan-tracker', key: 'listing' } as const, false)
+/** The list's search field text; the list is filtered by it here, with no script run per key. */
+const search = atom({ plugin: 'plan-tracker', key: 'search' } as const, '')
+/** Every plan, from the last answer to the query `*`: the list is drawn from it at once while `/plan-tracker` reads a new one. */
+const allPlans = atom({ plugin: 'plan-tracker', key: 'allPlans' } as const, null)
 /** The anchor picked in the band or the pane; null until one is picked, when the tracker's own `selected` stands. */
 const selected = atom({ plugin: 'plan-tracker', key: 'selected' } as const, null)
 const card = atom({ plugin: 'plan-tracker', key: 'card' } as const, null)
@@ -148,10 +163,20 @@ let shownJson: string | undefined
 let inFlight: Promise<void> | undefined
 let queued: Promise<void> | undefined
 
-/** Runs the script once for the current query and stores its answer; the state write redraws the band and the pane. */
+/** Runs the script once for the current query and stores its answer (an answer to `*` also as the list); the state write redraws the band and the pane. */
 async function refreshOnce($: EngineInterface) {
-  const answer = await fetchBoard($, await read($, query))
+  const asked = await read($, query)
+  const answer = await fetchBoard($, asked)
   const text = JSON.stringify(answer)
+
+  if (asked === ALL_PLANS && 'board' in answer) {
+    const list = listOf(answer.board)
+
+    // Written only when it changed, as `live` is below: a write redraws, and a redraw hands the desktop's buttons new handles.
+    if (JSON.stringify(list) !== JSON.stringify(await read($, allPlans))) {
+      await update($, allPlans, () => list)
+    }
+  }
 
   // A write redraws what read the value, even one that changes nothing, and a redraw hands the desktop's buttons new handles:
   // an answer like the one shown is not written.
@@ -445,11 +470,19 @@ async function chime($: EngineInterface) {
 
 // ---------------------------------------------------------------- the board, the band and what moves
 
-/** Opens the board when it is not up, closes it when it is. */
+/**
+ * Opens the board when it is not up, closes it when it is. While the pane lists the plans, the press leaves the list instead: the pane
+ * shows the band's plan board, opened if it was closed, and the query becomes that plan's anchor.
+ */
 async function toggleBoard($: EngineInterface) {
   const isUp = (await $.ui.panes()).some(pane => pane.id === PANE_ID && pane.isPlaced)
 
-  if (isUp) {
+  if (await read($, listing)) {
+    const plan = await shownPlan($)
+
+    await Promise.all([update($, listing, () => false), ...(plan === undefined ? [] : [update($, query, () => plan.anchor)])])
+    await $.ui.open(OPEN)
+  } else if (isUp) {
     await $.ui.close({ id: PANE_ID })
   } else {
     await $.ui.open(OPEN)
@@ -493,9 +526,14 @@ async function showBoard($: EngineInterface) {
   await refocus($, true)
 }
 
-/** Picks a plan for the band and the board together: both lists close and the board shows its lanes. */
+/**
+ * Picks a plan for the band and the board together: both lists close and the board shows its lanes; the pane leaves the plan list, and
+ * the query becomes the anchor (else the refreshes would go on asking for every plan).
+ */
 async function pickPlan($: EngineInterface, anchor: string) {
   await Promise.all([
+    update($, listing, () => false),
+    update($, query, () => anchor),
     update($, selected, () => anchor),
     update($, card, () => null),
     update($, file, () => false),
@@ -507,11 +545,12 @@ async function pickPlan($: EngineInterface, anchor: string) {
 }
 
 /**
- * Picks one of the plans a query found: the plan becomes both the query (every refresh asks the tracker for it, which brings its
- * entry) and the plan shown, and the board is read again at once so that the message and the list go.
+ * Picks a plan of the pane's list: the plan may not be among the session's, so the query becomes its anchor (the tracker answers
+ * with that plan's entry) as well as the plan shown. The pane leaves the list, lists close and the board shows its lanes, as in `pickPlan`.
  */
 async function pickMatch($: EngineInterface, anchor: string) {
   await Promise.all([
+    update($, listing, () => false),
     update($, query, () => anchor),
     update($, selected, () => anchor),
     update($, card, () => null),
@@ -636,6 +675,33 @@ function pressByKey($: EngineInterface, element: string, surface: string): boole
   return true
 }
 
+/** Enter in the search field: the text is kept and the first plan it leaves in the list opens; none left opens nothing. */
+async function submitSearch($: EngineInterface, text: string) {
+  await update($, search, () => text)
+
+  const top = listedMatches((await read($, allPlans)) ?? [], text)[0]
+
+  if (top !== undefined) {
+    await pickMatch($, top.anchor)
+  }
+}
+
+/**
+ * Runs what typing in the Input keyed `element` does, by its key as a press is (a desktop redraw makes the drawn closures' handles stale), in
+ * the background; false for a key the mod does not draw. A change keeps the text, which the list is filtered by when it is drawn.
+ */
+function typeByKey($: EngineInterface, element: string, kind: 'change' | 'submit', value: string, surface: string): boolean {
+  if (element !== 'search') {
+    return false
+  }
+
+  const work = kind === 'change' ? update($, search, () => value) : submitSearch($, value)
+
+  void work.catch((error: unknown) => log($, 'input', messageOf(error), { element, surface, kind }))
+
+  return true
+}
+
 /** Starts the frame timer when something moves and cancels it when nothing does. */
 async function syncAnimation($: EngineInterface): Promise<boolean> {
   const moves = await animates($)
@@ -659,33 +725,72 @@ async function step($: EngineInterface) {
 
 let animation: Timer | undefined
 
-/** A PLAN-DONE with 0 left: the band shows that plan, finished, from the tracker's answer for it, until the person's next prompt. */
+/**
+ * A PLAN-DONE with 0 left: the band shows that plan, finished, from the tracker's answer for it, until the person's next prompt. The query
+ * is no longer `*`, so a pane listing the plans shows that plan's board instead (its list would be empty).
+ */
 async function markFinished($: EngineInterface, anchor: string) {
-  await Promise.all([update($, finished, () => anchor), update($, query, () => anchor), update($, selected, () => anchor)])
+  await Promise.all([update($, finished, () => anchor), update($, query, () => anchor), update($, selected, () => anchor), update($, listing, () => false)])
   refreshInBackground($)
   await syncAnimation($)
 }
 
 /**
- * `/plan-tracker` opens the board on the plan the argument names and answers no text. It opens whatever `$.session.surfaces()`
- * says: a Desktop client joins that list only once it attaches, and `/plan-tracker` can be a session's first input. When the pane
- * waits undrawn, a toast says why. One log line per run records the surfaces seen and whether the pane was placed.
+ * The plan `/plan-tracker` opens once the list is read: the one plan the board command printed with no `matches` (the board of a command
+ * that treats `*` as a word, and of a plain board file), else the plan the words are (`directPick`); undefined for none.
+ */
+async function planToOpen($: EngineInterface, text: string) {
+  const board = await boardOf($)
+
+  return board !== undefined && board.matches === undefined && board.plans.length === 1 ? board.plans[0] : directPick((await read($, allPlans)) ?? [], text)
+}
+
+/**
+ * `/plan-tracker` opens the pane at once on the list of every plan, its search field holding the words after the command and the keys
+ * (a focus move that does not take is logged), and answers no text. The list is the one the mod already holds (`Loading plans…` before
+ * the first); the tracker is read for `*` behind it, and the answer redraws the list. Then the plan it names opens (`planToOpen`), unless the
+ * person has typed or left the list meanwhile. A plain board file holds one plan: the list is skipped and its board is the pane. The pane
+ * opens whatever `$.session.surfaces()` says: a Desktop client joins that list only once it attaches, and `/plan-tracker` can be a session's
+ * first input. When the pane waits undrawn, a toast says why. One log line per run, once the answer is in: the surfaces seen, whether the pane
+ * was placed, and the milliseconds from the command to the open pane (`openMs`) and to the fresh list (`listMs`).
  */
 async function runCommand($: EngineInterface, e: { args: string }) {
+  const startedAt = await $.clock.now()
   const text = e.args.trim()
+  const hasList = settings.boardCommand !== ''
 
-  await Promise.all([update($, query, () => text), ...(text === '' ? [] : [update($, selected, () => null)])])
-  await refreshQuietly($)
+  if (hasList) {
+    await Promise.all([update($, query, () => ALL_PLANS), update($, listing, () => true), update($, search, () => text)])
+  }
 
   const surfaces = await $.session.surfaces().catch(() => null)
   const opened = await $.ui.open(OPEN).catch((error: unknown) => ({ isPlaced: false as const, reason: messageOf(error) }))
-
-  await syncAnimation($).catch(() => undefined)
-  await log($, 'open', opened.isPlaced ? null : opened.reason, { surfaces, isPlaced: opened.isPlaced })
+  const openMs = (await $.clock.now()) - startedAt
 
   if (!opened.isPlaced) {
     $.ui.toast(`Board waits: ${opened.reason}`)
+  } else if (hasList) {
+    const target = { requestId: PANE_ID, key: 'search' }
+
+    void $.ui
+      .focus(target)
+      .then(moved => (moved.deny === undefined ? undefined : log($, 'focus', moved.deny, target)))
+      .catch((error: unknown) => log($, 'focus', messageOf(error), target))
   }
+
+  void (async () => {
+    await refreshQuietly($)
+
+    const listMs = (await $.clock.now()) - startedAt
+    const plan = hasList ? await planToOpen($, text) : undefined
+
+    if (plan !== undefined && (await read($, listing)) && (await read($, search)) === text) {
+      await pickMatch($, plan.anchor)
+    }
+
+    await syncAnimation($)
+    await log($, 'open', opened.isPlaced ? null : opened.reason, { surfaces, isPlaced: opened.isPlaced, openMs, listMs })
+  })().catch(() => undefined)
 
   return {}
 }
@@ -697,8 +802,8 @@ export const register: Register = (on, options) => {
     try {
       await $.command.register({
         name: COMMAND,
-        description: 'Open the plan board; when your board command lists several plans, add words from a plan name to open that one',
-        argumentHint: '[words from a plan name, with a board command]',
+        description: 'Open the plan board; with a board command that lists several plans, pick one from the list, latest first; /plan-tracker <words> searches it',
+        argumentHint: '[words to search plans, with a board command]',
       })
     } catch (error) {
       // The engine refuses a name another command already defines: the band and the board still work.
@@ -835,6 +940,15 @@ export const register: Register = (on, options) => {
     return { element: e.element }
   })
 
+  // Typing in the mod's search field, run by its key with no closure, as a press is. One log line per change or Enter.
+  on('ui.input', { plugin: 'plan-tracker' }, async ($, e, next) => {
+    const isHandled = typeByKey($, e.element, e.kind, e.value, e.surface)
+
+    void log($, 'input', null, { element: e.element, surface: e.surface, kind: e.kind, length: e.value.length, handled: isHandled })
+
+    return isHandled ? { element: e.element, value: e.value } : next(e)
+  })
+
   // The desktop band's overlay regions post `{ band: 'toggle' }`: pressing anywhere on the band toggles the board.
   on('ui.message', async ($, e, next) => {
     if ((e.data as { band?: unknown } | null)?.band === 'toggle') {
@@ -869,29 +983,43 @@ export const register: Register = (on, options) => {
     const { Text } = $.ui.resolve(e)
     const answer = await read($, live)
 
-    if (answer === null) {
-      return <Text dimColor>Reading the tracker…</Text>
+    if (answer !== null && !('board' in answer)) {
+      return <Text wrap="wrap">{answer.error}</Text>
     }
 
-    if (!('board' in answer)) {
-      return <Text wrap="wrap">{answer.error}</Text>
+    // The plan list, while `/plan-tracker` has it on, whatever else the pane showed: the plans the search field's text leaves (with none, the
+    // open ones), in the board command's order, from the last list read. The band and the plan dropdown still read the board's own `plans` and `selected`.
+    if (await read($, listing)) {
+      const all = await read($, allPlans)
+
+      if (all === null) {
+        return <Text dimColor>Loading plans…</Text>
+      }
+
+      const text = await read($, search)
+      const now = Date.now()
+      const rows = listedMatches(all, text).map(one => listedMatchOf(one, now))
+      const view = { rows, search: text, empty: text.trim() === '' ? 'No open plans.' : `No plan matches "${text}"`, columns: e.props.bodyColumns }
+
+      return steadily(`pane:${e.surface}`, view, () =>
+        drawPicker($.ui.resolve(e), {
+          ...view,
+          onPick: anchor => void pressByKey($, `match:${anchor}`, e.surface),
+          onInput: value => void typeByKey($, 'search', 'change', value, e.surface),
+          onSubmit: value => void typeByKey($, 'search', 'submit', value, e.surface),
+        }),
+      )
+    }
+
+    if (answer === null) {
+      return <Text dimColor>Reading the tracker…</Text>
     }
 
     const { board } = answer
     const plan = await shownPlan($)
 
     if (plan === undefined) {
-      const { Box } = $.ui.resolve(e)
-
-      // Several plans match a query in a session with no plan of its own: the message still comes with its list.
-      return board.matches === undefined ? (
-        <Text dimColor>{board.message ?? 'No plans in this session.'}</Text>
-      ) : (
-        <Box flexDirection="column">
-          <Text dimColor>{board.message ?? 'No plans in this session.'}</Text>
-          {drawMatches($.ui.resolve(e), { matches: board.matches, columns: e.props.bodyColumns, onPick: anchor => void pressByKey($, `match:${anchor}`, e.surface) })}
-        </Box>
-      )
+      return <Text dimColor>{board.message ?? 'No plans in this session.'}</Text>
     }
 
     const open = await read($, card)
@@ -905,7 +1033,6 @@ export const register: Register = (on, options) => {
       columns: e.props.bodyColumns,
       bodyRows: e.props.scroll.bodyRows,
       message: board.message,
-      matches: board.matches ?? [],
       detail: isFile ? null : detail,
       file: isFile ? await loadFile($, plan) : null,
       home: await $.env.get('HOME'),
@@ -923,7 +1050,6 @@ export const register: Register = (on, options) => {
     return steadily(`pane:${e.surface}`, data, () => drawPane($.ui.resolve(e), {
       ...view,
       now,
-      onMatch: anchor => void pressByKey($, `match:${anchor}`, e.surface),
       onLane: lane => void pressByKey($, `lane:${lane}:more`, e.surface),
       onMenu: () => void pressByKey($, 'menu:name', e.surface),
       onPick: anchor => void pressByKey($, `plan:${anchor}`, e.surface),

@@ -130,6 +130,7 @@ describe('the keyboard goes to the pane after a click', () => {
     expect(w.opened).toEqual([])
 
     await $.command.run(plans())
+    await w.clock.settle()
     expect(opens(w)).toBe(1)
     await band.press({ key: 'band:plans' })
     await band.press({ key: 'band:plan:alpha' })
@@ -143,6 +144,7 @@ describe('the keyboard goes to the pane after a click', () => {
     const band = await mountBand($, 'terminal')
 
     await $.command.run(plans())
+    await w.clock.settle()
     const pane = await mountPane($, 'terminal')
 
     await band.press({ key: 'band:file' })
@@ -155,20 +157,23 @@ describe('the keyboard goes to the pane after a click', () => {
   test('the pane\'s own clicks (card, Back, Plan file ›, plan pick) ask again too', async ($, on) => {
     const w = world(on)
     await $.session.start(SESSION)
-    await $.command.run(plans())
+    await $.command.run(plans('alpha'))
+    await w.clock.settle()
     const pane = await mountPane($, 'terminal')
+    // the command's open, and the open of alpha's board once the answer is in
+    const base = opens(w)
 
     await openCard(pane, 8)
-    expect(opens(w)).toBe(2)
+    expect(opens(w)).toBe(base + 1)
     await pane.press({ key: 'back' })
-    expect(opens(w)).toBe(3)
+    expect(opens(w)).toBe(base + 2)
     await pane.press({ key: 'plan-file' })
-    expect(opens(w)).toBe(4)
+    expect(opens(w)).toBe(base + 3)
     await pane.press({ key: 'back' })
-    expect(opens(w)).toBe(5)
+    expect(opens(w)).toBe(base + 4)
     await pane.press({ key: 'menu:name' })
     await pane.press({ key: 'plan:gamma' })
-    expect(opens(w)).toBe(7)
+    expect(opens(w)).toBe(base + 6)
     await pane.unmount()
   })
 })
@@ -358,6 +363,7 @@ describe('plan-tracker band', () => {
       const band = await mountBand($, surface)
 
       await $.command.run(plans())
+      await w.clock.settle()
       await band.press({ key: 'band:file' })
 
       expect(w.panes).toHaveLength(1)

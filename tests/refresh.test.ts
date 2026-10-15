@@ -89,12 +89,16 @@ describe('one run of the script at a time', () => {
 
     const run = $.command.run({ command: 'plan-tracker', args: 'gamma', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
 
-    await w.clock.advance(SLOW_MS * 2)
+    // the queued rerun of the list, then the run of gamma that the words open
+    await w.clock.advance(SLOW_MS * 3)
     await started
     await run
 
-    // (the pane /plan-tracker opened then keeps refreshing, so only the first two runs are the ones in question)
-    expect(w.jsonRuns.slice(0, 2).map(one => one.argv.filter(arg => arg.startsWith('--query')))).toEqual([[], ['--query=gamma']])
+    // (the pane /plan-tracker opened at once keeps refreshing meanwhile, so the run of gamma comes after one of the timer's)
+    const asked = w.jsonRuns.map(one => one.argv.filter(arg => arg.startsWith('--query')))
+
+    expect(asked.slice(0, 2)).toEqual([[], ['--query=*']])
+    expect(asked).toContainEqual(['--query=gamma'])
   })
 })
 

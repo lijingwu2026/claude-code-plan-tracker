@@ -33,12 +33,13 @@ const handlesOf = async (pane: Pane): Promise<string[]> =>
 /** The board with plan `at` changed by `change` and the others as they were. */
 const withPlan = (board: PlanBoard, at: number, change: (plan: PlanEntry) => PlanEntry): PlanBoard => ({ ...board, plans: board.plans.map((plan, index) => (index === at ? change(plan) : plan)) })
 
-/** Opens the pane with its 10 s refresh running, on a session that draws on one surface only. */
+/** Opens the pane on alpha's board (`/plan-tracker alpha`) with its 10 s refresh running, on a session that draws on one surface only. */
 const open = async ($: Engine, on: Parameters<typeof world>[0], surface: 'terminal' | 'desktop' = 'desktop') => {
   const w = world(on, { fixture: BOARD, surfaces: [surface] })
 
   await $.session.start(SESSION)
-  await $.command.run(plans())
+  await $.command.run(plans('alpha'))
+  await w.clock.settle()
 
   return { w, pane: await mountPane($, surface) }
 }

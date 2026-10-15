@@ -87,7 +87,7 @@ Claude Code asks for these when you enable the plugin. Leave `board_command` and
 | Setting | Default | What it does |
 |---|---|---|
 | `board_location` | `PROGRESS.md` | The board file, relative to the project root, or an absolute path. It means what it means in plan-orchestrator, except that plan-orchestrator's `command:<read> ;; <write>` form is not read here: set `board_command` instead. |
-| `board_command` | empty | A command that prints the board as JSON, used instead of the file. It runs in the project root with `CLAUDE_PROJECT_DIR` set to it, and no shell runs it. `{session}` is the session id and `{query}` what follows `/plan-tracker`; `[ ... ]` keeps its words only when every placeholder inside is non-empty: `mytool --view {session} --json [--query={query}]`. `{query}` is `*` when the person asks for the plan list. |
+| `board_command` | empty | A command that prints the board as JSON, used instead of the file. It runs in the project root with `CLAUDE_PROJECT_DIR` set to it, and no shell runs it. `{session}` is the session id and `{query}` is `*` when the person asks for the plan list, and a plan's `anchor` once they open one; `[ ... ]` keeps its words only when every placeholder inside is non-empty: `mytool --view {session} --json [--query={query}]`. |
 | `usage_command` | empty | A command that records a task's time and cost when its page opens; the board command then returns them. Placeholders: `{session}`, `{anchor}` (the plan), `{index}` (the task's row) and `{task}`. |
 | `your_name` | empty | A task whose executor or checker is this name is shown as `you`, and the page of a task you run yourself has no time, tokens or cost. The word `you` always counts. |
 
@@ -102,7 +102,7 @@ Typed in [types/index.d.ts](../types/index.d.ts). It carries what the file does,
 | `plans[]` | Required. One entry per plan. With more than one, `▾` after the plan name opens the plan list in the band and the header. |
 | `selected` | The anchor of the plan shown first. |
 | `message` | A line above the board, or alone when no plan can be drawn. |
-| `matches[]` | Plans a query found, each `{anchor, name, state, done, total}`. The pane lists them, each pressable, and a press opens that plan. |
+| `matches[]` | The plan list for the query `*`, latest updated first, each `{anchor, name, state, done, total}` and `updated` (ISO, shown beside the count) when it has one. `state` is `In progress`, `Idle`, `Done` or `Canceled`. `/plan-tracker` lists them under a search field, each pressable; a press opens that plan, and the next queries are its `anchor`, whose answer must hold the plan in `plans[]`. Without `matches[]`, two or more `plans[]` are listed instead; one plan opens its board. |
 | plan `anchor`, `rows[]` | Required. |
 | plan `name`, `plan_file`, `started` | The name, the file `Plan file ›` opens, and when the first task started. |
 | plan `finished`, `updated`, `idle_since` | ISO times behind the state word (see Plan states). |
@@ -139,4 +139,4 @@ A plain `PROGRESS.md` has no usage and no start time, so it draws no figures onc
 
 ## What it writes
 
-Nothing in your project. It appends one JSON line to `~/.claude/mods-logs/plan-tracker.jsonl` for key presses, `/plan-tracker` runs, Done notices, errors and a few one-off lines, and never rotates the file.
+Nothing in your project. It appends one JSON line to `~/.claude/mods-logs/plan-tracker.jsonl` for key presses, each change in the search field (its length, not its text), `/plan-tracker` runs, Done notices, errors and a few one-off lines, and never rotates the file.

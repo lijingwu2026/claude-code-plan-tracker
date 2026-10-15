@@ -128,6 +128,8 @@ export type World = {
   script: Run
   /** what `--view --json` prints: a board, or raw text */
   fixture: PlanBoard | string
+  /** what `--view --json` prints for a `--query`, by its value; any other query prints `fixture` */
+  queries: Record<string, PlanBoard | string>
   /** how the `--json` runs end: their exit code and stderr, or a refusal to start (their stdout is `fixture`) */
   tracker: Omit<Run, 'stdout'>
   /** what the Bash tool answers (stdout, and the text the model reads) */
@@ -152,7 +154,7 @@ export type World = {
   /** every other process the mod ran: the log writer */
   logRuns: { argv: readonly string[]; stdin: string | undefined }[]
   /** every `command.register`, in order */
-  registered: { name: string; argumentHint: string | undefined }[]
+  registered: { name: string; argumentHint: string | undefined; description: string }[]
   /** a reason `command.register` refuses /plan-tracker (a command of that name exists), or null */
   registerDenial: string | null
   /** a reason `ui.open` answers `{ isPlaced: false }` (the pane waits undrawn), or null */
@@ -184,8 +186,11 @@ export type World = {
 
 export const SURVEY: RenderElement = { type: 'Text', children: ['SURVEY'] }
 
-/** The log stages that only measure (what the timer saw, which key was pressed). */
-export const DIAGNOSTIC_STAGES = ['timer', 'press']
+/**
+ * The log stages that only measure (what the timer saw, which key was pressed, what was typed in the search field, a focus move that
+ * did not take: the test kit has no `ui.focus`, so every one is logged here).
+ */
+export const DIAGNOSTIC_STAGES = ['timer', 'press', 'input', 'focus']
 
 const FINISHED_RUN = { isStdoutTruncated: false, isStderrTruncated: false }
 
@@ -206,6 +211,7 @@ export function world(
   const w: World = {
     script: { exitCode: 0, stdout: VIEW_TEXT, stderr: '', doesThrow: false },
     fixture: BOARD,
+    queries: {},
     tracker: { exitCode: 0, stderr: '', doesThrow: false },
     bash: '',
     files: FILES,
@@ -231,7 +237,7 @@ export function world(
     surfacesDenial: null,
     clock: mock.clock(on, { now: 0 }),
     bandDraws: 0,
-    /** The log lines of the mod's events; the diagnostics (`timer`, `press`) are in `diagnostics`. */
+    /** The log lines of the mod's events; the diagnostics (`DIAGNOSTIC_STAGES`) are in `diagnostics`. */
     logLines: () => w.diagnostics().filter(l => !DIAGNOSTIC_STAGES.includes(String(l.stage))),
     diagnostics: () => w.logRuns.flatMap(r => (r.stdin ?? '').split('\n').filter(Boolean)).map(l => JSON.parse(l) as Record<string, unknown>),
     ...setup,
@@ -242,7 +248,7 @@ export function world(
   on('session.id', () => ({ value: SESSION_ID }))
   on('session.root', () => ({ value: ROOT }))
   on('command.register', ($, e) => {
-    w.registered.push({ name: e.name, argumentHint: e.argumentHint })
+    w.registered.push({ name: e.name, argumentHint: e.argumentHint, description: e.description })
 
     return w.registerDenial === null || e.name !== 'plan-tracker' ? { value: { command: e.name } } : { deny: w.registerDenial }
   })
@@ -301,7 +307,9 @@ export function world(
         await w.jsonGate()
       }
 
-      const run = isJson ? { ...w.tracker, stdout: typeof w.fixture === 'string' ? w.fixture : JSON.stringify(w.fixture) } : w.script
+      const asked = e.argv.find(arg => arg.startsWith('--query='))?.slice('--query='.length) ?? ''
+      const printed = w.queries[asked] ?? w.fixture
+      const run = isJson ? { ...w.tracker, stdout: typeof printed === 'string' ? printed : JSON.stringify(printed) } : w.script
 
       if (run.doesThrow) {
         return { deny: 'spawn python3 ENOENT' }

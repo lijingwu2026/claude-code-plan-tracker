@@ -1,6 +1,6 @@
 {
   "name": "plan-tracker",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "A live board of your approved plan: which steps are done, running, blocked or waiting on you.",
   "types": "./types/index.d.ts",
   "author": {
@@ -19,7 +19,7 @@
     "board_command": {
       "type": "string",
       "title": "Board command (optional)",
-      "description": "A command that prints the board as JSON, used instead of the file. Placeholders: {session} is the session id, {query} the /plan-tracker argument; [ ... ] around words keeps them only when every placeholder inside is non-empty, e.g. mytool --view {session} --json [--query={query}]. No shell runs it. Leave it empty unless you have your own tracker.",
+      "description": "A command that prints the board as JSON, used instead of the file. Placeholders: {session} is the session id, {query} is * when the person asks for the plan list and a plan's anchor once they open one; [ ... ] around words keeps them only when every placeholder inside is non-empty, e.g. mytool --view {session} --json [--query={query}]. No shell runs it. Leave it empty unless you have your own tracker.",
       "default": ""
     },
     "usage_command": {

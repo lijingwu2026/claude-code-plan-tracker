@@ -35,6 +35,7 @@ const open = async ($: Engine, on: Parameters<typeof world>[0], surface: 'termin
 
   await $.session.start(SESSION)
   await $.command.run(plans())
+  await w.clock.settle()
 
   return { w, band: await mountBand($, surface) }
 }

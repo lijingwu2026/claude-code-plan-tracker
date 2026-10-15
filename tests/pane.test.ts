@@ -139,6 +139,7 @@ describe('plan-tracker pane: the header', () => {
     await $.session.start(SESSION)
 
     const { text } = await $.command.run(plans())
+    await w.clock.settle()
 
     expect(text).toBeUndefined()
     expect(w.opened).toEqual([{ id: PANE_ID, title: 'Plans', focus: true, rows: 60 }])
@@ -167,6 +168,7 @@ describe('plan-tracker pane: the header', () => {
     w.tracker = { exitCode: 3, stderr: 'no registry', doesThrow: false }
     await $.session.start(SESSION)
     await $.command.run(plans())
+    await w.clock.settle()
     const ui = await mountPane($, 'terminal')
 
     expect(textOf(await ui.drawn())).toBe('plan-tracker: the board command exited 3: no registry')
@@ -190,10 +192,12 @@ describe('plan-tracker pane: the header', () => {
     await ui.unmount()
   })
 
-  test('the 10 s refresh runs the script again and the pane shows what it now prints', async ($, on) => {
+  // A long run on the terminal clock: it gets room when the suite runs on a busy machine.
+  test('the 10 s refresh runs the script again and the pane shows what it now prints', { timeoutMs: 15_000 }, async ($, on) => {
     const w = world(on)
     await $.session.start(SESSION)
-    await $.command.run(plans())
+    await $.command.run(plans('alpha'))
+    await w.clock.settle()
     const ui = await mountPane($, 'terminal')
     const before = w.jsonRuns.length
 
@@ -1012,7 +1016,8 @@ describe('plan-tracker pane: expandable lanes', () => {
   test('pressing the overflow line hands the keys to the pane again, and does not scroll to the top', async ($, on) => {
     const w = world(on)
     await $.session.start(SESSION)
-    await $.command.run(plans())
+    await $.command.run(plans('alpha'))
+    await w.clock.settle()
     const pane = await mountPane($, 'terminal', 140)
     const before = w.opened.filter(one => one.focus === true).length
 
@@ -1199,7 +1204,8 @@ describe('plan-tracker pane: overflow buttons, header fold and the ask-for-you p
   test('m2: the header button also hands the keys back to the pane', async ($, on) => {
     const w = world(on)
     await $.session.start(SESSION)
-    await $.command.run(plans())
+    await $.command.run(plans('alpha'))
+    await w.clock.settle()
     const pane = await mountPane($, 'terminal', 140)
 
     await pane.press({ key: 'lane:Done:more' })

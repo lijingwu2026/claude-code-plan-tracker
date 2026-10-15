@@ -102,9 +102,9 @@ function totalsOf(value: unknown): PlanTotals | undefined {
   }
 }
 
-const MATCH_STATES: readonly PlanMatch['state'][] = ['In progress', 'Idle', 'Done']
+const MATCH_STATES: readonly PlanMatch['state'][] = ['In progress', 'Idle', 'Done', 'Canceled']
 
-/** The plans a query found, when the board command lists them: an entry of another shape is dropped; none left is no list. */
+/** The plans the board command lists (`matches`): an entry of another shape is dropped; none left is no list. */
 function matchesOf(value: unknown): PlanMatch[] | undefined {
   const out = (Array.isArray(value) ? value : []).flatMap((one: Record<string, unknown> | null): PlanMatch[] => {
     const anchor = asText(one?.anchor)
@@ -112,11 +112,76 @@ function matchesOf(value: unknown): PlanMatch[] | undefined {
     const state = MATCH_STATES.find(word => word === one?.state)
     const done = one?.done
     const total = one?.total
+    const updated = asText(one?.updated)
 
-    return anchor !== undefined && name !== undefined && state !== undefined && isNumber(done) && isNumber(total) ? [{ anchor, name, state, done, total }] : []
+    return anchor !== undefined && name !== undefined && state !== undefined && isNumber(done) && isNumber(total)
+      ? [{ anchor, name, state, done, total, ...(updated === undefined ? {} : { updated }) }]
+      : []
   })
 
   return out.length === 0 ? undefined : out
+}
+
+/** Lower case, with `- _ → : · /` as spaces, so `plan tracker` finds `plan-tracker`. */
+const normText = (text: string): string => text.toLowerCase().replace(/[-_→:·/]/g, ' ')
+
+/** The words of `text`, normalised. */
+const wordsOf = (text: string): string[] => normText(text).split(/\s+/).filter(word => word !== '')
+
+/** Whether a plan stays in the list for the search `text`: every word of it in the plan's name or anchor, in any order (no word: every plan). */
+export function isFound(plan: { anchor: string; name: string }, text: string): boolean {
+  const hay = `${normText(plan.name)} ${normText(plan.anchor)}`
+
+  return wordsOf(text).every(word => hay.includes(word))
+}
+
+/** The plans the list shows for the search `text`: with no words, every plan but the Done and Canceled ones; with words, every plan they find. */
+export function listedMatches<T extends { anchor: string; name: string; state: string }>(plans: readonly T[], text: string): T[] {
+  return wordsOf(text).length === 0 ? plans.filter(one => one.state !== 'Done' && one.state !== 'Canceled') : plans.filter(one => isFound(one, text))
+}
+
+/**
+ * The plan `/plan-tracker <words>` opens at once: the first whose name or anchor equals the words (normalised), else the only one
+ * the words leave in the list; undefined when they leave none or several, or are no words.
+ */
+export function directPick<T extends { anchor: string; name: string }>(plans: readonly T[], text: string): T | undefined {
+  const key = wordsOf(text).join(' ')
+
+  if (key === '') {
+    return undefined
+  }
+
+  const found = plans.filter(plan => isFound(plan, text))
+
+  return plans.find(plan => wordsOf(plan.name).join(' ') === key || wordsOf(plan.anchor).join(' ') === key) ?? (found.length === 1 ? found[0] : undefined)
+}
+
+/**
+ * The plans the list draws from the board command's answer to `*`: its `matches`; when it has none, its `plans` if there are two or more,
+ * latest `updated` first (a command that does not know `*` still lists the plans it prints); else none: one plan opens its board.
+ */
+export function listOf(board: PlanBoard): PlanMatch[] {
+  if (board.matches !== undefined) {
+    return board.matches
+  }
+
+  const at = (plan: { updated?: string }) => (Number.isNaN(Date.parse(plan.updated ?? '')) ? 0 : Date.parse(plan.updated ?? ''))
+
+  return board.plans.length < 2
+    ? []
+    : board.plans
+        .map((plan): PlanMatch => {
+          const state = planStateOf(plan)
+
+          return {
+            anchor: plan.anchor,
+            name: plan.name,
+            state: state === 'Stalled' ? 'In progress' : state,
+            ...countOf(plan),
+            ...(plan.updated === undefined ? {} : { updated: plan.updated }),
+          }
+        })
+        .sort((a, b) => at(b) - at(a))
 }
 
 /**
@@ -217,19 +282,20 @@ export const countText = (plan: PlanEntry): string => `${countOf(plan).done}/${c
 
 /**
  * A plan's state word: `Done` once closed, `In progress` while a row runs, `Stalled` when every running row is stalled, else `Idle`.
- * There is no "Todo" state: a plan nobody started is Idle.
+ * There is no "Todo" state: a plan nobody started is Idle. `Canceled` (an abandoned plan) comes only from a board command's list.
  */
-export type PlanState = 'In progress' | 'Stalled' | 'Idle' | 'Done'
+export type PlanState = 'In progress' | 'Stalled' | 'Idle' | 'Done' | 'Canceled'
 
 /** The state words, widest first, for aligning a column of them. */
 export const STATE_COLUMNS = 'In progress'.length
 
-/** One color per state: the In Progress lane's, gray like the Todo lane, the Done lane's. */
+/** One color per state: the In Progress lane's, gray like the Todo lane, the Done lane's, dim gray like a Canceled row. */
 export const STATE_STYLE: Record<PlanState, Style> = {
   'In progress': STYLE['In Progress'],
   Stalled: STYLE.Todo,
   Idle: STYLE.Todo,
   Done: STYLE.Done,
+  Canceled: STYLE.Canceled,
 }
 
 /**
