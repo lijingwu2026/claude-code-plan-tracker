@@ -1,7 +1,7 @@
 {
   "name": "plan-tracker",
   "version": "0.7.1",
-  "description": "Claude Code mod that puts your plan on one live board: every task, who's on it, and what waits on you.",
+  "description": "A live board of your approved plan: which steps are done, running, blocked or waiting on you.",
   "types": "./types/index.d.ts",
   "author": {
     "name": "lijingwu2026"

@@ -1,6 +1,6 @@
 {
   "name": "plan-tracker",
-  "description": "Claude Code mod that puts your plan on one live board: every task, who's on it, and what waits on you.",
+  "description": "A live board of your approved plan: which steps are done, running, blocked or waiting on you.",
   "owner": {
     "name": "lijingwu2026"
   },
@@ -8,7 +8,7 @@
     {
       "name": "plan-tracker",
       "source": "./",
-      "description": "Claude Code mod that puts your plan on one live board: every task, who's on it, and what waits on you."
+      "description": "A live board of your approved plan: which steps are done, running, blocked or waiting on you."
     }
   ]
 }
