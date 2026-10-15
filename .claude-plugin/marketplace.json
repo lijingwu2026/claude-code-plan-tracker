@@ -1,6 +1,6 @@
 {
   "name": "plan-tracker",
-  "description": "Plan tracker for Claude Code: your approved plan, live, from PROGRESS.md.",
+  "description": "Claude Code mod that puts your plan on one live board: every task, who's on it, and what waits on you.",
   "owner": {
     "name": "lijingwu2026"
   },
@@ -8,7 +8,7 @@
     {
       "name": "plan-tracker",
       "source": "./",
-      "description": "Your approved plan, live in Claude Code: which step is done, running, or waiting on you. Reads PROGRESS.md and redraws when it changes."
+      "description": "Claude Code mod that puts your plan on one live board: every task, who's on it, and what waits on you."
     }
   ]
 }

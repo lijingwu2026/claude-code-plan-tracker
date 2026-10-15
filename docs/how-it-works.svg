@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 793" width="880" height="793" role="img" aria-label="How plan-tracker works, in order: 1 you approve a plan; 2 the route skill writes one row per task to PROGRESS.md, each with its goal; 3 plan-tracker reads that file; 4 plan-tracker draws the band above your prompt and the board; 5 the route skill updates rows as tasks run and gives new work its own row; 6 a task waits on your check; 7 plan-tracker shows needs you on its card, and its page shows the goal and latest note; 8 you check it and reply; 9 the route skill marks it Done; 10 plan-tracker shows a pop-up and chime and the bar fills; 11 when Claude hands the plan back, the route skill writes the Recap; 12 in the next session the band and board draw from the same file: state, done/total and recap.">
+<style>
+:root{--bg:#FFFFFF;--ink:#1F2328;--sub:#59636E;--rule:#D1D9E0;--panel:#F6F8FA;--amber:#8A5A00;--amberbg:#FBF3E4;--teal:#0B6E57;--tealbg:#E6F1EC;--blue:#1F48C4;--bluebg:#E8EEFB;--file:#59636E;--filebg:#F6F8FA;}
+@media (prefers-color-scheme:dark){:root{--bg:#0D1117;--ink:#E6EDF3;--sub:#9198A1;--rule:#3D444D;--panel:#161B22;--amber:#E0A93B;--amberbg:#2A2112;--teal:#3FB592;--tealbg:#13291F;--blue:#7DA2FF;--bluebg:#16213D;--file:#9198A1;--filebg:#161B22;}}
+svg{font-family:ui-sans-serif,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;}
+.bg{fill:var(--bg)} .life{stroke:var(--rule);stroke-width:1.5;stroke-dasharray:4 5}
+.h{stroke-width:1.2} .h.you{fill:var(--amberbg);stroke:var(--amber)} .h.route{fill:var(--tealbg);stroke:var(--teal)} .h.pt{fill:var(--bluebg);stroke:var(--blue)} .h.file{fill:var(--filebg);stroke:var(--file)}
+.ht{font-size:12.5px;font-weight:700;letter-spacing:.06em} .ht.you{fill:var(--amber)} .ht.route{fill:var(--teal)} .ht.pt{fill:var(--blue)}
+.ht.f{fill:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0;font-weight:600}
+.hs{fill:var(--sub);font-size:11.5px}
+.m{stroke-width:1.6;fill:none} .m.you{stroke:var(--amber)} .m.route{stroke:var(--teal)} .m.pt{stroke:var(--blue)} .m.rd{stroke-dasharray:5 4}
+.ar.you{fill:var(--amber)} .ar.route{fill:var(--teal)} .ar.pt{fill:var(--blue)}
+.l{fill:var(--ink);font-size:14.5px;paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+.nc{fill:var(--panel);stroke:var(--rule)} .n{fill:var(--sub);font-size:11px;font-weight:700}
+.sep{stroke:var(--rule);stroke-width:1.2} .sept{fill:var(--sub);font-size:11px;font-weight:700;letter-spacing:.08em}
+</style>
+<rect class="bg" width="880" height="793"/>
+<line class="life" x1="80" y1="46" x2="80" y2="787"/><line class="life" x1="336" y1="60" x2="336" y2="787"/><line class="life" x1="588" y1="46" x2="588" y2="787"/><line class="life" x1="800" y1="46" x2="800" y2="787"/>
+<rect class="h you" x="35.0" y="12" width="90" height="34" rx="10"/>
+<text class="ht you " x="80" y="34" text-anchor="middle">YOU</text>
+<rect class="h route" x="261.0" y="12" width="150" height="48" rx="10"/>
+<text class="ht route " x="336" y="33" text-anchor="middle">ROUTE SKILL</text>
+<text class="hs" x="336" y="50" text-anchor="middle">plan-orchestrator</text>
+<rect class="h file" x="524.0" y="12" width="128" height="34" rx="4"/>
+<text class="ht file f" x="588" y="34" text-anchor="middle">PROGRESS.md</text>
+<rect class="h pt" x="734.0" y="12" width="132" height="34" rx="10"/>
+<text class="ht pt " x="800" y="34" text-anchor="middle">PLAN-TRACKER</text>
+<path class="m you" d="M86 112 H328"/>
+<path class="ar you" d="M334 112 l-10 -5 v10z"/>
+<text class="l" x="208.0" y="103" text-anchor="middle">approve a plan</text>
+<circle class="nc" cx="20" cy="112" r="11"/><text class="n" x="20" y="116" text-anchor="middle">1</text>
+<path class="m route" d="M342 179 H580"/>
+<path class="ar route" d="M586 179 l-10 -5 v10z"/>
+<text class="l" x="462.0" y="153" text-anchor="middle">write one row per task,</text>
+<text class="l" x="462.0" y="170" text-anchor="middle">each with its goal</text>
+<circle class="nc" cx="20" cy="179" r="11"/><text class="n" x="20" y="183" text-anchor="middle">2</text>
+<path class="m pt rd" d="M594 229 H792"/>
+<path class="ar pt" d="M798 229 l-10 -5 v10z"/>
+<text class="l" x="694.0" y="220" text-anchor="middle">reads it</text>
+<circle class="nc" cx="20" cy="229" r="11"/><text class="n" x="20" y="233" text-anchor="middle">3</text>
+<path class="m pt" d="M794 279 H88"/>
+<path class="ar pt" d="M82 279 l10 -5 v10z"/>
+<text class="l" x="440.0" y="270" text-anchor="middle">draw the band above your prompt, and the board</text>
+<circle class="nc" cx="20" cy="279" r="11"/><text class="n" x="20" y="283" text-anchor="middle">4</text>
+<path class="m route" d="M342 346 H580"/>
+<path class="ar route" d="M586 346 l-10 -5 v10z"/>
+<text class="l" x="462.0" y="320" text-anchor="middle">update rows as tasks run;</text>
+<text class="l" x="462.0" y="337" text-anchor="middle">new work gets its own row</text>
+<circle class="nc" cx="20" cy="346" r="11"/><text class="n" x="20" y="350" text-anchor="middle">5</text>
+<path class="m route" d="M342 396 H580"/>
+<path class="ar route" d="M586 396 l-10 -5 v10z"/>
+<text class="l" x="462.0" y="387" text-anchor="middle">a task waits on your check</text>
+<circle class="nc" cx="20" cy="396" r="11"/><text class="n" x="20" y="400" text-anchor="middle">6</text>
+<path class="m pt" d="M794 446 H88"/>
+<path class="ar pt" d="M82 446 l10 -5 v10z"/>
+<text class="l" x="440.0" y="437" text-anchor="middle">◆ needs you on its card; its page: goal and latest note</text>
+<circle class="nc" cx="20" cy="446" r="11"/><text class="n" x="20" y="450" text-anchor="middle">7</text>
+<path class="m you" d="M86 496 H328"/>
+<path class="ar you" d="M334 496 l-10 -5 v10z"/>
+<text class="l" x="208.0" y="487" text-anchor="middle">check it and reply</text>
+<circle class="nc" cx="20" cy="496" r="11"/><text class="n" x="20" y="500" text-anchor="middle">8</text>
+<path class="m route" d="M342 546 H580"/>
+<path class="ar route" d="M586 546 l-10 -5 v10z"/>
+<text class="l" x="462.0" y="537" text-anchor="middle">mark it Done</text>
+<circle class="nc" cx="20" cy="546" r="11"/><text class="n" x="20" y="550" text-anchor="middle">9</text>
+<path class="m pt" d="M794 596 H88"/>
+<path class="ar pt" d="M82 596 l10 -5 v10z"/>
+<text class="l" x="440.0" y="587" text-anchor="middle">pop-up and chime; the bar fills</text>
+<circle class="nc" cx="20" cy="596" r="11"/><text class="n" x="20" y="600" text-anchor="middle">10</text>
+<path class="m route" d="M342 663 H580"/>
+<path class="ar route" d="M586 663 l-10 -5 v10z"/>
+<text class="l" x="462.0" y="637" text-anchor="middle">when Claude hands the plan back:</text>
+<text class="l" x="462.0" y="654" text-anchor="middle">write the Recap</text>
+<circle class="nc" cx="20" cy="663" r="11"/><text class="n" x="20" y="667" text-anchor="middle">11</text>
+<line class="sep" x1="14" y1="719" x2="866" y2="719"/>
+<text class="sept" x="866" y="711" text-anchor="end">NEXT SESSION</text>
+<path class="m pt" d="M794 761 H88"/>
+<path class="ar pt" d="M82 761 l10 -5 v10z"/>
+<text class="l" x="440.0" y="752" text-anchor="middle">band and board draw from the same file: state, done/total, recap</text>
+<circle class="nc" cx="20" cy="761" r="11"/><text class="n" x="20" y="765" text-anchor="middle">12</text>
+</svg>
