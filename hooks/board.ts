@@ -1514,7 +1514,10 @@ const NOTE_DATE = /^\s*(\d{4}-\d{2}-\d{2})\s*(?:[—–:：-]+\s*)?/
 /** What a split leaves whole: a backtick span, and a path with a `;` inside it (`a/b;c.py`). */
 const KEEP = /`[^`]*`|[\w.~/-]*\/[\w.~/-]*;[\w.~/-]+\.\w+/g
 
-/** The points of a note: split at `；`, `;`, `｜`, `|` and line breaks, trimmed, none empty; not inside backticks or a path. */
+/**
+ * The points of a note: split at `；`, `;`, `｜` and line breaks, trimmed, none empty; not inside backticks or a path. An ASCII `|` stays:
+ * the tracker stores a note as written, and in the notes written so far it is a command's alternation or a table's column, never a break.
+ */
 export function pointsOf(note: string): string[] {
   const kept: string[] = []
   const hidden = note.replace(KEEP, span => {
@@ -1524,7 +1527,7 @@ export function pointsOf(note: string): string[] {
   })
 
   return hidden
-    .split(/[；;｜|\n]/)
+    .split(/[；;｜\n]/)
     .map(part => part.trim().replace(/\uE000(\d+)\uE001/g, (_, at: string) => kept[Number(at)] ?? ''))
     .filter(part => part !== '')
 }

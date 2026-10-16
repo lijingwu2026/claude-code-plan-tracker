@@ -98,6 +98,54 @@ export function holdsSomething(drawn: RenderElement | null | undefined): boolean
   return (drawn.type !== 'Box' && drawn.type !== 'Text') || drawn.children === undefined || drawn.children.length > 0
 }
 
+/** The surfaces with a proportional font, laid out with flex rather than padded with spaces: the desktop app and vscode. */
+export const isProportionalSurface = (surface: string): boolean => surface === 'desktop' || surface === 'vscode'
+
+/** vscode's card button: the card's text is not pressable there (no Client), so this opens the card's page. */
+export const CARD_OPEN_LABEL = 'Open ›'
+
+/** vscode lays the lanes side by side from this many columns: its proportional text fits a lane in a quarter of a narrower row. */
+export const QUIET_SIDE_BY_SIDE_FROM = 60
+
+/** The kit's Button, drawn dim when `isQuiet`: vscode draws a plain Button as a filled chip, a dim one as a quiet outline. */
+export function quietButton(kit: Kit, isQuiet: boolean): Kit['Button'] {
+  return isQuiet ? props => kit.Button({ ...props, dimColor: true }) : kit.Button
+}
+
+/** The kit with Ink's rule for rows when `isQuiet`: vscode wraps a row by default, so a row too wide drops its end to a new line instead of cutting the text set to cut. */
+export function inkRows(kit: Kit, isQuiet: boolean): Kit {
+  return isQuiet ? { ...kit, Box: props => kit.Box({ flexWrap: 'nowrap', ...props }) } : kit
+}
+
+/**
+ * Characters of proportional text that fit one column vscode reports. Cursor counts its columns by the width of "─", which is wide
+ * in its font: a pane of about 880 px reported 66 columns (about 13.3 px each), while ordinary text runs about 6.6 px a character,
+ * so about 2.0 characters fit a column. 1.8 leaves room for bold.
+ */
+export const VSCODE_CHARS_PER_COLUMN = 1.8
+
+/** The characters vscode's text has room for in `columns` reported columns: the budget its cuts by count use. */
+export const vscodeChars = (columns: number): number => Math.floor(columns * VSCODE_CHARS_PER_COLUMN)
+
+/** Characters per `ch` of width in vscode's text, kept under the measured ~1.33 so a wide name (or a CJK one, 2 per character) still fits
+ * its box: a plan list's name column sized in plain characters left a gap of about a third of the name before the state column. */
+export const VSCODE_CHARS_PER_CH = 1.2
+
+/** Characters the band's frame takes on vscode: its padding of 1 ch each side (ch is about one character there; the borders are 1 px). */
+const QUIET_FRAME_CHARS = 2
+
+/** A no-break space: vscode collapses or drops plain spaces at the ends of a text. */
+const NBSP = ' '
+
+/** Two no-break spaces: the gap a link's text keeps. */
+const GAP = `${NBSP}${NBSP}`
+
+/** Markdown's special characters escaped, so a name is drawn as written. */
+const escapeMarkdown = (text: string) => text.replace(/[\\`*_[\]<>~&]/g, '\\$&')
+
+/** The address of a vscode band link: the mod answers it by the Markdown's key (`ui.press`), and `.invalid` opens nowhere. */
+const bandHref = (key: string) => `https://plan-tracker.invalid/${key.split(':').join('/')}`
+
 /** The desktop's card bar: a fixed 8 cells whatever the total, filled in proportion to done/total. */
 const deskBar = (bar: Progress, color: string) => {
   const filled = filledOf(bar.done, bar.total, CARD_BAR_CELLS)
@@ -140,6 +188,8 @@ type BandArgs = {
   isMoving?: boolean
   /** The desktop's proportional font: the mascot is drawn one Box per cell. */
   isProportional?: boolean
+  /** Whether the surface draws a `Client` (terminal, desktop); a proportional surface without one (vscode) has links for its click targets. */
+  hasClient?: boolean
   /** Rows the engine lets the band show whole (`e.props.maxRows`); a terminal band that does not fit them with its frame is drawn without it. */
   maxRows?: number
   onBar: () => void
@@ -162,6 +212,7 @@ type PlanListArgs = {
   /** What a row's Button key starts with; the anchor follows. */
   pickKey: string
   onPick: (anchor: string) => void
+  isQuiet: boolean
 }
 
 /**
@@ -184,6 +235,8 @@ type RowsArgs = {
   listKey: string
   pickKey: string
   onPick: (anchor: string) => void
+  /** vscode: each name is a quiet Button with its label only, and the columns are set apart by margins, not spaces. */
+  isQuiet?: boolean
 }
 
 /**
@@ -192,9 +245,11 @@ type RowsArgs = {
  * `In progress`); with times the count column is padded so they line up. The name is cut first (to 1 column at the least); if even then the
  * state text and the time have no room, they are dropped whole.
  */
-function drawListRows(kit: Kit, { items, activeAnchor, columns, listKey, pickKey, onPick }: RowsArgs): RenderElement {
-  const { Box, Text, Button } = kit
-  const room = columns - 1
+function drawListRows(kit: Kit, { items, activeAnchor, columns, listKey, pickKey, onPick, isQuiet = false }: RowsArgs): RenderElement {
+  const { Box, Text } = kit
+  const Button = quietButton(kit, isQuiet)
+  // vscode's columns hold about two characters each: the names are cut to the characters it fits.
+  const room = (isQuiet ? vscodeChars(columns) : columns) - 1
   const countCols = Math.max(0, ...items.map(one => displayWidth(one.count)))
   const stateCols = Math.max(STATE_COLUMNS, ...items.map(one => displayWidth(one.stateText)))
   const timeCols = Math.max(0, ...items.map(one => displayWidth(one.time ?? '')))
@@ -206,6 +261,34 @@ function drawListRows(kit: Kit, { items, activeAnchor, columns, listKey, pickKey
   const option = (one: ListItem, at: number) => {
     const isOn = one.anchor === activeAnchor
     const text = `${isOn ? '▶' : ' '} ${padTo(names[at] ?? '', nameCols)}`
+
+    // vscode draws a Button's label alone (its children flattened, so the open row cannot be inverse) and drops a Text's trailing
+    // spaces: the open row is marked by the ▶ in its label alone, and each column is a Box of one fixed width in ch (about a character
+    // there), the name's holding its longest name, the ▶ and the Button's border, so the columns line up row to row.
+    if (isQuiet) {
+      const label = `${isOn ? `▶${NBSP}` : ''}${names[at] ?? ''}`
+
+      return (
+        <Box flexDirection="row">
+          <Box width={Math.ceil(nameCols / VSCODE_CHARS_PER_CH) + 5} flexShrink={0}>
+            <Button plain key={`${pickKey}${one.anchor}`} label={label} onPress={() => onPick(one.anchor)} />
+          </Box>
+          {hasState ? (
+            <Box marginLeft={2} width={stateCols} flexShrink={0}>
+              <Text {...STATE_STYLE[one.state]}>{one.stateText}</Text>
+            </Box>
+          ) : null}
+          <Box marginLeft={1} width={countCols} flexShrink={0}>
+            <Text color="suggestion">{one.count}</Text>
+          </Box>
+          {hasState && one.time !== undefined ? (
+            <Box marginLeft={2} flexShrink={0}>
+              <Text dimColor>{one.time}</Text>
+            </Box>
+          ) : null}
+        </Box>
+      )
+    }
 
     return (
       <Box flexDirection="row">
@@ -227,7 +310,7 @@ function drawListRows(kit: Kit, { items, activeAnchor, columns, listKey, pickKey
 }
 
 /** The plan list both the board's dropdown and the band's open: every plan of the session, the open one marked. */
-function drawPlanList(kit: Kit, { plans, plan, columns, now, listKey, pickKey, onPick }: PlanListArgs): RenderElement {
+function drawPlanList(kit: Kit, { plans, plan, columns, now, listKey, pickKey, onPick, isQuiet }: PlanListArgs): RenderElement {
   return drawListRows(kit, {
     items: plans.map(one => listedOf(one, now)),
     activeAnchor: plan.anchor,
@@ -235,6 +318,7 @@ function drawPlanList(kit: Kit, { plans, plan, columns, now, listKey, pickKey, o
     listKey,
     pickKey,
     onPick,
+    isQuiet,
   })
 }
 
@@ -254,6 +338,8 @@ type PickerArgs = {
   empty: string
   /** `e.props.bodyColumns` */
   columns: number
+  /** The surface drawing: vscode gets Ink's rows and quiet label-only Buttons. */
+  surface: RenderSurface
   onPick: (anchor: string) => void
   onInput: (value: string) => void
   onSubmit: (value: string) => void
@@ -264,7 +350,10 @@ type PickerArgs = {
  * them, with no plan open (a press picks one: keys `match:<anchor>`), or the `empty` line when none is left. A surface with no `Input`
  * (mobile) has the rows alone.
  */
-export function drawPicker(kit: Kit, { rows, search, empty, columns, onPick, onInput, onSubmit }: PickerArgs): RenderElement {
+export function drawPicker(given: Kit, { rows, search, empty, columns, surface, onPick, onInput, onSubmit }: PickerArgs): RenderElement {
+  // vscode: proportional with no Client.
+  const isQuiet = surface === 'vscode'
+  const kit = inkRows(given, isQuiet)
   const { Box, Text, Input } = kit
 
   return (
@@ -272,7 +361,7 @@ export function drawPicker(kit: Kit, { rows, search, empty, columns, onPick, onI
       {Input === undefined ? null : <Input key="search" placeholder="Search plans" value={search} autoFocus onInput={onInput} onSubmit={onSubmit} />}
       {rows.length === 0
         ? <Text dimColor>{empty}</Text>
-        : drawListRows(kit, { items: rows, activeAnchor: null, columns, listKey: 'matches:list', pickKey: 'match:', onPick })}
+        : drawListRows(kit, { items: rows, activeAnchor: null, columns, listKey: 'matches:list', pickKey: 'match:', onPick, isQuiet })}
     </Box>
   )
 }
@@ -280,15 +369,112 @@ export function drawPicker(kit: Kit, { rows, search, empty, columns, onPick, onI
 /** Columns the band's frame takes from the row: two border columns and one padding column each side. */
 const FRAME_COLUMNS = 4
 
+type QuietBandArgs = {
+  plan: PlanEntry
+  hasChoice: boolean
+  /** Columns the row has after the mascot and its space, the frame included. */
+  columns: number
+  now: number
+  isFile: boolean
+  frame: number | null
+  spritePose?: Pose
+  isMoving: boolean
+  onBar: () => void
+  onMenu: () => void
+  onFile: () => void
+  onBoard: () => void
+}
+
+/**
+ * vscode's band row: no part of it can be an invisible click area there (no Client; Svg and Box take no press), so the click
+ * targets are pressable Markdown links (underlined, no border). The mascot, the dot (coloured), then with one plan `<name>  <state>  n/m` as
+ * one target keyed `band:head` (the board); with two plans or more `<name> ▾` keyed `band:plans` (the plan list) and `<state>  n/m` keyed
+ * `band:bar` (the board); then the bar (a picture, no press) and "Plan file ›". The texts are cut by count to the room `bandFit` leaves, and
+ * each sits in a Box one row high that hides what overflows, so it is never two lines. A press is answered by its key (`actionFor`).
+ */
+function drawQuietBandRow(kit: Kit, a: QuietBandArgs): RenderElement {
+  const { Box, Text, Markdown } = kit
+  const Button = quietButton(kit, true)
+  const { color: dotColor, ...dotDim } = STYLE[worstStatus(a.plan)]
+  const fileLabel = a.isFile ? BOARD_LABEL : FILE_LABEL
+  // The whole row in characters, less the mascot's Box (its width in ch) and the frame: `columns` counts the mascot's space in reported columns.
+  const chars = vscodeChars(a.columns + BAND_MASCOT_SPACE) - BAND_SPRITE_CELLS - QUIET_FRAME_CHARS
+  const fit = bandFit(a.plan, chars, a.hasChoice, displayWidth(fileLabel), a.now)
+  const tail = `${fit.hasState ? `${fit.stateText}${GAP}` : ''}${fit.count}`
+  const targets = a.hasChoice
+    ? [
+        { key: 'band:plans', text: `${fit.name} ▾`, press: a.onMenu },
+        { key: 'band:bar', text: tail, press: a.onBar },
+      ]
+    : [{ key: 'band:head', text: `${fit.name}${GAP}${tail}`, press: a.onBar }]
+  const { done, total } = countOf(a.plan)
+
+  const target = ({ key, text, press }: { key: string; text: string; press: () => void }) => {
+    const href = bandHref(key)
+
+    return (
+      <Box key={`${key}:box`} height={1} overflow="hidden" flexShrink={1} minWidth={0} marginRight={1}>
+        <Markdown key={key} text={`[${escapeMarkdown(text)}](${href})`} pressableLinks={[href]} onLinkPress={press} />
+      </Box>
+    )
+  }
+
+  // Centered: the bar picture is shorter than a line and would otherwise sit at the row's top.
+  return (
+    <Box key="bar" flexDirection="row" alignItems="center">
+      {kit.Svg === undefined ? null : (
+        <Box key="band:part:mascot" width={BAND_SPRITE_CELLS} flexShrink={0}>
+          <kit.Svg
+            source={(a.isMoving ? spriteSvgAnimated(MASCOT, 'claude') : spriteSvg(a.spritePose ?? MASCOT[0], 'claude')).source}
+            alt="Claude Code's mascot"
+            width={BAND_SPRITE_PX.width}
+            height={BAND_SPRITE_PX.height}
+          />
+        </Box>
+      )}
+      <Box key="band:part:dot" flexShrink={0}>
+        <Box marginRight={1}>
+          <Text color={dotColor} {...dotDim}>●</Text>
+        </Box>
+      </Box>
+      {targets.map(target)}
+      {kit.Svg === undefined ? null : (
+        <Box key="band:solid" flexShrink={0} marginRight={1}>
+          <kit.Svg
+            source={barSvg(
+              total === 0 ? 0 : done / total,
+              HEX.success ?? '#3C9D5A',
+              a.frame === null ? undefined : Array.from({ length: Math.max(1, fit.filled) }, (_, at) => rainbowAt(at, a.frame ?? 0)),
+            )}
+            alt={`${fit.count} done`}
+            width={BAR_PX.width}
+            height={BAR_PX.height}
+          />
+        </Box>
+      )}
+      <Box key="band:part:rest" flexGrow={1} flexShrink={1} minWidth={2} />
+      {a.isFile ? (
+        <Button plain key="band:board" label={BOARD_LABEL} onPress={a.onBoard} />
+      ) : (
+        <Button plain key="band:file" label={FILE_LABEL} onPress={a.onFile} />
+      )}
+    </Box>
+  )
+}
+
 /**
  * The band: ONE row inside a dim round frame, `<mascot> ● <name> ▾  <bar> n/m ........ Plan file ›`, then the plan list when it is open, then
  * whatever the hooks below drew. A Button takes no color, so the colored parts are Text inside a plain Button: "name ▾"
  * opens the list, the bar and the count toggle the board, "Plan file ›" opens the board on the plan file (and is "‹ Board"
  * while it shows it).
  */
-export function drawBand(kit: Kit, args: BandArgs): RenderElement {
-  const { Box, Text, Button } = kit
-  const { plan, plans, columns, below, isOpen, isFile, frame, pose, now, spritePose, isMoving = false, isProportional = false, maxRows = Number.POSITIVE_INFINITY, onBar, onMenu, onPick, onFile, onBoard } = args
+export function drawBand(given: Kit, args: BandArgs): RenderElement {
+  const kit = inkRows(given, args.isProportional === true && args.hasClient !== true)
+  const { Box, Text } = kit
+  const { plan, plans, columns, below, isOpen, isFile, frame, pose, now, spritePose, isMoving = false, isProportional = false, hasClient = false, maxRows = Number.POSITIVE_INFINITY, onBar, onMenu, onPick, onFile, onBoard } = args
+  // vscode (proportional, no Client) draws its native button as a filled chip; dim, it is a quiet outline.
+  const isQuiet = isProportional && !hasClient
+  const Button = quietButton(kit, isQuiet)
   const line = bandLine(plan, columns, now)
   const { color: stateColor } = STATE_STYLE[line.state]
   const hasChoice = plans.length > 1
@@ -308,19 +494,50 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
   // name's and the plan file's buttons are drawn as before, and a region never covers them.
   const Client = isProportional ? kit.Client : undefined
 
-  const zone = (key: string, child: RenderElement, grow = false) =>
-    Client === undefined ? (
+  const zone = (key: string, child: RenderElement, fit: 'fixed' | 'grow' | 'shrink' = 'fixed') => {
+    const flex = fit === 'grow' ? { flexGrow: 1, flexShrink: 1 } : fit === 'shrink' ? { flexShrink: 1, minWidth: 0 } : { flexShrink: 0 }
+
+    return Client === undefined ? (
       child
     ) : (
-      <Box key={`band:zone:${key}`} position="relative" flexShrink={grow ? 1 : 0} {...(grow ? { flexGrow: 1 } : {})}>
+      <Box key={`band:zone:${key}`} position="relative" {...flex}>
         {child}
         <Box position="absolute" top={0} left={0} width="100%" height="100%">
           <Client key={`band:zone:${key}:region`} module="./band.tsx" width="100%" height="100%" />
         </Box>
       </Box>
     )
+  }
+
+  if (isQuiet) {
+    return (
+      <Box flexDirection="column">
+        <Box key="band:frame" flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
+          {drawQuietBandRow(kit, {
+            plan,
+            hasChoice,
+            columns,
+            now,
+            isFile,
+            frame,
+            ...(spritePose === undefined ? {} : { spritePose }),
+            isMoving,
+            onBar,
+            onMenu,
+            onFile,
+            onBoard,
+          })}
+        </Box>
+        {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns: columns + BAND_MASCOT_SPACE, now, listKey: 'band:list', pickKey: 'band:plan:', onPick, isQuiet }) : null}
+        {holdsSomething(below) ? below : null}
+      </Box>
+    )
+  }
 
   if (isProportional) {
+    // The name is whole: the row's Text cuts it by the room the panel leaves, not by a count of characters.
+    const name = <Text bold wrap="truncate">{plan.name}</Text>
+
     return (
       <Box flexDirection="column">
         <Box key="band:frame" flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
@@ -341,12 +558,14 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
             : null}
           {zone('dot', <Text color={dotColor} {...dotDim}>●{' '}</Text>)}
           {hasChoice ? (
-            <Button plain key="band:plans" label={`${line.name} ▾`} onPress={onMenu}>
-              <Text bold>{line.name}</Text>
-              <Text> ▾</Text>
-            </Button>
+            <Box key="band:name" flexShrink={1} minWidth={0}>
+              <Button plain key="band:plans" label={`${plan.name} ▾`} onPress={onMenu}>
+                {name}
+                <Text> ▾</Text>
+              </Button>
+            </Box>
           ) : (
-            zone('name', <Text bold>{line.name}</Text>)
+            zone('name', name, 'shrink')
           )}
           {zone(
             'gap',
@@ -377,11 +596,11 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
           <Button plain key="band:bar" label={` ${line.count}`} onPress={onBar}>
             <Text>{` ${line.count}`}</Text>
           </Button>
-          {zone('rest', <Box minWidth={2} />, true)}
+          {zone('rest', <Box minWidth={2} />, 'grow')}
           {fileButton}
         </Box>
         </Box>
-        {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns: columns + BAND_MASCOT_SPACE, now, listKey: 'band:list', pickKey: 'band:plan:', onPick }) : null}
+        {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns: columns + BAND_MASCOT_SPACE, now, listKey: 'band:list', pickKey: 'band:plan:', onPick, isQuiet }) : null}
         {holdsSomething(below) ? below : null}
       </Box>
     )
@@ -442,7 +661,7 @@ export function drawBand(kit: Kit, args: BandArgs): RenderElement {
           </Box>
         ) : null}
       </Box>
-      {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns: columns + BAND_MASCOT_SPACE, now, listKey: 'band:list', pickKey: 'band:plan:', onPick }) : null}
+      {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns: columns + BAND_MASCOT_SPACE, now, listKey: 'band:list', pickKey: 'band:plan:', onPick, isQuiet }) : null}
       {holdsSomething(below) ? below : null}
     </Box>
   )
@@ -534,19 +753,28 @@ type PaneArgs = {
 const MIN_HEAD_NAME = 8
 
 /** The pane: the plan dropdown, "Plan file ›" and the plan line on top, then the four lanes (or one card's page, or the plan file). */
-export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
-  const { Box, Text, Button, Markdown } = kit
+export function drawPane(given: Kit, args: PaneArgs): RenderElement {
+  const kit = inkRows(given, isProportionalSurface(args.surface) && args.hasClient !== true)
+  const { Box, Text, Markdown } = kit
   // Only the terminal and the desktop draw a Client; another surface's table has the name but drops the element.
   const Client = args.hasClient ? kit.Client : undefined
   const { plans, plan, columns, message, detail, file, home, frame, isOpen, expanded, now } = args
   const { onMenu, onPick, onCard, onBack, onFile, onLane, bodyRows } = args
-  const isProportional = args.surface === 'desktop'
+  const isProportional = isProportionalSurface(args.surface)
+  // vscode: proportional with no Client. Its buttons are quiet outlines, and its lanes sit side by side from a narrower pane, sized by share.
+  const isQuiet = isProportional && Client === undefined
+  const Button = quietButton(kit, isQuiet)
   // A Client's props: the terminal's stay as they were.
   const proportional = isProportional ? ({ isProportional: true } as const) : {}
-  // The desktop leaves a row between cards, which a proportional layout has room for; the terminal's rows are dear.
-  const gapRows = args.surface === 'desktop' ? 1 : 0
-  const isSideBySide = columns >= SIDE_BY_SIDE_FROM
-  const width = isSideBySide ? laneWidth(columns, lanesOf(plan, expanded).length) : columns
+  // A proportional layout leaves a row between cards, which it has room for; the terminal's rows are dear.
+  const gapRows = isProportional ? 1 : 0
+  const isSideBySide = columns >= (isQuiet ? QUIET_SIDE_BY_SIDE_FROM : SIDE_BY_SIDE_FROM)
+  const laneCount = lanesOf(plan, expanded).length
+  const width = isSideBySide ? laneWidth(columns, laneCount) : columns
+  // The width a lane is drawn at: vscode's lanes share the row (24% each of four, 19% each of five with the Other lane), whatever its column count says.
+  const laneBoxWidth = isQuiet && isSideBySide ? `${Math.floor(96 / laneCount)}%` : width
+  // vscode's card is left to fill its lane: a width of 100% is the inside, and its border and padding would run into the gap.
+  const cardBoxWidth = isQuiet && isSideBySide ? undefined : width
 
   const { color: dotColor, ...dotDim } = STYLE[worstStatus(plan)]
   const hasChoice = plans.length > 1
@@ -558,12 +786,37 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   // The state text and n/m are never cut: the name is shortened to leave them room. Beside "Plan file ›" the name has the old
   // budget (two gaps and the ▾ besides the three; at least MIN_HEAD_NAME columns, else it would be cut to nothing). A name that
   // does not fit beside it moves "Plan file ›" to a row of its own, and the first row gives the name what the other three leave.
+  // vscode's columns hold about two characters each: its header is fitted to the characters it fits.
+  const headColumns = isQuiet ? vscodeChars(columns) : columns
   const countWidth = displayWidth(countText(plan))
-  const beside = columns - 20 - countWidth - 2 - displayWidth(stateText)
+  const beside = headColumns - 20 - countWidth - 2 - displayWidth(stateText)
   const isFileBelow = beside < Math.min(MIN_HEAD_NAME, displayWidth(plan.name))
-  const headName = truncate(plan.name, isFileBelow ? Math.max(2, columns - 6 - countWidth - displayWidth(stateText) - (hasChoice ? 2 : 0) - 1) : beside)
+  const headName = truncate(plan.name, isFileBelow ? Math.max(2, headColumns - 6 - countWidth - displayWidth(stateText) - (hasChoice ? 2 : 0) - 1) : beside)
 
-  const headRow = (
+  // vscode drops a Text's trailing spaces and draws a Button's label alone: the gaps are margins, the name's Button its label only, and the
+  // state and the count never shrink (else "In / progress"). The other surfaces draw the spaces as before.
+  const headRow = isQuiet ? (
+    <Box key={isFileBelow ? 'menu:row' : 'menu'} flexDirection="row">
+      <Box key="menu:dot" marginRight={1} flexShrink={0}>
+        <Text color={dotColor} {...dotDim}>●</Text>
+      </Box>
+      {hasChoice ? <Button plain key="menu:name" label={headName} onPress={onMenu} /> : <Text bold wrap="truncate">{headName}</Text>}
+      <Box key="menu:state" marginLeft={2} flexShrink={0}>
+        <Text color={STATE_STYLE[state].color}>{stateText}</Text>
+      </Box>
+      <Box key="menu:count" marginLeft={2} flexShrink={0}>
+        <Text color="suggestion">{countText(plan)}</Text>
+      </Box>
+      {hasChoice ? (
+        // vscode drops the label's leading space: a margin keeps the button off the count.
+        <Box key="menu:arrow:box" marginLeft={1} flexShrink={0}>
+          <Button plain key="menu:arrow" label={isOpen ? '▴' : '▾'} onPress={onMenu} />
+        </Box>
+      ) : null}
+      {isFileBelow ? null : <Box flexGrow={1} minWidth={2} />}
+      {isFileBelow ? null : <Button plain key="plan-file" label={FILE_LABEL} onPress={onFile} />}
+    </Box>
+  ) : (
     <Box key={isFileBelow ? 'menu:row' : 'menu'} flexDirection="row">
       <Text color={dotColor} {...dotDim}>
         ●{' '}
@@ -611,7 +864,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
     const art = isStuck || isStalled(row) ? MASCOT[0] : mascotAt(frame)
     // A proportional font draws block glyphs at its own shapes: the desktop draws the mascot as a picture beside the card's region.
     const Svg = isProportional ? kit.Svg : undefined
-    const useSprite = Svg !== undefined && view.mascot && Client !== undefined
+    const useSprite = Svg !== undefined && view.mascot && (Client !== undefined || isQuiet)
     const markerColor = isStuck ? 'error' : NEEDS_YOU_COLOR
 
     const parsed: CardRow[] = view.lines.map((line, at) => {
@@ -631,20 +884,59 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
       }
     })
 
+    const sprite =
+      useSprite && Svg !== undefined ? (
+        <Box width={CARD_SPRITE_CELLS} flexShrink={0}>
+          <Svg
+            source={(isDoing && !isStalled(row) ? spriteSvgAnimated(MASCOT, 'claude') : spriteSvg(art, isStuck ? 'error' : 'claude')).source}
+            alt="Claude Code's mascot"
+            width={CARD_SPRITE_PX.width}
+            height={CARD_SPRITE_PX.height}
+            {...(isDoing && !isStalled(row) ? { isInteractive: true } : {})}
+          />
+        </Box>
+      ) : null
+
+    // vscode (proportional, no Client): the task name as the desktop's card draws it (bold while running, red when blocked), the bar under
+    // it, and a last row with a quiet "Open ›" button (its key `card:<anchor>:N`) before the tag.
+    const linkBody = () => {
+      const barRow = parsed[view.barAt]
+      const tagRow = parsed[view.tagAt]
+      const chip =
+        tagRow === undefined || tagRow.tag === '' ? null : (
+          <Box key={`card:${index}:tag`} marginLeft={1} flexShrink={0}>
+            <Text color={tagRow.tagFg} backgroundColor={tagRow.tagBg} {...(tagRow.tagBold ? { bold: true } : {})}>{`${NBSP}${tagRow.tag}${NBSP}`}</Text>
+          </Box>
+        )
+
+      return (
+        <Box key={`card:${index}:body`} flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+          <Text wrap="wrap">
+            {view.marker === '' ? null : <Text bold color={markerColor}>{view.marker}</Text>}
+            <Text {...(isStuck ? { color: 'error' } : {})} {...(isDoing ? { bold: true } : {})}>{row.task}</Text>
+          </Text>
+          {barRow?.bar === undefined ? null : (
+            <Box flexDirection="row">
+              {barRow.bar.filled === 0 ? null : <Box width={barRow.bar.filled} height={1} flexShrink={0} backgroundColor={barRow.bar.color} />}
+              {barRow.bar.empty === 0 ? null : <Box width={barRow.bar.empty} height={1} flexShrink={0} backgroundColor={barRow.bar.track} />}
+              <Text>{barRow.name}</Text>
+            </Box>
+          )}
+          <Box flexDirection="row">
+            <Box flexGrow={1} />
+            <Button plain key={`card:${plan.anchor}:${index}`} label={CARD_OPEN_LABEL} onPress={press} />
+            {chip}
+          </Box>
+        </Box>
+      )
+    }
+
     // With a Client the rows are drawn by `card.tsx` in one region that posts a click and inverts under no pointer.
     const lineRows = Client
       ? [
-          useSprite && Svg !== undefined ? (
+          sprite !== null ? (
             <Box key={`card:${index}:sprite`} flexDirection="row" alignItems="center">
-              <Box width={CARD_SPRITE_CELLS} flexShrink={0}>
-                <Svg
-                  source={(isDoing && !isStalled(row) ? spriteSvgAnimated(MASCOT, 'claude') : spriteSvg(art, isStuck ? 'error' : 'claude')).source}
-                  alt="Claude Code's mascot"
-                  width={CARD_SPRITE_PX.width}
-                  height={CARD_SPRITE_PX.height}
-                  {...(isDoing && !isStalled(row) ? { isInteractive: true } : {})}
-                />
-              </Box>
+              {sprite}
               <Client
                 key={`card:${index}`}
                 module="./card.tsx"
@@ -663,7 +955,18 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
             />
           ),
         ]
-      : parsed.map((one, at) => {
+      : isQuiet
+        ? [
+            sprite !== null ? (
+              <Box key={`card:${index}:sprite`} flexDirection="row" alignItems="center">
+                {sprite}
+                {linkBody()}
+              </Box>
+            ) : (
+              linkBody()
+            ),
+          ]
+        : parsed.map((one, at) => {
           const key = at === 0 ? `card:${index}` : `card:${index}:${at}`
           const picture = view.mascot ? <Text color={one.artColor}>{one.art}</Text> : null
           const button =
@@ -704,10 +1007,12 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
       <Box
         key={`cardbox:${index}`}
         {...(isProportional ? { hover: { borderStyle: 'bold', borderDimColor: false } } : {})}
-        width={width}
+        width={cardBoxWidth}
         flexDirection="column"
         borderStyle="round"
-        borderColor={color}
+        // vscode writes the border as one `border: 1px solid var(--app-warning-foreground)`, a variable Cursor sets from
+        // `--vscode-menu-foreground`; where that is undefined the whole border is dropped. The Verify card's outline is a hex there.
+        borderColor={isQuiet && color === 'warning' ? (HEX.warning ?? color) : color}
         borderDimColor={!isDoing && !isStuck}
         paddingX={1}
       >
@@ -719,6 +1024,10 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
   // The header row of an expanded lane has "Show less ▴" at its right end; a Button draws its own `[ ]`, two columns more.
   const lessLabel = moreButton(SHOW_LESS)
   const lessColumns = displayWidth(lessLabel) + 4
+  // vscode sizes a lane by share, not by the cells this counts: its overflow Button is always the short form, whole.
+  const laneLabel = (one: Lane) => (isQuiet ? (one.moreLabel === SHOW_LESS ? lessLabel : `+${one.more} more ▾`) : overflowLabel(one, width))
+  // A lane header is cut to the characters its lane fits: on vscode about two to a column ("In Progress 2 · 1 blocked", not "In Progress 2 …").
+  const headerRoom = (cols: number) => (isQuiet ? vscodeChars(cols) : cols)
 
   const lane = (one: Lane) => {
     const isOpen = one.moreLabel === SHOW_LESS
@@ -729,24 +1038,24 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
     const hasBottom = one.moreLabel !== '' && !(hasLess && bodyRows !== undefined && laneRows <= bodyRows)
 
     return (
-      <Box key={`lane:${one.key}`} flexDirection="column" width={width} {...(gapRows === 0 ? {} : { gap: gapRows })}>
+      <Box key={`lane:${one.key}`} flexDirection="column" width={laneBoxWidth} {...(gapRows === 0 ? {} : { gap: gapRows })}>
         {hasLess ? (
           <Box flexDirection="row">
             <Text bold color={one.color} wrap="truncate">
-              {truncate(one.header, width - lessColumns - 1)}
+              {truncate(one.header, headerRoom(width - lessColumns - 1))}
             </Text>
             <Box flexGrow={1} minWidth={1} />
             <Button key={`lane:${one.key}:less`} label={lessLabel} onPress={() => onLane(one.key)} />
           </Box>
         ) : (
           <Text bold color={one.color} wrap="truncate">
-            {truncate(one.header, width)}
+            {truncate(one.header, headerRoom(width))}
           </Text>
         )}
         {one.cards.length === 0 ? <Text dimColor>—</Text> : null}
         {one.cards.map(card)}
         {!hasBottom ? null : (
-          <Button key={`lane:${one.key}:more`} label={overflowLabel(one, width)} onPress={() => onLane(one.key)} />
+          <Button key={`lane:${one.key}:more`} label={laneLabel(one)} onPress={() => onLane(one.key)} />
         )}
       </Box>
     )
@@ -783,7 +1092,7 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
       {row === undefined ? (
         <Box key="strip" flexDirection="column">
           {header}
-          {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns, now, listKey: 'menu:list', pickKey: 'plan:', onPick }) : null}
+          {isOpen && hasChoice ? drawPlanList(kit, { plans, plan, columns, now, listKey: 'menu:list', pickKey: 'plan:', onPick, isQuiet }) : null}
           {stats.length > 0 ? (
             drawStats(kit, { stats, isProportional, boxKey: 'plan-stats' })
           ) : notStarted === '' ? null : (
@@ -818,13 +1127,13 @@ export function drawPane(kit: Kit, args: PaneArgs): RenderElement {
           {lanesOf(plan, expanded).map(lane)}
         </Box>
       ) : (
-        drawDetail(kit, { row, columns, home, onBack, isProportional, now })
+        drawDetail(kit, { row, columns, home, onBack, isProportional, isQuiet, now })
       )}
     </Box>
   )
 }
 
-type DetailArgs = Pick<PaneArgs, 'columns' | 'home' | 'onBack' | 'now'> & { row: PlanRow; isProportional: boolean }
+type DetailArgs = Pick<PaneArgs, 'columns' | 'home' | 'onBack' | 'now'> & { row: PlanRow; isProportional: boolean; /** vscode: margins for spaces, quiet Buttons, note paths as plain text (a `file://` Link is dead there). */ isQuiet: boolean }
 
 /** Columns of the table's label cell, at the most (the longest label is "Blocked because"). */
 const LABEL_COLUMNS = 15
@@ -857,8 +1166,9 @@ const chipParts = (words: string): Part[] =>
  * values wrap inside their cell. On the desktop each row is a round-bordered Box, a label Box of fixed width and a value Box that
  * wraps its text.
  */
-function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, now }: DetailArgs): RenderElement {
-  const { Box, Text, Button } = kit
+function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, isQuiet, now }: DetailArgs): RenderElement {
+  const { Box, Text } = kit
+  const Button = quietButton(kit, isQuiet)
   const { color, ...dim } = STYLE[row.status]
   const stuck = isBlocked(row)
   // `│ ` label ` │ ` value ` │`: seven columns of frame and padding.
@@ -907,7 +1217,7 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, now 
                 ...(line.dim === true ? { dim: true as const } : {}),
                 ...(line.needsYou === true ? { color: NEEDS_YOU_COLOR, bold: true } : {}),
                 ...(line.tag === true ? { bold: true, ...(stuck ? { color: 'error' } : {}) } : {}),
-                ...(piece.path === undefined ? {} : { color: LINK_COLOR, href: fileHref(piece.path, home) }),
+                ...(piece.path === undefined || isQuiet ? {} : { color: LINK_COLOR, href: fileHref(piece.path, home) }),
               })),
             ),
           },
@@ -918,9 +1228,15 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, now 
     <Box key="detail" flexDirection="column" marginTop={1}>
       <Button key="back" label="‹ Back" onPress={onBack} />
       <Box key="detail:title" flexDirection="row" marginTop={1}>
-        <Text color={color} {...dim}>
-          ■{' '}
-        </Text>
+        {isQuiet ? (
+          <Box marginRight={1} flexShrink={0}>
+            <Text color={color} {...dim}>■</Text>
+          </Box>
+        ) : (
+          <Text color={color} {...dim}>
+            ■{' '}
+          </Text>
+        )}
         <Text bold wrap="wrap">
           {row.task}
         </Text>

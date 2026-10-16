@@ -29,7 +29,7 @@ const MARKER = ['', '', '⚑ Blocked · ', '◆ needs you · ', ''] as const
 
 const boardOf = (rows: PlanRow[]): PlanBoard => ({ ...BOARD, plans: [{ ...BOARD.plans[0]!, rows }] })
 
-/** The mascot's block characters, which a card row starts with on the terminal and in vscode. */
+/** The mascot's block characters, which a card row starts with on the terminal. */
 const withoutArt = (text: string): string => text.replace(/[▀-▟]/g, '')
 
 const noSpaces = (text: string): string => text.replace(/\s+/g, '')
@@ -106,7 +106,7 @@ describe('the board draws every card with its whole name', () => {
       }
 
       if (surface === 'vscode') {
-        await pane.press({ key: 'card:0' })
+        await pane.press({ key: 'card:alpha:0' })
       } else {
         await openCard(pane as unknown as Parameters<typeof openCard>[0], 0)
       }

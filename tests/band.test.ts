@@ -212,7 +212,8 @@ describe('plan-tracker band', () => {
         expect(row).toMatch(/^● Alpha plan ▾ In progress  ▰▰▰▰▰▱▱▱▱▱▱▱ 5\/13 *Plan file ›$/)
       }
       expect(kids(await band.find({ key: 'bar' })).map(child => child.type)).toEqual(
-        surface === 'desktop' ? ['Box', 'Box', 'Button', 'Box', 'Box', 'Button', 'Box', 'Button'] : ['Button', 'Button', 'Button', 'Box', 'Button'],
+        // the desktop's "name ▾" Button sits in a Box that may shrink, so the row cuts the whole name by the room left
+        surface === 'desktop' ? ['Box', 'Box', 'Box', 'Box', 'Box', 'Button', 'Box', 'Button'] : ['Button', 'Button', 'Button', 'Box', 'Button'],
       )
       // the dot is the plan's worst status: a Blocked row makes it red
       const dot = (await band.findAll({ type: 'Text' })).find(node => textOf(node) === '● ')

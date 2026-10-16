@@ -1090,10 +1090,10 @@ describe('plan-tracker pane: the note cell and the Route row', () => {
     await pane.unmount()
   })
 
-  test('points split at ； ; ｜ | and line breaks; empty ones are dropped', async ($, on) => {
-    const pane = await open($, on, 'one；two; three ｜ four|\nfive；；')
+  test('points split at ； ; ｜ and line breaks, not at an ASCII |; empty ones are dropped', async ($, on) => {
+    const pane = await open($, on, 'one；two; three ｜ four|4\nfive；；')
 
-    expect(await noteCells(pane)).toEqual(['• one', '• two', '• three', '• four', '• five'])
+    expect(await noteCells(pane)).toEqual(['• one', '• two', '• three', '• four|4', '• five'])
     await pane.unmount()
   })
 
@@ -1298,7 +1298,7 @@ describe('plan-tracker pane: the card', () => {
 })
 
 describe('plan-tracker pane: a surface with no Client', () => {
-  test('vscode has no Client in its table: the cards fall back to Buttons and still open their page', async ($, on) => {
+  test('vscode has no Client in its table: a card has an "Open ›" Button keyed card:<anchor>:N that opens its page', async ($, on) => {
     world(on)
     await $.session.start(SESSION)
     const pane = await $.ui.mount({
@@ -1311,7 +1311,7 @@ describe('plan-tracker pane: a surface with no Client', () => {
     })
 
     expect(await pane.findAll({ type: 'Client' })).toEqual([])
-    await pane.press({ key: `card:${indexOfTask('t2')}` })
+    await pane.press({ key: `card:alpha:${indexOfTask('t2')}` })
     expect(await pane.find({ key: 'detail' })).toBeDefined()
     await pane.unmount()
   })

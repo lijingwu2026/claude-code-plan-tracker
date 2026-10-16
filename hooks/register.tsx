@@ -55,7 +55,7 @@ import {
 } from './board'
 import type { LaneKey } from './board'
 import type { FileView } from './draw'
-import { drawBand, drawPane, drawPicker, holdsSomething, listedMatchOf, listedOf } from './draw'
+import { drawBand, drawPane, drawPicker, holdsSomething, isProportionalSurface, listedMatchOf, listedOf } from './draw'
 
 const COMMAND = 'plan-tracker'
 const PANE_ID = 'plan-tracker'
@@ -603,14 +603,37 @@ let paneRows: number | undefined
 /** The surfaces last logged by `animates`, as text. */
 let loggedSurfaces = ''
 
+/** Opens row `index` of `plan` on its page: the plan list shuts, the row's usage is read in the background, and the pane is focused at its top. */
+async function openRow($: EngineInterface, plan: PlanEntry, index: number) {
+  await Promise.all([update($, menu, () => false), update($, card, () => ({ anchor: plan.anchor, index }))])
+  void loadUsage($, plan, index)
+  await syncAnimation($)
+  await refocus($, true)
+}
+
 /**
- * What a press on the Button keyed `element` does: the same actions as the drawings' `onPress` closures,
+ * What a press on the Button (or answered link) keyed `element` does: the same actions as the drawings' `onPress` closures,
  * which call this too. It decides at once whether the key is the mod's (undefined if not) and returns the work, so a caller
  * can answer a press without waiting: the `ui.press` hook runs the work in the background, because opening a pane from
  * inside the press chain must not hold the chain.
  */
 export function actionFor($: EngineInterface, element: string, surface: string): (() => Promise<unknown>) | undefined {
   const lane = /^lane:(.+):(?:more|less)$/.exec(element)?.[1]
+  // A card: a line of the terminal's Buttons (`card:N`, `card:N:<line>`), or vscode's "Open ›" (`card:<anchor>:N`, ignored for another plan).
+  const lineCard = /^card:(\d+)(?::\d+)?$/.exec(element)
+  const linkCard = lineCard === null ? /^card:(.+):(\d+)$/.exec(element) : null
+  const cardAt = lineCard?.[1] ?? linkCard?.[2]
+
+  if (cardAt !== undefined) {
+    return async () => {
+      const plan = await shownPlan($)
+      const index = Number(cardAt)
+
+      if (plan !== undefined && (linkCard === null || linkCard[1] === plan.anchor) && plan.rows[index] !== undefined) {
+        await openRow($, plan, index)
+      }
+    }
+  }
 
   if (element === 'band:bar' || element === 'band:head') {
     return () => toggleBoard($)
@@ -890,9 +913,9 @@ export const register: Register = (on, options) => {
     const plan = bandPlanOf(picked, mark)
     const isRainbowUp = isRainbow(picked, mark)
     const moves = isRainbowUp || hasWorking(plan)
-    // The desktop reads no frame: a redraw issues new button handles, and its press arrives with the old one. Its sprite animates itself.
-    const isDesktop = e.surface === 'desktop'
-    const now = moves && !isDesktop ? await read($, frame) : 0
+    // The desktop and vscode read no frame: a redraw issues new button handles, and a press arrives with the old one. Their sprite animates itself.
+    const isProportional = isProportionalSurface(e.surface)
+    const now = moves && !isProportional ? await read($, frame) : 0
     // "‹ Board" only while the pane is up and shows the plan file.
     const isFile = (await read($, file)) && (await $.ui.panes().catch(() => [])).some(pane => pane.id === PANE_ID && pane.isPlaced)
 
@@ -913,8 +936,9 @@ export const register: Register = (on, options) => {
       frame: isRainbowUp ? now : null,
       pose: bandPose(plan, now),
       spritePose: MASCOT[bandPoseIndex(plan, now)],
-      isProportional: isDesktop,
-      isMoving: isDesktop && hasWorking(plan),
+      isProportional,
+      hasClient: e.surface === 'terminal' || e.surface === 'desktop',
+      isMoving: isProportional && hasWorking(plan),
     }
 
     // Only a plan that moves (a rainbow, or a row In Progress for the mascot) reads the frame, so only then is the band
@@ -976,12 +1000,7 @@ export const register: Register = (on, options) => {
     const plan = await shownPlan($)
 
     if (plan !== undefined && typeof data?.open === 'number' && plan.rows[data.open] !== undefined) {
-      const index = data.open
-
-      await Promise.all([update($, menu, () => false), update($, card, () => ({ anchor: plan.anchor, index }))])
-      void loadUsage($, plan, index)
-      await syncAnimation($)
-      await refocus($, true)
+      await openRow($, plan, data.open)
     }
 
     return next(e)
@@ -1009,7 +1028,7 @@ export const register: Register = (on, options) => {
       const text = await read($, search)
       const now = Date.now()
       const rows = listedMatches(all, text).map(one => listedMatchOf(one, now))
-      const view = { rows, search: text, empty: text.trim() === '' ? 'No open plans.' : `No plan matches "${text}"`, columns: e.props.bodyColumns }
+      const view = { rows, search: text, empty: text.trim() === '' ? 'No open plans.' : `No plan matches "${text}"`, columns: e.props.bodyColumns, surface: e.surface }
 
       return steadily(`pane:${e.surface}`, view, () =>
         drawPicker($.ui.resolve(e), {
@@ -1047,7 +1066,7 @@ export const register: Register = (on, options) => {
       file: isFile ? await loadFile($, plan) : null,
       home: await $.env.get('HOME'),
       // Only a board with an In Progress card reads the frame, so only that is redrawn at each one.
-      frame: e.surface !== 'desktop' && !isFile && detail === null && hasWorking(plan) ? await read($, frame) : 0,
+      frame: !isProportionalSurface(e.surface) && !isFile && detail === null && hasWorking(plan) ? await read($, frame) : 0,
       isOpen: await read($, menu),
       hasClient: e.surface === 'terminal' || e.surface === 'desktop',
       surface: e.surface,
@@ -1063,11 +1082,7 @@ export const register: Register = (on, options) => {
       onLane: lane => void pressByKey($, `lane:${lane}:more`, e.surface),
       onMenu: () => void pressByKey($, 'menu:name', e.surface),
       onPick: anchor => void pressByKey($, `plan:${anchor}`, e.surface),
-      onCard: index =>
-        void Promise.all([update($, menu, () => false), update($, card, () => ({ anchor: plan.anchor, index }))])
-          .then(() => void loadUsage($, plan, index))
-          .then(() => syncAnimation($))
-          .then(() => refocus($, true)),
+      onCard: index => void openRow($, plan, index),
       onBack: () => void pressByKey($, 'back', e.surface),
       onFile: () => void pressByKey($, 'plan-file', e.surface),
     }))
