@@ -4,6 +4,7 @@
 
 <h3 align="center">
   <a href="#get-started">Get started</a> |
+  <a href="#where-it-runs">Where it runs</a> |
   <a href="#what-you-get">What you get</a> |
   <a href="#how-it-works">How it works</a> |
   <a href="#compared">Compared</a> |
@@ -33,6 +34,27 @@ Install plan-tracker and [plan-orchestrator](https://github.com/lijingwu2026/cla
 | Open the board | Press the bar, or type `/plan-tracker`. |
 | Pick a plan | `/plan-tracker` lists your open plans, newest first, with a search field. Typing also finds done and canceled plans. This needs a board command that lists several plans. A plain `PROGRESS.md` has one plan, so it opens its board. |
 | Use your own `PROGRESS.md` | Copy the table under [Try it](#try-it). plan-orchestrator is not needed. |
+
+## Where it runs
+
+| Place | Status | Tested on | Screenshot |
+|---|---|---|---|
+| Terminal (macOS) | Tested | Claude Code 2.1.301 | [terminal](docs/platform-terminal.png) |
+| Claude Desktop app (macOS) | Tested | Desktop 2.31226.1, which runs Claude Code 2.1.295 | [Desktop](docs/platform-desktop.png) |
+| VS Code extension | Tested in Cursor | Claude Code extension 2.1.300; VS Code itself is not tested | [Cursor](docs/platform-vscode.png) |
+| `claude -p`, Claude mobile, claude.ai web | Not tested | | |
+
+<img src="docs/platform-terminal.png" alt="Claude Code in a terminal window: the band for the demo plan Add CSV export, 3 of 8, above the prompt, and the board open on the right with its four lanes." width="100%">
+
+<sub>Terminal: the band above the prompt, and the board opened from it.</sub>
+
+<img src="docs/platform-desktop.png" alt="The Claude Desktop app: a Code session on the demo folder with the plan-tracker band above the prompt and the board open." width="100%">
+
+<sub>Claude Desktop: the same band and board in a Code session.</sub>
+
+<img src="docs/platform-vscode.png" alt="Cursor with the Claude Code panel: the plan-tracker band drawn as links above the prompt, and the board open." width="100%">
+
+<sub>VS Code extension, in Cursor: the band's name and progress are links; each card opens with Open ›.</sub>
 
 ## What you get
 
@@ -100,7 +122,8 @@ Change a status in the file and the board follows.
 - Polls the file about every 1.5 s; it does not use file-system events.
 - Shows the first table in the file with `task` and `status` columns, as one plan.
 - Every open session on the same project shows the pop-up and plays the chime when a task goes Done.
-- Tested on Claude Code 2.1.299 on macOS, in the terminal. The Claude Desktop app is not tested with this plugin; an earlier private build of the same code ran there.
+- Tested on macOS only; see [Where it runs](#where-it-runs) for versions.
+- In the VS Code extension, file paths in notes are plain text; they do not open when pressed.
 - Claude Code mods are an early-access feature.
 
 ## Troubleshooting
