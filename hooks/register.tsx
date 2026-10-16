@@ -211,6 +211,10 @@ async function announceFileDone($: EngineInterface, answer: Live) {
 
   lastStatuses = new Map((plan?.rows ?? []).map(row => [row.task, row.status]))
 
+  if (plan !== undefined && plan.anchor === (await read($, finished)) && plan.rows.some(isOpen)) {
+    await unmarkFinished($, plan.anchor)
+  }
+
   if (before === undefined || plan === undefined) {
     return
   }
@@ -735,6 +739,12 @@ async function markFinished($: EngineInterface, anchor: string) {
   await syncAnimation($)
 }
 
+/** The finished plan has tasks left again (reopened, or a task added) before the next prompt: the band draws it as it is. */
+async function unmarkFinished($: EngineInterface, mark: string) {
+  await Promise.all([update($, finished, () => null), update($, query, asked => (asked === mark ? '' : asked))])
+  await syncAnimation($)
+}
+
 /**
  * The plan `/plan-tracker` opens once the list is read: the one plan the board command printed with no `matches` (the board of a command
  * that treats `*` as a word, and of a plain board file), else the plan the words are (`directPick`); undefined for none.
@@ -1081,8 +1091,13 @@ export const register: Register = (on, options) => {
 
       const anchor = blocks.flatMap(block => finishedAnchor(block) ?? []).pop()
 
+      const mark = await read($, finished)
+
       if (anchor !== undefined) {
         await markFinished($, anchor)
+      } else if (mark !== null && blocks.some(block => block.startsWith(`PLAN-DONE ${mark} · `))) {
+        await unmarkFinished($, mark)
+        refreshInBackground($)
       } else if (blocks.length > 0 || commandMark !== '' && e.command.includes(commandMark)) {
         refreshInBackground($)
       }

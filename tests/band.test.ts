@@ -440,6 +440,24 @@ describe('plan-tracker band', () => {
     await band.unmount()
   })
 
+  test('a finished plan whose next PLAN-DONE has tasks left: the band draws it open again, before the next prompt', async ($, on) => {
+    const w = world(on, { bash: 'PLAN-DONE alpha · d1 oldest · 0 left' })
+    await $.session.start(SESSION)
+    const band = await mountBand($, 'terminal')
+
+    await $.tool.call({ tool: 'Bash', command: 'tracker done d1' })
+    expect(await rowOf(band)).toContain('13/13')
+
+    w.bash = 'PLAN-DONE beta · b1 · 2 left'
+    await $.tool.call({ tool: 'Bash', command: 'tracker done b1' })
+    expect(await rowOf(band), 'another plan with tasks left leaves the finished one as it is').toContain('13/13')
+
+    w.bash = 'PLAN-DONE alpha · d2 · 4 left'
+    await $.tool.call({ tool: 'Bash', command: 'tracker done d2' })
+    expect(await rowOf(band)).toContain('5/13')
+    await band.unmount()
+  })
+
   test('a PLAN-DONE with tasks left is no rainbow', async ($, on) => {
     const w = world(on, { bash: 'PLAN-DONE alpha · d1 oldest · 3 left' })
     await $.session.start(SESSION)

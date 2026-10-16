@@ -477,6 +477,23 @@ describe('the board file: a row going Done is a toast, a notice and a chime', ()
     await band.unmount()
   })
 
+  test('a finished board file with an open row again before the next prompt: the rainbow ends', FILE_MODE, async ($, on) => {
+    const { w } = watched(on, table(['a', 'Done'], ['b', 'In Progress']))
+
+    await $.session.start(SESSION)
+    const band = await mountBand($)
+
+    await w.clock.advance(3_000)
+    w.files = { [FILE]: table(['a', 'Done'], ['b', 'Done']) }
+    await w.clock.advance(3_000)
+    expect((await barColors(band)).some(color => RAINBOW.includes(color))).toBe(true)
+
+    w.files = { [FILE]: table(['a', 'Done'], ['b', 'Done'], ['c', 'Todo']) }
+    await w.clock.advance(3_000)
+    expect((await barColors(band)).some(color => RAINBOW.includes(color))).toBe(false)
+    await band.unmount()
+  })
+
   test('two rows going Done in one read: a toast each with the count falling, one chime', FILE_MODE, async ($, on) => {
     const { w } = watched(on, table(['a', 'In Progress'], ['b', 'In Progress'], ['c', 'Todo']))
 

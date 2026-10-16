@@ -118,7 +118,7 @@ Typed in [types/index.d.ts](../types/index.d.ts). It carries what the file does,
 
 A time is shown on the clock it was written in, so an offset counts; a time ending in `Z`, or with no offset, reads on this machine's clock. It reads `19:40` today and `Oct 11 19:40` on another day.
 
-With `board_command` set, the Done pop-up, chime and rainbow come from the command, not the file. A Bash result that holds a block starting `PLAN-DONE <anchor> · <task> · <n> left`, up to the next blank line, puts that block in the conversation and shows a pop-up `✅ <task> · <n> left`; the chime plays in the terminal; `0 left` turns the band's bar to a rainbow.
+With `board_command` set, the Done pop-up, chime and rainbow come from the command, not the file. A Bash result that holds a block starting `PLAN-DONE <anchor> · <task> · <n> left`, up to the next blank line, puts that block in the conversation and shows a pop-up `✅ <task> · <n> left`; the chime plays in the terminal; `0 left` turns the band's bar to a rainbow until your next prompt, or until a later block for the same plan has tasks left.
 
 A plain `PROGRESS.md` has no usage and no start time, so it draws no figures once a task is under way, and its task pages have none. It never shows a stalled task.
 
