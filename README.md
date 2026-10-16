@@ -67,7 +67,7 @@ Install plan-tracker and [plan-orchestrator](https://github.com/lijingwu2026/cla
 <img src="docs/band-done-2x.png" alt="The same band when the plan is finished: Add CSV export, Done, a rainbow bar, 8/8." width="100%">
 <sub>Once the last open task goes Done, the bar turns to a rainbow until your next prompt.</sub>
 
-- Above your prompt: the state word (`In progress`, `Idle` or `Done`), done out of total (`3/8`) and a bar.
+- Above your prompt: the state word (`In progress`, `Waiting for you`, `Idle` or `Done`), done out of total (`3/8`) and a bar. The plan reads `In progress` while Claude is working on it, even when no task is marked In Progress, and `Waiting for you` when the only tasks left wait on your check.
 - **A task is done** → a pop-up `✅ <task> · N left` and, in the terminal, a chime.
 - **You come back, or start a new session** → the band shows the file's state; the board has Claude's last recap.
 

@@ -5,9 +5,10 @@
  * Picking a plan in the band or in the pane switches both.
  *
  * The data is the board file (PROGRESS.md, read again every 1.5 s, so the board follows the file) or, with the setting
- * `board_command`, that command's JSON; read on session.start, on each prompt, after a Bash call that runs the command, and every
- * 10 s while the pane is open; one run is in flight at a time, and none holds a prompt or a Bash
- * result. With a `board_command`, `/plan-tracker` opens the pane at once on the list of the plans not Done or Canceled, latest updated first, under a
+ * `board_command`, that command's JSON; read on session.start, on each prompt, at each turn's start and end and each background
+ * agent's start and stop, after a Bash call that runs the command, and every 10 s while the pane is open; one run is in flight at a
+ * time, and none holds a prompt, a turn or a Bash result. While this session runs a turn or a background agent, its own plans (the
+ * board file's one plan; a command's plans marked `in_session: true`) read In progress. With a `board_command`, `/plan-tracker` opens the pane at once on the list of the plans not Done or Canceled, latest updated first, under a
  * search field that has the keys, with no text, whatever the surface says (a Desktop client may not have attached yet), and reads the list again
  * behind it; `/plan-tracker <words>` puts the words in the field, and opens the plan when the answer is in if they are its name or anchor or leave
  * one row. Typing filters every plan in the mod; Enter or a press on a row opens that plan, as do the band and the plan menus. A command that lists
@@ -33,18 +34,21 @@ import {
   doneHeader,
   failureText,
   finishedAnchor,
-  hasWorking,
+  isActive,
   isComplete,
   isOpen,
   isRainbow,
+  isWorking,
   listOf,
   listedMatches,
+  localIso,
   messageOf,
   movement,
   noBoardFile,
   parseBoard,
   parseProgress,
   planOf,
+  planStateOf,
   planStateText,
   truncate,
   settings,
@@ -52,8 +56,9 @@ import {
   usageArgv,
   boardArgv,
   commandMarkOf,
+  withWork,
 } from './board'
-import type { LaneKey } from './board'
+import type { LaneKey, Work } from './board'
 import type { FileView } from './draw'
 import { drawBand, drawPane, drawPicker, holdsSomething, isProportionalSurface, listedMatchOf, listedOf } from './draw'
 
@@ -100,6 +105,10 @@ const menu = atom({ plugin: 'plan-tracker', key: 'menu' } as const, false)
 const expanded = atom({ plugin: 'plan-tracker', key: 'expanded' } as const, [])
 /** Whether the band's plan list shows. */
 const bandMenu = atom({ plugin: 'plan-tracker', key: 'bandMenu' } as const, false)
+/** What of this session is at work: a main turn running, and its background agents not yet ended. */
+const working = atom({ plugin: 'plan-tracker', key: 'working' } as const, { turn: false, agents: [] })
+/** When `working` last went from something to nothing; null until it has. */
+const stoppedAt = atom({ plugin: 'plan-tracker', key: 'stoppedAt' } as const, null)
 
 /** The session's project root: where the board file and a relative path in a note are looked up. */
 async function projectRoot($: EngineInterface): Promise<string> {
@@ -358,11 +367,56 @@ function stopRefresh() {
 
 // ---------------------------------------------------------------- what is shown
 
-/** The board the tracker last answered, or undefined while there is none (no answer yet, or an error line). */
+/**
+ * The board the tracker last answered, with this session's work on its own plans (`withWork`), or undefined while there is none (no
+ * answer yet, or an error line). A drawing that reads it is redrawn when the work changes.
+ */
 async function boardOf($: EngineInterface): Promise<PlanBoard | undefined> {
   const answer = await read($, live)
 
-  return answer !== null && 'board' in answer ? answer.board : undefined
+  return answer !== null && 'board' in answer ? withWork(answer.board, await read($, working), await read($, stoppedAt)) : undefined
+}
+
+// ---------------------------------------------------------------- this session at work
+
+/**
+ * Changes what of this session is at work and redraws what reads it (the band too, with the pane closed); when that leaves nothing at
+ * work, `stoppedAt` becomes now. A change that changes nothing writes nothing.
+ */
+async function changeWork($: EngineInterface, change: (work: Work) => Work) {
+  const before = await read($, working)
+
+  if (JSON.stringify(change(before)) === JSON.stringify(before)) {
+    return
+  }
+
+  let was = before
+
+  await update($, working, current => {
+    was = current
+
+    return change(current)
+  })
+
+  if (isWorking(was) && !isWorking(await read($, working))) {
+    await update($, stoppedAt, () => localIso(Date.now()))
+  }
+
+  await syncAnimation($)
+}
+
+/** Ended agent states: `$.agent.list()` showing one of these, or not listing the agent at all, ends it here. */
+const ENDED = ['completed', 'failed', 'killed']
+
+/** Drops the background agents `$.agent.list()` shows ended or no longer lists. */
+async function pruneAgents($: EngineInterface) {
+  if ((await read($, working)).agents.length === 0) {
+    return
+  }
+
+  const running = new Set((await $.agent.list()).flatMap(agent => (ENDED.includes(agent.status) ? [] : [agent.id])))
+
+  await changeWork($, work => ({ ...work, agents: work.agents.filter(id => running.has(id)) }))
 }
 
 /** The plan picked (else the tracker's own choice). */
@@ -568,8 +622,8 @@ async function pickMatch($: EngineInterface, anchor: string) {
 }
 
 /**
- * Whether anything on screen moves: the band (the rainbow of a complete plan, the mascot while the plan has a row In
- * Progress) or the open pane (the mascot of an In Progress card).
+ * Whether anything on screen moves: the band (the rainbow of a complete plan, the mascot while the plan is at work) or the open
+ * pane (the mascots while the plan is at work).
  */
 async function animates($: EngineInterface): Promise<boolean> {
   const plan = await shownPlan($)
@@ -595,6 +649,19 @@ async function animates($: EngineInterface): Promise<boolean> {
   const { band, pane } = movement(plan, { finished: await read($, finished), isPaneUp, isBoard })
 
   return band || pane
+}
+
+/** The state text the band last drew, by surface, as `<anchor> <text>`. */
+const drawnStates = new Map<string, string>()
+
+/** Logs the state the band draws on `surface` when it differs from the one it drew last there: once per change, not per frame. */
+function noteState($: EngineInterface, surface: string, plan: PlanEntry, text: string) {
+  const key = `${plan.anchor} ${text}`
+
+  if (drawnStates.get(surface) !== key) {
+    drawnStates.set(surface, key)
+    void log($, 'state', null, { surface, plan: plan.anchor, state: planStateOf(plan), text })
+  }
 }
 
 /** The rows the pane last said it shows (`scroll.bodyRows`): logged with a lane press, for the Show less rule. */
@@ -844,6 +911,8 @@ export const register: Register = (on, options) => {
     }
 
     await projectRoot($)
+    // A turn or an agent whose end was missed does not stay at work past a restart.
+    await changeWork($, () => ({ turn: false, agents: [] })).catch(() => undefined)
     refreshInBackground($)
     startWatch($)
 
@@ -896,6 +965,51 @@ export const register: Register = (on, options) => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
+  // This session at work: a main turn runs from its turn.start to its turn.complete (a subagent's turn.complete carries `agentId` and
+  // is not the main turn's end); a background agent from its spawn to its SubagentStop, or until `$.agent.list()` shows it ended or gone.
+  // Each event reads the tracker again and redraws, the band too with the pane closed. A failure here must not hold a turn: `.catch`
+  // lets it through.
+  on('turn.start', async ($, e, next) => {
+    await changeWork($, work => ({ ...work, turn: true }))
+    await pruneAgents($)
+    refreshInBackground($)
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      await changeWork($, work => ({ ...work, turn: false }))
+    }
+
+    await pruneAgents($)
+    refreshInBackground($)
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('agent.spawn', async ($, e, next) => {
+    const result = await next(e)
+
+    // A Workflow's agents are not listed by `$.agent.list()` and are not counted; a foreground agent runs inside the main turn.
+    if (e.background && e.workflow === undefined && result.deny === undefined && result.agentId !== undefined) {
+      const id = result.agentId
+
+      await changeWork($, work => ({ ...work, agents: work.agents.includes(id) ? work.agents : [...work.agents, id] }))
+      refreshInBackground($)
+    }
+
+    return result
+  }).catch(($, e, next) => next(e))
+
+  on('classic.SubagentStop', async ($, e, next) => {
+    await changeWork($, work => ({ ...work, agents: work.agents.filter(id => id !== e.agent_id) }))
+    await pruneAgents($)
+    refreshInBackground($)
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) {
       return next(e)
@@ -912,7 +1026,7 @@ export const register: Register = (on, options) => {
     const mark = await read($, finished)
     const plan = bandPlanOf(picked, mark)
     const isRainbowUp = isRainbow(picked, mark)
-    const moves = isRainbowUp || hasWorking(plan)
+    const moves = isRainbowUp || isActive(plan)
     // The desktop and vscode read no frame: a redraw issues new button handles, and a press arrives with the old one. Their sprite animates itself.
     const isProportional = isProportionalSurface(e.surface)
     const now = moves && !isProportional ? await read($, frame) : 0
@@ -921,13 +1035,17 @@ export const register: Register = (on, options) => {
 
     const plans = (await boardOf($))?.plans ?? []
     const at = Date.now()
+    const stateText = planStateText(plan, at)
+
+    noteState($, e.surface, plan, stateText)
+
     // Everything the drawing is made of but its closures. It reads the session's other plans only through the plan list, the time only through
     // the plan's state text, and what the hooks below drew only when that holds something (their press handles are part of it).
     // `now` above is the animation frame; `at` is the time the state word's `since` is compared with.
     const view = {
       plan,
       plans: plans.map(one => listedOf(one, at)),
-      stateText: planStateText(plan, at),
+      stateText,
       columns: e.props.bodyColumns - BAND_MASCOT_SPACE,
       below: holdsSomething(below) ? below : null,
       maxRows: e.props.maxRows,
@@ -938,10 +1056,10 @@ export const register: Register = (on, options) => {
       spritePose: MASCOT[bandPoseIndex(plan, now)],
       isProportional,
       hasClient: e.surface === 'terminal' || e.surface === 'desktop',
-      isMoving: isProportional && hasWorking(plan),
+      isMoving: isProportional && isActive(plan),
     }
 
-    // Only a plan that moves (a rainbow, or a row In Progress for the mascot) reads the frame, so only then is the band
+    // Only a plan that moves (a rainbow, or a plan at work for the mascot) reads the frame, so only then is the band
     // redrawn at each one. The row gets what the mascot and its space leave. The same data draws the same tree, as the pane does.
     return steadily(`band:${e.surface}`, view, () =>
       drawBand($.ui.resolve(e), {
@@ -1065,8 +1183,8 @@ export const register: Register = (on, options) => {
       detail: isFile ? null : detail,
       file: isFile ? await loadFile($, plan) : null,
       home: await $.env.get('HOME'),
-      // Only a board with an In Progress card reads the frame, so only that is redrawn at each one.
-      frame: !isProportionalSurface(e.surface) && !isFile && detail === null && hasWorking(plan) ? await read($, frame) : 0,
+      // Only a board of a plan at work reads the frame, so only that is redrawn at each one.
+      frame: !isProportionalSurface(e.surface) && !isFile && detail === null && isActive(plan) ? await read($, frame) : 0,
       isOpen: await read($, menu),
       hasClient: e.surface === 'terminal' || e.surface === 'desktop',
       surface: e.surface,

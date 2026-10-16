@@ -325,11 +325,15 @@ function drawPlanList(kit: Kit, { plans, plan, columns, now, listKey, pickKey, o
   })
 }
 
-/** A plan of the board command's list as a row of it: the bare state word, `n/m` and when it was last updated (`sinceText`). */
+/**
+ * A plan of the board command's list as a row of it: the bare state word (Waiting for you for an Idle plan the command marks `waiting`),
+ * `n/m` and when it was last updated (`sinceText`).
+ */
 export const listedMatchOf = (one: PlanMatch, now: number): ListItem => {
   const time = one.updated === undefined ? undefined : sinceText(one.updated, now)
+  const state = one.waiting === true && one.state === 'Idle' ? 'Waiting for you' : one.state
 
-  return { anchor: one.anchor, name: one.name, state: one.state, stateText: one.state, count: `${one.done}/${one.total}`, ...(time === undefined ? {} : { time }) }
+  return { anchor: one.anchor, name: one.name, state, stateText: state, count: `${one.done}/${one.total}`, ...(time === undefined ? {} : { time }) }
 }
 
 type PickerArgs = {

@@ -2,7 +2,7 @@
  * The pure part of the mod: how the board command is called and what it prints (the
  * PLAN-DONE block, the `--json` board), how a status is colored, how wide a string is on
  * screen, and what the band and the board show. Nothing here draws or touches `$`.
- * It shows only what the tracker records.
+ * It shows what the tracker records, and whether its own session is at work on its plans (`withWork`).
  */
 import type { CardRef, PlanBoard, PlanEntry, PlanMatch, PlanRow, PlanStatus, PlanTotals, PlanUsage } from '../types'
 
@@ -104,7 +104,10 @@ function totalsOf(value: unknown): PlanTotals | undefined {
 
 const MATCH_STATES: readonly PlanMatch['state'][] = ['In progress', 'Idle', 'Done', 'Canceled']
 
-/** The plans the board command lists (`matches`): an entry of another shape is dropped; none left is no list. */
+/**
+ * The plans the board command lists (`matches`): an entry of another shape is dropped; none left is no list. A plan waiting for the
+ * person keeps one of the four words and carries `waiting: true`.
+ */
 function matchesOf(value: unknown): PlanMatch[] | undefined {
   const out = (Array.isArray(value) ? value : []).flatMap((one: Record<string, unknown> | null): PlanMatch[] => {
     const anchor = asText(one?.anchor)
@@ -115,7 +118,7 @@ function matchesOf(value: unknown): PlanMatch[] | undefined {
     const updated = asText(one?.updated)
 
     return anchor !== undefined && name !== undefined && state !== undefined && isNumber(done) && isNumber(total)
-      ? [{ anchor, name, state, done, total, ...(updated === undefined ? {} : { updated }) }]
+      ? [{ anchor, name, state, done, total, ...(updated === undefined ? {} : { updated }), ...(one?.waiting === true ? { waiting: true as const } : {}) }]
       : []
   })
 
@@ -176,7 +179,8 @@ export function listOf(board: PlanBoard): PlanMatch[] {
           return {
             anchor: plan.anchor,
             name: plan.name,
-            state: state === 'Stalled' ? 'In progress' : state,
+            state: state === 'Stalled' ? 'In progress' : state === 'Waiting for you' ? 'Idle' : state,
+            ...(state === 'Waiting for you' ? { waiting: true as const } : {}),
             ...countOf(plan),
             ...(plan.updated === undefined ? {} : { updated: plan.updated }),
           }
@@ -225,6 +229,7 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
     ...(totalsOf(plan.usage_totals) === undefined ? {} : { usage_totals: totalsOf(plan.usage_totals) as PlanTotals }),
     ...(asText(plan.recap) === undefined ? {} : { recap: asText(plan.recap) as string }),
     ...(asText(plan.recap) === undefined || asText(plan.recap_updated) === undefined ? {} : { recap_updated: asText(plan.recap_updated) as string }),
+    ...(typeof plan.in_session === 'boolean' ? { in_session: plan.in_session } : {}),
     rows: (plan.rows as Record<string, unknown>[]).map((row): PlanRow => {
       const note = asText(row.note)
       const route = asText(row.route)
@@ -281,18 +286,23 @@ export function countOf(plan: PlanEntry): { done: number; total: number } {
 export const countText = (plan: PlanEntry): string => `${countOf(plan).done}/${countOf(plan).total}`
 
 /**
- * A plan's state word: `Done` once closed, `In progress` while a row runs, `Stalled` when every running row is stalled, else `Idle`.
- * There is no "Todo" state: a plan nobody started is Idle. `Canceled` (an abandoned plan) comes only from a board command's list.
+ * A plan's state word: `Done` once closed, `In progress` while a row runs or its session works on it, `Stalled` when every running row
+ * is stalled, `Waiting for you` when nothing runs and a row waits on the person's check, else `Idle`. There is no "Todo" state: a plan
+ * nobody started is Idle. `Canceled` (an abandoned plan) comes only from a board command's list.
  */
-export type PlanState = 'In progress' | 'Stalled' | 'Idle' | 'Done' | 'Canceled'
+export type PlanState = 'In progress' | 'Stalled' | 'Waiting for you' | 'Idle' | 'Done' | 'Canceled'
 
 /** The state words, widest first, for aligning a column of them. */
 export const STATE_COLUMNS = 'In progress'.length
 
-/** One color per state: the In Progress lane's, gray like the Todo lane, the Done lane's, dim gray like a Canceled row. */
+/**
+ * One color per state: the In Progress lane's, gray like the Todo lane (Stalled and Idle), the "needs you" color (Waiting for you), the
+ * Done lane's, dim gray like a Canceled row.
+ */
 export const STATE_STYLE: Record<PlanState, Style> = {
   'In progress': STYLE['In Progress'],
   Stalled: STYLE.Todo,
+  'Waiting for you': { color: NEEDS_YOU_COLOR },
   Idle: STYLE.Todo,
   Done: STYLE.Done,
   Canceled: STYLE.Canceled,
@@ -300,23 +310,33 @@ export const STATE_STYLE: Record<PlanState, Style> = {
 
 /**
  * Done = the plan is closed (the tracker gave `finished`, or every row is Done or Canceled with one Done). In progress = open,
- * with a row In Progress or Verifying. Stalled = open, with running rows that are all stalled. Idle = open and nothing running (rows
- * Todo, Needs Verification or Blocked, or no row started).
+ * with a row In Progress or Verifying that is not stalled, or its session at work (`working`). Stalled = open, not worked on, with
+ * running rows that are all stalled. Waiting for you = open, nothing running, and a Needs Verification row waits on the person
+ * (`needsYou`). Idle = open and nothing running (rows Todo, Needs Verification checked by another, or Blocked, or no row started).
  */
 export function planStateOf(plan: PlanEntry): PlanState {
   if (plan.finished !== undefined || isComplete(plan)) {
     return 'Done'
   }
 
-  return hasInProgress(plan) ? (hasWorking(plan) ? 'In progress' : 'Stalled') : 'Idle'
+  if (isActive(plan)) {
+    return 'In progress'
+  }
+
+  return hasInProgress(plan) ? 'Stalled' : plan.rows.some(needsYou) ? 'Waiting for you' : 'Idle'
 }
+
+/** The later of two tracker times; either may be absent. */
+const laterOf = (a: string | undefined, b: string | undefined): string | undefined =>
+  a === undefined ? b : b === undefined ? a : Date.parse(b) > Date.parse(a) ? b : a
 
 /**
  * The state word as the header, the band and the plan list write it, and the one place the board shows a plan's time: `Done at 21:40`
  * (the plan's `finished`, else its `updated`), `Stalled since 19:23` (the newest `stalled_since` of its running rows), `Idle since 19:40`
- * (the plan's `idle_since`); a time on another day reads `Oct 11 19:23`. Plain `Done`, `Stalled` or `Idle` when the time is not there or
- * not a clock time (a `PROGRESS.md` has none); `In progress` is always the bare label. Colors follow the bare state (`planStateOf`); the
- * room it takes is this text's.
+ * and `Waiting for you since 19:40` (the later of the plan's `idle_since` and `stopped_at`, when its session last stopped); a time on
+ * another day reads `Oct 11 19:23`. Plain `Done`, `Stalled`, `Idle` or `Waiting for you` when the time is not there or not a clock time
+ * (a `PROGRESS.md` has none until its session has stopped once); `In progress` is always the bare label. Colors follow the bare state
+ * (`planStateOf`); the room it takes is this text's.
  */
 export function planStateText(plan: PlanEntry, now: number = Date.now()): string {
   const state = planStateOf(plan)
@@ -335,7 +355,8 @@ export function planStateText(plan: PlanEntry, now: number = Date.now()): string
     return at === undefined ? state : `${state} since ${at}`
   }
 
-  const at = state === 'Idle' && plan.idle_since !== undefined ? sinceText(plan.idle_since, now) : undefined
+  const since = state === 'Idle' || state === 'Waiting for you' ? laterOf(plan.idle_since, plan.stopped_at) : undefined
+  const at = since === undefined ? undefined : sinceText(since, now)
 
   return at === undefined ? state : `${state} since ${at}`
 }
@@ -640,8 +661,42 @@ export const hasInProgress = (plan: PlanEntry): boolean => plan.rows.some(isRunn
 /** Whether a running row is stalled: the board command says no session is working on it (`stalled_since`). */
 export const isStalled = (row: PlanRow): boolean => isRunning(row) && row.stalled_since !== undefined
 
-/** Whether a row of the plan is running and not stalled: what moves the band's mascot and the cards'. */
+/** Whether a row of the plan is running and not stalled: what moves the cards' mascot. */
 export const hasWorking = (plan: PlanEntry): boolean => plan.rows.some(row => isRunning(row) && !isStalled(row))
+
+/** Whether the plan is at work: a running row that is not stalled, or its session working on it. What reads In progress and moves the band's mascot. */
+export const isActive = (plan: PlanEntry): boolean => hasWorking(plan) || plan.working === true
+
+/** What of this session is at work: a main turn, and the ids of its background agents not yet ended. */
+export type Work = { turn: boolean; agents: string[] }
+
+/** Whether any of it is at work. */
+export const isWorking = (work: Work): boolean => work.turn || work.agents.length > 0
+
+/** `ms` as an ISO time on this machine's clock with its offset, as the tracker writes times (`sinceText` prints its clock part as written). */
+export function localIso(ms: number): string {
+  const at = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const offset = -at.getTimezoneOffset()
+
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}${offset < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`
+}
+
+/** The board with this session's work on its own plans (`in_session: true`): `working` while it works, `stopped_at` once it has stopped. */
+export function withWork(board: PlanBoard, work: Work, stoppedAt: string | null): PlanBoard {
+  const isOn = isWorking(work)
+
+  if (!isOn && stoppedAt === null) {
+    return board
+  }
+
+  return {
+    ...board,
+    plans: board.plans.map(plan =>
+      plan.in_session !== true ? plan : { ...plan, ...(isOn ? { working: true as const } : {}), ...(stoppedAt === null ? {} : { stopped_at: stoppedAt }) },
+    ),
+  }
+}
 
 /** Rows of the plan still to do: not Done, not Canceled. */
 export const openCount = (plan: PlanEntry): number => plan.rows.filter(isOpen).length
@@ -951,14 +1006,14 @@ export const BAND_MASCOT_SPACE = BAND_MASCOT_COLUMNS + 1
 export const bandMascotAt = (frame: number): string => BAND_MASCOT[Math.floor(frame / MASCOT_EVERY) % BAND_MASCOT.length] ?? BAND_MASCOT[0]
 
 /**
- * The band mascot's pose: arms up and still when the plan is complete (the rainbow), moving while a row of the plan is
- * In Progress, else arms down and still.
+ * The band mascot's pose: arms up and still when the plan is complete (the rainbow), moving while the plan is at work
+ * (`isActive`), else arms down and still.
  */
 export const bandPose = (plan: PlanEntry, frame: number): string => BAND_MASCOT[bandPoseIndex(plan, frame)] ?? BAND_MASCOT[0]
 
 /** Which of the two poses the band's mascot is in: the same choice `bandPose` makes, as an index (the desktop draws the card sprite's pose of that index). */
 export const bandPoseIndex = (plan: PlanEntry, frame: number): 0 | 1 =>
-  isComplete(plan) ? 1 : hasWorking(plan) ? (Math.floor(frame / MASCOT_EVERY) % 2 === 0 ? 0 : 1) : 0
+  isComplete(plan) ? 1 : isActive(plan) ? (Math.floor(frame / MASCOT_EVERY) % 2 === 0 ? 0 : 1) : 0
 
 /** Columns the mascot and the space after it take on a card. */
 export const MASCOT_SPACE = MASCOT_COLUMNS + 1
@@ -977,15 +1032,15 @@ export const detailOf = (plan: PlanEntry, open: CardRef | null): number | null =
 export const isRainbow = (plan: PlanEntry, finished: string | null): boolean => finished === plan.anchor && isComplete(bandPlanOf(plan, finished))
 
 /**
- * What moves on screen: the band when it draws the rainbow of a finished plan or the plan has an In Progress row that is not stalled
- * (its mascot), the pane's mascots while it is up with the board and such a card. A complete plan nothing finished stands still.
+ * What moves on screen: the band when it draws the rainbow of a finished plan or the plan is at work (`isActive`: its mascot), the
+ * pane's mascots while it is up with the board and the plan is at work. A complete plan nothing finished stands still.
  */
 export function movement(plan: PlanEntry, view: { finished: string | null; isPaneUp: boolean; isBoard: boolean }): { band: boolean; pane: boolean } {
   const drawn = bandPlanOf(plan, view.finished)
 
   return {
-    band: isRainbow(plan, view.finished) || hasWorking(drawn),
-    pane: view.isPaneUp && view.isBoard && hasWorking(plan),
+    band: isRainbow(plan, view.finished) || isActive(drawn),
+    pane: view.isPaneUp && view.isBoard && isActive(plan),
   }
 }
 
@@ -1886,7 +1941,8 @@ export function parseProgress(text: string, file: string, name: string): { board
 
   // A `Recap: <text>` line above the table is the plan's recap; the file says when it was written nowhere, so it has no time.
   const recap = lines.slice(0, start).map(line => /^Recap:\s*(\S.*?)\s*$/i.exec(line)?.[1]).find(one => one !== undefined)
-  const plan: PlanEntry = { anchor: 'progress', name: title ?? name, goal: '', plan_file: file, ...(recap === undefined ? {} : { recap }), rows }
+  // The file's one plan has no flag to say whose it is: it is this session's, so a turn reads In progress on it.
+  const plan: PlanEntry = { anchor: 'progress', name: title ?? name, goal: '', plan_file: file, in_session: true, ...(recap === undefined ? {} : { recap }), rows }
 
   return { board: { selected: 'progress', message: null, plans: [plan] } }
 }

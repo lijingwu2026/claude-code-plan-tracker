@@ -92,12 +92,25 @@ export type PlanEntry = {
   recap?: string
   /** When the recap was written, ISO text. Absent when the recap has no time (one read from PROGRESS.md has none). */
   recap_updated?: string
+  /**
+   * Given by a board command: true for a plan this session works on, false for one added because the person picked or searched it. Only a
+   * plan with `in_session: true` reads In progress while this session works; a plan without the key keeps the state its rows give. A
+   * `PROGRESS.md` has one plan, which counts as this session's (true).
+   */
+  in_session?: boolean
+  /**
+   * Set by the mod, never by a board command, on a plan with `in_session: true`: `working` while this session runs a main turn or has a
+   * background agent not yet ended; `stopped_at` when that last stopped (ISO, this machine's clock and offset).
+   */
+  working?: true
+  stopped_at?: string
   rows: PlanRow[]
 }
 
 /**
  * One plan of the list `/plan-tracker` draws, as the board command lists it for the query `*`: a light line with the plan's state word
  * (`Canceled` for an abandoned plan), `done` of `total` tasks, and when it was last updated (absent when no row has a time).
+ * `waiting` is true when nothing runs and a Needs Verification row waits on the person: the list draws it as Waiting for you.
  */
 export type PlanMatch = {
   anchor: string
@@ -106,6 +119,7 @@ export type PlanMatch = {
   done: number
   total: number
   updated?: string
+  waiting?: true
 }
 
 /**
@@ -155,6 +169,10 @@ declare module 'claude-code' {
       expanded: string[]
       /** Whether the band's plan list shows. */
       bandMenu: boolean
+      /** What of this session is at work: a main turn running, and the ids of its background agents not yet ended. */
+      working: { turn: boolean; agents: string[] }
+      /** When `working` last went from something to nothing (ISO, this machine's clock and offset); null until it has. */
+      stoppedAt: string | null
     }
   }
 }

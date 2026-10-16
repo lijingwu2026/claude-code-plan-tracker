@@ -1,4 +1,4 @@
-import type { CommandRunInput, EngineInterface, On, PromptOrigin, PromptSubmitInput, RenderElement, RenderInput, RenderSurface, UiPane } from 'claude-code'
+import type { AgentInfo, CommandRunInput, EngineInterface, On, PromptOrigin, PromptSubmitInput, RenderElement, RenderInput, RenderSurface, UiPane } from 'claude-code'
 import { mock } from 'claude-code/testing'
 import type { MockClock } from 'claude-code/testing'
 
@@ -44,6 +44,19 @@ export function localTime(daysAgo: number, hour: number, minute: number): string
 
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(hour)}:${pad(minute)}:30${zone}`
 }
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/** An ISO time for `ms`, written on this machine's clock with its offset as the tracker writes it (`2026-10-16T22:38:00+09:00`). */
+export function isoAt(ms: number): string {
+  const at = new Date(ms)
+  const offset = -at.getTimezoneOffset()
+
+  return `${at.getFullYear()}-${pad2(at.getMonth() + 1)}-${pad2(at.getDate())}T${pad2(at.getHours())}:${pad2(at.getMinutes())}:${pad2(at.getSeconds())}${offset < 0 ? '-' : '+'}${pad2(Math.floor(Math.abs(offset) / 60))}:${pad2(Math.abs(offset) % 60)}`
+}
+
+/** `19:23`: the clock time of `ms` on this machine, as the board prints a time that is today. */
+export const clockOf = (ms: number): string => `${pad2(new Date(ms).getHours())}:${pad2(new Date(ms).getMinutes())}`
 
 /** `Oct 9` for the day `daysAgo` days before today. */
 export function dayName(daysAgo: number): string {
@@ -176,6 +189,12 @@ export type World = {
   audioDenial: string | null
   /** a reason `$.session.surfaces()` fails, or null */
   surfacesDenial: string | null
+  /** a reason `$.ui.panes()` fails, or null */
+  panesDenial: string | null
+  /** what `$.agent.list()` answers: the session's agents */
+  agents: AgentInfo[]
+  /** the id the next `agent.spawn` answers */
+  spawnedId: string
   clock: MockClock
   /** How many times the band was drawn: counted here, where the draw reaches the world beneath the plugin, in memory, with no file. */
   bandDraws: number
@@ -188,9 +207,9 @@ export const SURVEY: RenderElement = { type: 'Text', children: ['SURVEY'] }
 
 /**
  * The log stages that only measure (what the timer saw, which key was pressed, what was typed in the search field, a focus move that
- * did not take: the test kit has no `ui.focus`, so every one is logged here).
+ * did not take: the test kit has no `ui.focus`, so every one is logged here; the state text the band drew).
  */
-export const DIAGNOSTIC_STAGES = ['timer', 'press', 'input', 'focus']
+export const DIAGNOSTIC_STAGES = ['timer', 'press', 'input', 'focus', 'state']
 
 const FINISHED_RUN = { isStdoutTruncated: false, isStderrTruncated: false }
 
@@ -235,6 +254,9 @@ export function world(
     toastDenial: null,
     audioDenial: null,
     surfacesDenial: null,
+    panesDenial: null,
+    agents: [],
+    spawnedId: 'agent-1',
     clock: mock.clock(on, { now: 0 }),
     bandDraws: 0,
     /** The log lines of the mod's events; the diagnostics (`DIAGNOSTIC_STAGES`) are in `diagnostics`. */
@@ -282,7 +304,12 @@ export function world(
 
     return { value: undefined }
   })
-  on('ui.panes', () => ({ value: w.panes }))
+  on('ui.panes', () => (w.panesDenial === null ? { value: w.panes } : { deny: w.panesDenial }))
+  on('agent.list', () => ({ value: w.agents }))
+  on('agent.spawn', () => ({ model: 'claude-sonnet', agentId: w.spawnedId }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  on('classic.SubagentStop', () => ({}))
   on('fs.read', ($, e) => {
     w.reads.push(e.path)
 

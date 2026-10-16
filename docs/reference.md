@@ -21,9 +21,10 @@ Shown in the header, the band and the plan list. The plan's only time is in the 
 
 | Looks like | State | When | Time shown |
 |---|---|---|---|
-| <img src="states/plan-in-progress.png" alt="In progress plan header" height="16"> | In progress | A task is In Progress or Verifying and is not marked stalled | none |
-| <img src="states/plan-stalled.png" alt="Stalled plan header" height="16"> | Stalled | Every In Progress or Verifying task is stalled: your board command marks it with `stalled_since`, meaning no session is working on it. A plain `PROGRESS.md` has no session data and never shows this | `Stalled since 19:23`, the newest `stalled_since` |
-| <img src="states/plan-idle.png" alt="Idle plan header" height="16"> | Idle | No task is In Progress or Verifying, including a plan nothing has started | `Idle since 19:40`, from `idle_since`; plain `Idle` without it |
+| <img src="states/plan-in-progress.png" alt="In progress plan header" height="16"> | In progress | A task is In Progress or Verifying and is not marked stalled; or Claude is working on the plan now: this session runs a turn or a background agent, and the plan is this session's (the one plan of a `PROGRESS.md`; with a board command, a plan sent with `in_session: true`). Agents a Workflow starts are not counted | none |
+| <img src="states/plan-stalled.png" alt="Stalled plan header" height="16"> | Stalled | Every In Progress or Verifying task is stalled and this session is not working on the plan: your board command marks a task with `stalled_since`, meaning no session is working on it. A plain `PROGRESS.md` has no session data and never shows this | `Stalled since 19:23`, the newest `stalled_since` |
+| | Waiting for you | Nothing is In Progress or Verifying, and a Needs Verification task has you as its checker or its executor. Drawn in the colour of the `◆ needs you` marker | `Waiting for you since 19:40`, the later of `idle_since` and when this session last stopped working; plain without either |
+| <img src="states/plan-idle.png" alt="Idle plan header" height="16"> | Idle | No task is In Progress or Verifying and none waits on you, including a plan nothing has started | `Idle since 19:40`, the later of `idle_since` and when this session last stopped working; plain `Idle` without either |
 | <img src="states/plan-done.png" alt="Done plan header" height="16"> | Done | Every task is Done or Canceled (one at least Done), or your board command sends `finished` | `Done at 21:40`, from `finished`, else `updated`; plain `Done` with neither |
 
 `Plan file ›` in the header and the band opens the plan file as a page, drawn as Markdown. For a plain `PROGRESS.md` that is the file itself.
@@ -91,7 +92,7 @@ Claude Code asks for these when you enable the plugin. Leave `board_command` and
 | `usage_command` | empty | A command that records a task's time and cost when its page opens; the board command then returns them. Placeholders: `{session}`, `{anchor}` (the plan), `{index}` (the task's row) and `{task}`. |
 | `your_name` | empty | A task whose executor or checker is this name is shown as `you`, and the page of a task you run yourself has no time, tokens or cost. The word `you` always counts. |
 
-With `board_command` set, the file is not polled. The board is read at session start, on each prompt, after a Bash call that runs the command, and every 10 s while the pane is open.
+With `board_command` set, the file is not polled. The board is read at session start, on each prompt, at each turn's start and end, when a background agent starts or stops, after a Bash call that runs the command, and every 10 s while the pane is open.
 
 ## Board command JSON
 
@@ -102,10 +103,11 @@ Typed in [types/index.d.ts](../types/index.d.ts). It carries what the file does,
 | `plans[]` | Required. One entry per plan. With more than one, `▾` after the plan name opens the plan list in the band and the header. |
 | `selected` | The anchor of the plan shown first. |
 | `message` | A line above the board, or alone when no plan can be drawn. |
-| `matches[]` | The plan list for the query `*`, latest updated first, each `{anchor, name, state, done, total}` and `updated` (ISO, shown beside the count) when it has one. `state` is `In progress`, `Idle`, `Done` or `Canceled`. `/plan-tracker` lists them under a search field, each pressable; a press opens that plan, and the next queries are its `anchor`, whose answer must hold the plan in `plans[]`. Without `matches[]`, two or more `plans[]` are listed instead; one plan opens its board. |
+| `matches[]` | The plan list for the query `*`, latest updated first, each `{anchor, name, state, done, total}` and `updated` (ISO, shown beside the count) when it has one. `state` is `In progress`, `Idle`, `Done` or `Canceled`; `waiting: true` on an `Idle` entry draws it as `Waiting for you` (an entry whose `state` is any other word is dropped). `/plan-tracker` lists them under a search field, each pressable; a press opens that plan, and the next queries are its `anchor`, whose answer must hold the plan in `plans[]`. Without `matches[]`, two or more `plans[]` are listed instead; one plan opens its board. |
 | plan `anchor`, `rows[]` | Required. |
 | plan `name`, `plan_file`, `started` | The name, the file `Plan file ›` opens, and when the first task started. |
 | plan `finished`, `updated`, `idle_since` | ISO times behind the state word (see Plan states). |
+| plan `in_session` | `true` for a plan this session works on, `false` for one added because the person picked or searched it. Only a plan with `in_session: true` reads `In progress` while this session runs a turn or a background agent; without the key, the state comes from the tasks alone. |
 | plan `usage_totals` | `tokens` and `est. cost` under the plan name. They are drawn once a task has left Todo or the plan has `started`; before that the plan reads `Not started yet`. |
 | plan `recap`, `recap_updated` | The recap and when it was written: `Recap · updated 12 min ago`. |
 | task `task`, `status` | Required. `status` is one of the seven statuses above, spelled as there. |
@@ -139,4 +141,4 @@ A plain `PROGRESS.md` has no usage and no start time, so it draws no figures onc
 
 ## What it writes
 
-Nothing in your project. It appends one JSON line to `~/.claude/mods-logs/plan-tracker.jsonl` for key presses, each change in the search field (its length, not its text), `/plan-tracker` runs, Done notices, errors and a few one-off lines, and never rotates the file.
+Nothing in your project. It appends one JSON line to `~/.claude/mods-logs/plan-tracker.jsonl` for key presses, each change in the search field (its length, not its text), each change of the state word the band draws (the plan's anchor and the word), `/plan-tracker` runs, Done notices, errors and a few one-off lines, and never rotates the file.

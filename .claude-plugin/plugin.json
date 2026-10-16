@@ -1,6 +1,6 @@
 {
   "name": "plan-tracker",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "A live board of your approved plan: which steps are done, running, blocked or waiting on you.",
   "types": "./types/index.d.ts",
   "author": {

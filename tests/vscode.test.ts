@@ -515,3 +515,34 @@ describe('vscode: text is cut to the characters Cursor fits, not to its column c
     await pane.unmount()
   })
 })
+
+describe('vscode 0.7.5: the longest state text, Waiting for you since <time>', () => {
+  /** A real plan name, nothing running and your check waiting: the widest state text the band draws. */
+  const WAITING: PlanBoard = {
+    ...BOARD,
+    plans: [
+      {
+        ...BOARD.plans[0]!,
+        name: REAL_NAME,
+        idle_since: new Date(Date.now() - 60_000).toISOString(),
+        rows: [ALPHA_ROWS[0]!, ALPHA_ROWS[5]!],
+      },
+    ],
+  }
+
+  test('one plan at the width Cursor reported: "<state>  n/m" is whole, the name gives way, and the rules hold', async ($, on) => {
+    world(on, ['vscode'], { fixture: WAITING })
+    await $.session.start(SESSION)
+    const band = await mountBand($, 'vscode')
+    const tree = (await band.drawn()) as unknown as Node
+    const head = (await band.find({ key: 'band:head' })) as unknown as Node | undefined
+    const bar = (await band.find({ key: 'band:bar' })) as unknown as Node | undefined
+    const state = planStateText(WAITING.plans[0]!, Date.now())
+
+    expect(state).toStartWith('Waiting for you since ')
+    expect(clickText(bar)).toBe(`${state}  1/2`)
+    expect(displayWidth(clickText(head)) + 1 + displayWidth(clickText(bar))).toBeLessThanOrEqual(bandRoom(CURSOR_COLUMNS))
+    expect(breaches(tree)).toEqual(NO_BREACH)
+    await band.unmount()
+  })
+})
