@@ -143,6 +143,9 @@ const GAP = `${NBSP}${NBSP}`
 /** Markdown's special characters escaped, so a name is drawn as written. */
 const escapeMarkdown = (text: string) => text.replace(/[\\`*_[\]<>~&]/g, '\\$&')
 
+/** Text a line cannot break: no-break spaces, and a word joiner between characters (a hyphen or an arrow is a break otherwise). */
+const unbreakable = (text: string) => Array.from(text.replace(/ /g, NBSP)).join('\u2060')
+
 /** The address of a vscode band link: the mod answers it by the Markdown's key (`ui.press`), and `.invalid` opens nowhere. */
 const bandHref = (key: string) => `https://plan-tracker.invalid/${key.split(':').join('/')}`
 
@@ -387,10 +390,10 @@ type QuietBandArgs = {
 
 /**
  * vscode's band row: no part of it can be an invisible click area there (no Client; Svg and Box take no press), so the click
- * targets are pressable Markdown links (underlined, no border). The mascot, the dot (coloured), then with one plan `<name>  <state>  n/m` as
- * one target keyed `band:head` (the board); with two plans or more `<name> ▾` keyed `band:plans` (the plan list) and `<state>  n/m` keyed
- * `band:bar` (the board); then the bar (a picture, no press) and "Plan file ›". The texts are cut by count to the room `bandFit` leaves, and
- * each sits in a Box one row high that hides what overflows, so it is never two lines. A press is answered by its key (`actionFor`).
+ * targets are pressable Markdown links (underlined, no border). The mascot, the dot (coloured), then the name: with one plan `<name>` keyed
+ * `band:head` (the board), with two plans or more `<name> ▾` keyed `band:plans` (the plan list); then `<state>  n/m` keyed `band:bar` (the
+ * board), which never shrinks; then the bar (a picture, no press) and "Plan file ›". The texts are cut by count to the room `bandFit` leaves,
+ * use no-break spaces, and sit in Boxes that clip what overflows, so the band is one line. A press is answered by its key (`actionFor`).
  */
 function drawQuietBandRow(kit: Kit, a: QuietBandArgs): RenderElement {
   const { Box, Text, Markdown } = kit
@@ -401,22 +404,31 @@ function drawQuietBandRow(kit: Kit, a: QuietBandArgs): RenderElement {
   const chars = vscodeChars(a.columns + BAND_MASCOT_SPACE) - BAND_SPRITE_CELLS - QUIET_FRAME_CHARS
   const fit = bandFit(a.plan, chars, a.hasChoice, displayWidth(fileLabel), a.now)
   const tail = `${fit.hasState ? `${fit.stateText}${GAP}` : ''}${fit.count}`
-  const targets = a.hasChoice
-    ? [
-        { key: 'band:plans', text: `${fit.name} ▾`, press: a.onMenu },
-        { key: 'band:bar', text: tail, press: a.onBar },
-      ]
-    : [{ key: 'band:head', text: `${fit.name}${GAP}${tail}`, press: a.onBar }]
+  // The name may be cut at the row's edge; its ▾, the state and the count never shrink, so they stay whole as in the terminal.
+  const targets = [
+    a.hasChoice ? { key: 'band:plans', text: fit.name, press: a.onMenu, isFixed: false, mark: '▾' } : { key: 'band:head', text: fit.name, press: a.onBar, isFixed: false },
+    { key: 'band:bar', text: tail, press: a.onBar, isFixed: true },
+  ]
   const { done, total } = countOf(a.plan)
 
-  const target = ({ key, text, press }: { key: string; text: string; press: () => void }) => {
+  // No height clamp: the Markdown's own root scrolls (overflow-y auto) when its line is taller than the Box, and Cursor shows that scrollbar.
+  // The text cannot break (`unbreakable`), so it stays one line; what does not fit is clipped at the Box's edge.
+  const target = ({ key, text, press, isFixed, mark }: { key: string; text: string; press: () => void; isFixed: boolean; mark?: string }) => {
     const href = bandHref(key)
-
-    return (
-      <Box key={`${key}:box`} height={1} overflow="hidden" flexShrink={1} minWidth={0} marginRight={1}>
-        <Markdown key={key} text={`[${escapeMarkdown(text)}](${href})`} pressableLinks={[href]} onLinkPress={press} />
+    const link = (
+      <Box key={`${key}:box`} overflow="hidden" flexShrink={isFixed ? 0 : 1} minWidth={isFixed ? undefined : 0} marginRight={mark === undefined ? 1 : 0}>
+        <Markdown key={key} text={`[${escapeMarkdown(unbreakable(text))}](${href})`} pressableLinks={[href]} onLinkPress={press} />
       </Box>
     )
+
+    return mark === undefined
+      ? [link]
+      : [
+          link,
+          <Box key={`${key}:mark`} flexShrink={0} marginRight={1}>
+            <Text>{`${NBSP}${mark}`}</Text>
+          </Box>,
+        ]
   }
 
   // Centered: the bar picture is shorter than a line and would otherwise sit at the row's top.
@@ -437,7 +449,7 @@ function drawQuietBandRow(kit: Kit, a: QuietBandArgs): RenderElement {
           <Text color={dotColor} {...dotDim}>●</Text>
         </Box>
       </Box>
-      {targets.map(target)}
+      {targets.flatMap(target)}
       {kit.Svg === undefined ? null : (
         <Box key="band:solid" flexShrink={0} marginRight={1}>
           <kit.Svg

@@ -57,7 +57,7 @@ const keptOfName = (text: string) => {
 
 /** What a click target reads: a link's label (its markdown unescaped) or a Button's label, no-break spaces read as spaces. */
 const clickText = (node: Node | undefined): string =>
-  (node?.type === 'Markdown' ? String(node.props.text).replace(/^\[(.*)\]\([^)]*\)$/s, '$1').replace(/\\(.)/g, '$1') : String(node?.props?.label ?? '')).replace(/ /g, ' ')
+  (node?.type === 'Markdown' ? String(node.props.text).replace(/^\[(.*)\]\([^)]*\)$/s, '$1').replace(/\\(.)/g, '$1') : String(node?.props?.label ?? '')).replace(/ /g, ' ').replace(/\u2060/g, '')
 
 /** The one link a Markdown answers. */
 const hrefOf = (node: Node | undefined): string => (node?.props?.pressableLinks as string[] | undefined)?.[0] ?? ''
@@ -151,20 +151,27 @@ describe('vscode: the band draws the Desktop layout', () => {
 })
 
 describe('vscode: the band\'s click targets are links, cut by count, one line', () => {
-  test('one plan: "<name>  <state>  n/m" is one link keyed band:head, within the room bandFit leaves, in a one-row Box; pressing it opens the board', async ($, on) => {
+  test('one plan: "<name>" (band:head) and "<state>  n/m" (band:bar) are links within the room bandFit leaves; only the name can shrink; pressing either opens the board', async ($, on) => {
     const w = world(on, { fixture: ONE_PLAN })
     await $.session.start(SESSION)
     const band = await mountBand($, 'vscode')
     const tree = (await band.drawn()) as unknown as Node
     const head = (await band.find({ key: 'band:head' })) as unknown as Node | undefined
-    const text = clickText(head)
+    const bar = (await band.find({ key: 'band:bar' })) as unknown as Node | undefined
 
-    expect(head?.type).toBe('Markdown')
+    expect([head?.type, bar?.type]).toEqual(['Markdown', 'Markdown'])
     expect(hrefOf(head)).toBe('https://plan-tracker.invalid/band/head')
-    expect(text).toContain(`${planStateText(ONE_PLAN.plans[0]!, Date.now())}  5/13`)
-    expect(text.startsWith('Plan bo')).toBe(true)
-    expect(displayWidth(text)).toBeLessThanOrEqual(bandRoom(CURSOR_COLUMNS))
-    expect(parentOf(tree, 'band:head')?.props).toMatchObject({ height: 1, overflow: 'hidden' })
+    expect(clickText(bar)).toBe(`${planStateText(ONE_PLAN.plans[0]!, Date.now())}  5/13`)
+    expect(clickText(head).startsWith('Plan bo')).toBe(true)
+    expect(displayWidth(clickText(head)) + 1 + displayWidth(clickText(bar))).toBeLessThanOrEqual(bandRoom(CURSOR_COLUMNS))
+    // A height clamp makes the Markdown's root scroll in Cursor (a visible scrollbar); a plain space lets the text wrap under the clip.
+    for (const key of ['band:head', 'band:bar']) {
+      expect(parentOf(tree, key)?.props).toMatchObject({ overflow: 'hidden' })
+      expect(parentOf(tree, key)?.props.height).toBeUndefined()
+      expect(String((await band.find({ key }))?.props.text)).not.toContain(' ')
+    }
+    expect(parentOf(tree, 'band:head')?.props).toMatchObject({ flexShrink: 1, minWidth: 0 })
+    expect(parentOf(tree, 'band:bar')?.props).toMatchObject({ flexShrink: 0 })
     // the count is no Button any more; the mascot and the bar take no press
     expect((await band.findAll({ type: 'Button' })).map(node => String(node.props.key))).toEqual(['band:file'])
     await band.press({ key: 'band:head', link: { href: hrefOf(head) } })
@@ -183,12 +190,15 @@ describe('vscode: the band\'s click targets are links, cut by count, one line', 
     const bar = (await band.find({ key: 'band:bar' })) as unknown as Node | undefined
 
     expect([name?.type, bar?.type]).toEqual(['Markdown', 'Markdown'])
-    expect(clickText(name).endsWith(' ▾')).toBe(true)
+    expect(clickText(name)).not.toContain('▾')
+    // the ▾ sits after the name in a Box that never shrinks, so cutting the name keeps it
+    expect(((await band.find({ key: 'band:plans:mark' })) as unknown as Node | undefined)?.props).toMatchObject({ flexShrink: 0 })
     expect(clickText(name).startsWith('Plan')).toBe(true)
     expect(clickText(bar)).toBe(`${planStateText(TWO_PLANS.plans[0]!, Date.now())}  5/13`)
     expect(displayWidth(clickText(name)) + 1 + displayWidth(clickText(bar))).toBeLessThanOrEqual(bandRoom(CURSOR_COLUMNS))
-    expect(parentOf(tree, 'band:plans')?.props).toMatchObject({ height: 1, overflow: 'hidden' })
-    expect(parentOf(tree, 'band:bar')?.props).toMatchObject({ height: 1, overflow: 'hidden' })
+    expect(parentOf(tree, 'band:plans')?.props).toMatchObject({ overflow: 'hidden', flexShrink: 1 })
+    expect(parentOf(tree, 'band:bar')?.props).toMatchObject({ overflow: 'hidden', flexShrink: 0 })
+    expect(parentOf(tree, 'band:plans')?.props.height).toBeUndefined()
 
     await band.press({ key: 'band:plans', link: { href: hrefOf(name) } })
     await settle(w.clock)
@@ -446,10 +456,8 @@ describe('vscode: text is cut to the characters Cursor fits, not to its column c
       world(on, { fixture })
       await $.session.start(SESSION)
       const band = await mountBand($, 'vscode', BAND_COLUMNS)
-      const text =
-        fixture === ONE_PLAN
-          ? clickText((await band.find({ key: 'band:head' })) as unknown as Node)
-          : `${clickText((await band.find({ key: 'band:plans' })) as unknown as Node)} ${clickText((await band.find({ key: 'band:bar' })) as unknown as Node)}`
+      const name = (await band.find({ key: fixture === ONE_PLAN ? 'band:head' : 'band:plans' })) as unknown as Node
+      const text = `${clickText(name)} ${clickText((await band.find({ key: 'band:bar' })) as unknown as Node)}`
 
       expect(text).toContain('In progress')
       expect(keptOfName(text)).toBeGreaterThanOrEqual(30)
