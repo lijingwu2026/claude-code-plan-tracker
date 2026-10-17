@@ -42,7 +42,6 @@ Install plan-tracker and [plan-orchestrator](https://github.com/lijingwu2026/cla
 | Terminal (macOS) | Tested | Claude Code 2.1.301 | [terminal](docs/platform-terminal.png) |
 | Claude Desktop app (macOS) | Tested | Desktop 2.31226.1, which runs Claude Code 2.1.295 | [Desktop](docs/platform-desktop.png) |
 | VS Code extension | Tested in Cursor | Claude Code extension 2.1.300; VS Code itself is not tested | [Cursor](docs/platform-vscode.png) |
-| `claude -p`, Claude mobile, claude.ai web | Not tested | | |
 
 <img src="docs/platform-terminal.png" alt="Claude Code in a terminal window: the band for the demo plan Add CSV export, 3 of 8, above the prompt, and the board open on the right with its four lanes." width="100%">
 
