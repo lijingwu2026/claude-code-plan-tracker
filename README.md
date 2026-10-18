@@ -244,7 +244,7 @@ Use plan-tracker alongside Claude Code's own views; each shows something differe
 - With `board_command`, counting needs the command's `in_session` and each row's exact task text.
 - Claude Code makes some requests the plugin never sees (prompt suggestions); their cost is spread over that interval's requests, or goes to unowned outside 0.8–1.25.
 - The runtime does not say which cache a write went to: main-session writes are priced at the 1-hour rate, subagent writes at the 5-minute rate.
-- One ledger file per session is kept and never deleted.
+- One usage file per session is kept in `~/.claude/mods-logs/plan-tracker-usage/` and never deleted.
 - Moving or renaming `PROGRESS.md` starts a new count.
 - Polls the file about every 1.5 s; it does not use file-system events.
 - Shows the first table in the file with `task` and `status` columns, as one plan.
