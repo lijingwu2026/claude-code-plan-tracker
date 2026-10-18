@@ -83,7 +83,7 @@ A time is shown on the clock it was written in, so an offset counts; a time endi
 
 With `board_command` set, the Done pop-up, chime and rainbow come from the command, not the file. A Bash result that holds a block starting `PLAN-DONE <anchor> · <task> · <n> left`, up to the next blank line, puts that block in the conversation and shows a pop-up `✅ <task> · <n> left`; the chime plays in the terminal; `0 left` turns the band's bar to a rainbow until your next prompt, or until a later block for the same plan has tasks left.
 
-A plain `PROGRESS.md` has no start time, so its plan line draws figures once a task has left Todo, and its task pages draw the figures the ledgers hold for them. It never shows a stalled task.
+A plain `PROGRESS.md` has no start time, so its plan line draws figures once a task has left Todo, and its task pages draw the figures counted for them. It never shows a stalled task.
 
 ## Messages
 
