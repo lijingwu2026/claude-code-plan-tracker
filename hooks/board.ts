@@ -4,7 +4,7 @@
  * screen, and what the band and the board show. Nothing here draws or touches `$`.
  * It shows what the tracker records, and whether its own session is at work on its plans (`withWork`).
  */
-import type { CardRef, PlanBoard, PlanEntry, PlanMatch, PlanRow, PlanStatus, PlanTotals, PlanUsage } from '../types'
+import type { CardRef, PlanBoard, PlanEntry, PlanMatch, PlanRow, PlanStatus, PlanTotals, RowUsage, SessionUsage } from '../types'
 
 export const STATUSES: readonly PlanStatus[] = ['Todo', 'In Progress', 'Verifying', 'Needs Verification', 'Blocked', 'Done', 'Canceled']
 
@@ -51,56 +51,6 @@ const isStatus = (value: unknown): value is PlanStatus => STATUSES.includes(valu
 const asText = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined)
 
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
-
-/** The row's `usage` when it has the shape the tracker writes, else undefined (an old or damaged row shows "—", never a guess). */
-function usageOf(value: unknown): PlanUsage | undefined {
-  const raw = value as Partial<Record<keyof PlanUsage, unknown>> | null
-  const tokens = raw?.tokens as Record<string, unknown> | null | undefined
-
-  if (
-    typeof raw !== 'object' || raw === null ||
-    !isNumber(raw.working_ms) || !isNumber(raw.main_ms) || !isNumber(raw.subagent_ms) ||
-    typeof raw.effort !== 'object' || raw.effort === null ||
-    typeof tokens !== 'object' || tokens === null ||
-    !isNumber(tokens.input) || !isNumber(tokens.cache_read) || !isNumber(tokens.cache_write) || !isNumber(tokens.output)
-  ) {
-    return undefined
-  }
-
-  return {
-    working_ms: raw.working_ms,
-    main_ms: raw.main_ms,
-    subagent_ms: raw.subagent_ms,
-    effort: raw.effort as Record<string, number>,
-    models: Array.isArray(raw.models) ? raw.models.filter((one): one is string => typeof one === 'string') : [],
-    tokens: { input: tokens.input, cache_read: tokens.cache_read, cache_write: tokens.cache_write, output: tokens.output },
-    cost_usd: isNumber(raw.cost_usd) ? raw.cost_usd : null,
-    computed_at: asText(raw.computed_at) ?? '',
-  }
-}
-
-/** The plan's `usage_totals` when it has the shape the tracker writes, else undefined (the plan line then leaves the tokens and cost out). */
-function totalsOf(value: unknown): PlanTotals | undefined {
-  const raw = value as Record<string, unknown> | null
-
-  if (
-    typeof raw !== 'object' || raw === null ||
-    !isNumber(raw.working_ms) || !isNumber(raw.tokens_in) || !isNumber(raw.tokens_cached) || !isNumber(raw.tokens_out) ||
-    !isNumber(raw.measured) || !isNumber(raw.total)
-  ) {
-    return undefined
-  }
-
-  return {
-    working_ms: raw.working_ms,
-    tokens_in: raw.tokens_in,
-    tokens_cached: raw.tokens_cached,
-    tokens_out: raw.tokens_out,
-    cost: isNumber(raw.cost) ? raw.cost : null,
-    measured: raw.measured,
-    total: raw.total,
-  }
-}
 
 const MATCH_STATES: readonly PlanMatch['state'][] = ['In progress', 'Idle', 'Done', 'Canceled']
 
@@ -226,7 +176,6 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
     ...(asText(plan.finished) === undefined ? {} : { finished: asText(plan.finished) as string }),
     ...(asText(plan.updated) === undefined ? {} : { updated: asText(plan.updated) as string }),
     ...(asText(plan.idle_since) === undefined ? {} : { idle_since: asText(plan.idle_since) as string }),
-    ...(totalsOf(plan.usage_totals) === undefined ? {} : { usage_totals: totalsOf(plan.usage_totals) as PlanTotals }),
     ...(asText(plan.recap) === undefined ? {} : { recap: asText(plan.recap) as string }),
     ...(asText(plan.recap) === undefined || asText(plan.recap_updated) === undefined ? {} : { recap_updated: asText(plan.recap_updated) as string }),
     ...(typeof plan.in_session === 'boolean' ? { in_session: plan.in_session } : {}),
@@ -240,7 +189,6 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
       const finished = asText(row.finished)
       const stalledAt = asText(row.stalled_since)
       const stalledSince = stalledAt === undefined || Number.isNaN(Date.parse(stalledAt)) ? undefined : stalledAt
-      const usage = usageOf(row.usage)
 
       return {
         task: row.task as string,
@@ -254,7 +202,6 @@ export function parseBoard(text: string): { board: PlanBoard } | { error: string
         ...(started === undefined ? {} : { started }),
         ...(finished === undefined ? {} : { finished }),
         ...(stalledSince === undefined ? {} : { stalled_since: stalledSince }),
-        ...(usage === undefined ? {} : { usage }),
       }
     }),
   }))
@@ -1047,9 +994,9 @@ export function movement(plan: PlanEntry, view: { finished: string | null; isPan
 // ---------------------------------------------------------------- settings and file links
 
 /** What the person set in the plugin's settings (`userConfig`); `applyOptions` fills it when the module loads. */
-export const settings = { boardLocation: 'PROGRESS.md', boardCommand: '', usageCommand: '', yourName: '', root: '' }
+export const settings = { boardLocation: 'PROGRESS.md', boardCommand: '', yourName: '', root: '' }
 
-/** Reads the four settings out of the options the engine hands the module (a missing or blank one keeps its default). */
+/** Reads the three settings out of the options the engine hands the module (a missing or blank one keeps its default). */
 export function applyOptions(options: Readonly<Record<string, unknown>> | undefined): void {
   const text = (key: string, fallback: string) => {
     const value = options?.[key]
@@ -1059,7 +1006,6 @@ export function applyOptions(options: Readonly<Record<string, unknown>> | undefi
 
   settings.boardLocation = text('board_location', 'PROGRESS.md')
   settings.boardCommand = text('board_command', '')
-  settings.usageCommand = text('usage_command', '')
   settings.yourName = text('your_name', '')
 }
 
@@ -1092,7 +1038,7 @@ export function absolutePath(path: string, home: string | undefined): string | n
   return path.startsWith('/') ? path : settings.root === '' ? null : `${settings.root.replace(/\/+$/, '')}/${path}`
 }
 
-// ---------------------------------------------------------------- usage on the task page
+// ---------------------------------------------------------------- usage on the task page and the plan line
 
 /** `1.2M`, `48k`, `900`: a count in at most four characters of digits. */
 export function compactCount(value: number): string {
@@ -1105,16 +1051,13 @@ export function compactCount(value: number): string {
   return value >= 10_000 ? `${Math.round(value / 1000)}k` : value >= 1000 ? `${trim(value / 1000)}k` : String(Math.round(value))
 }
 
-/** `42m`, `1h 5m`, `<1m` (nothing under a minute reads as zero unless it is zero). */
-export function durationText(ms: number): string {
-  const minutes = Math.round(ms / 60_000)
-
-  if (minutes < 1) {
-    return ms > 0 ? '<1m' : '0m'
-  }
-
-  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+/** `$3.10`; `<$0.01` for an amount above nothing and under a cent, which `$0.00` would hide. */
+export function costText(usd: number): string {
+  return usd > 0 && usd < 0.005 ? '<$0.01' : `$${usd.toFixed(2)}`
 }
+
+/** Every token a row or a plan used: input, cache reads, cache writes and output. */
+const tokenTotal = (usage: RowUsage): number => usage.tokens_in + usage.tokens_cached + usage.tokens_cache_write + usage.tokens_out
 
 // ---------------------------------------------------------------- the plan line and the task page's lines
 
@@ -1229,27 +1172,43 @@ export function statLines(stats: readonly Stat[]): { values: string; labels: str
 }
 
 /**
- * The stats under the plan name: the tokens (in + out, in already holds the cached) over `tokens` and the cost over `est. cost`; no time,
- * which the state word in the header carries. The tokens and the cost are left out when none is measured, the cost alone when it has no
- * price; with neither there is no details line. Narrower than `width`: the tokens go first; the cost stays. Empty for a plan that has not
- * begun (no start or finish time, every row Todo or Canceled): it reads `Not started yet`. A plan under way with no start time (older
- * tracker data) draws the figures it has.
+ * The tokens (every count) and the cost of `usage`, each a value over a label: nothing for no usage or no request counted, the cost
+ * left out when it is nothing (requests of a model with no price). The tokens go first on a narrow row.
+ */
+const statsOfUsage = (usage: RowUsage | undefined): Stat[] =>
+  usage === undefined || usage.requests <= 0
+    ? []
+    : [
+        { value: compactCount(tokenTotal(usage)), label: 'tokens', drop: 2 },
+        ...(usage.cost_usd > 0 ? [{ value: costText(usage.cost_usd), label: 'cost', drop: 3 }] : []),
+      ]
+
+/**
+ * The stats under the plan name: the plan's tokens (every count) and cost from its `usage_totals` (the plan's own share is inside them),
+ * each a bold value over a dim label. No time: the plan's time is in the header (`planStateText`). With no request counted the plan has no
+ * details line. Narrower than `width`: the tokens go first; the cost stays. Empty for a plan that has not begun (no start or finish time,
+ * every row Todo or Canceled): it reads `Not started yet`. A plan under way with no start time draws the figures it has.
  */
 export function planStatsOf(plan: PlanEntry, width: number): Stat[] {
-  if (!hasBegun(plan)) {
-    return []
+  return hasBegun(plan) ? fitStats(statsOfUsage(plan.usage_totals), width) : []
+}
+
+/** The line under the plan's stats that names the part of its total that no single task owns: `incl. $0.80 on the plan, not one task`; '' for none. */
+export function planOwnText(totals: PlanTotals | undefined): string {
+  const own = totals?.plan_own
+
+  if (own === undefined) {
+    return ''
   }
 
-  const totals = plan.usage_totals
-  const measured = totals !== undefined && totals.measured > 0
+  const share = own.cost_usd > 0 ? costText(own.cost_usd) : tokenTotal(own) > 0 ? `${compactCount(tokenTotal(own))} tokens` : ''
 
-  return fitStats(
-    [
-      ...(measured ? [{ value: compactCount(totals.tokens_in + totals.tokens_out), label: 'tokens', drop: 2 }] : []),
-      ...(measured && totals.cost !== null ? [{ value: `~$${totals.cost.toFixed(2)}`, label: 'est. cost', drop: 3 }] : []),
-    ],
-    width,
-  )
+  return share === '' ? '' : `incl. ${share} on the plan, not one task`
+}
+
+/** The line under the plan's details when some sessions' usage files could not be read; '' when all were. */
+export function ledgerErrorText(errors: readonly string[] | undefined): string {
+  return errors === undefined || errors.length === 0 ? '' : `Usage of ${errors.length} ${errors.length === 1 ? 'session' : 'sessions'} could not be read`
 }
 
 /**
@@ -1302,30 +1261,38 @@ export function whoLineOf(row: PlanRow): { tier?: string; executor: string } | u
   return { executor: raw === 'inline' ? 'main session' : raw, ...(tier === undefined || tier === '—' ? {} : { tier }) }
 }
 
-/**
- * The task page's stats: working time, tokens (in + out; in holds the cached), the cost, each a value over a label. The cost is
- * left out with no price; effort (`medium` over `effort`) only when the work ran at one (a mix does not read as a figure).
- * Undefined for no usage.
- */
-export function usageStatsOf(usage: PlanUsage | undefined): Stat[] | undefined {
-  if (usage === undefined) {
-    return undefined
-  }
+/** The task page's stats: the row's tokens and cost, each a value over a label; undefined for a row with no usage. */
+export function usageStatsOf(usage: RowUsage | undefined): Stat[] | undefined {
+  const stats = statsOfUsage(usage)
 
-  const total = usage.tokens.input + usage.tokens.cache_read + usage.tokens.cache_write + usage.tokens.output
-  const efforts = Object.entries(usage.effort).filter(([, share]) => share > 0)
-
-  return [
-    { value: durationText(usage.working_ms), label: 'working time', drop: 1 },
-    { value: compactCount(total), label: 'tokens', drop: 2 },
-    ...(usage.cost_usd === null ? [] : [{ value: `~$${usage.cost_usd.toFixed(2)}`, label: 'est. cost', drop: 3 }]),
-    ...(efforts.length === 1 ? [{ value: (efforts[0] as [string, number])[0], label: 'effort', drop: 0 }] : []),
-  ]
+  return stats.length === 0 ? undefined : stats
 }
 
-/** The command that makes the tracker write `usage` into a row: one place for its words. */
-export const usageArgv = (anchor: string, index: number, task: string, sessionId: string): string[] =>
-  settings.usageCommand === '' ? [] : commandArgv(settings.usageCommand, { anchor, index: String(index), task, session: sessionId })
+/** The place word of a session's surface; undefined for one the board has no word for (`mobile`, `unknown`). */
+const PLACES: Record<string, string> = { terminal: 'terminal', desktop: 'Desktop', vscode: 'VS Code extension' }
+
+/** `Oct 18` and `09:30` of an ISO time as written (its own clock, no timezone shift). */
+const dateOf = (iso: string): string => `${MONTHS[Number(iso.slice(5, 7)) - 1] ?? iso.slice(5, 7)} ${Number(iso.slice(8, 10))}`
+const clockOf = (iso: string): string => iso.slice(11, 16)
+
+/** `Oct 18 09:30–11:02`; `Oct 18 09:30` when both are the same minute; `Oct 18 23:50–Oct 19 00:10` when the last is another day. */
+function windowText(first: string, last: string): string {
+  const from = `${dateOf(first)} ${clockOf(first)}`
+
+  if (first.slice(0, 16) === last.slice(0, 16)) {
+    return from
+  }
+
+  return `${from}–${first.slice(0, 10) === last.slice(0, 10) ? clockOf(last) : `${dateOf(last)} ${clockOf(last)}`}`
+}
+
+/** One line of the Sessions row: `Oct 18 09:30–11:02 · terminal · 790k tokens · $1.90`. The cost is left out when it is nothing. */
+export function sessionLineOf(session: SessionUsage): string {
+  const place = PLACES[session.surface]
+  const tokens = session.tokens.in + session.tokens.cached + session.tokens.cache_write + session.tokens.out
+
+  return [windowText(session.first, session.last), ...(place === undefined ? [] : [place]), `${compactCount(tokens)} tokens`, ...(session.cost_usd > 0 ? [costText(session.cost_usd)] : [])].join(' · ')
+}
 
 // ---------------------------------------------------------------- who, and the card's text
 

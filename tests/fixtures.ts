@@ -1,4 +1,4 @@
-import type { AgentInfo, CommandRunInput, EngineInterface, On, PromptOrigin, PromptSubmitInput, RenderElement, RenderInput, RenderSurface, UiPane } from 'claude-code'
+import type { AgentInfo, CommandRunInput, EngineInterface, On, PromptOrigin, PromptSubmitInput, RenderElement, RenderInput, RenderSurface, TurnUsage, UiPane } from 'claude-code'
 import { mock } from 'claude-code/testing'
 import type { MockClock } from 'claude-code/testing'
 
@@ -15,10 +15,9 @@ export const PANE_ID = 'plan-tracker'
 export const SCRIPT = '/tools/board.py'
 export const ROOT = '/work'
 
-/** The plugin's settings in the suite: a board command, a usage command and a name. */
+/** The plugin's settings in the suite: a board command and a name. */
 export const OPTIONS = {
   board_command: `python3 ${SCRIPT} --view {session} [--query={query}] --json`,
-  usage_command: `python3 ${SCRIPT} {anchor} --usage --task {task}`,
   your_name: 'Sam',
 }
 
@@ -128,6 +127,26 @@ export const CJK_TASK = '执行分配判据的可达性修复与回写'
 
 export const HOME = '/home/tester'
 
+/** Where the plugin writes a session's usage ledger in the test world (HOME is `/home/tester`). */
+export const LEDGER_DIR = `${HOME}/.claude/mods-logs/plan-tracker-usage`
+
+export const ledgerPath = (session = SESSION_ID) => `${LEDGER_DIR}/${session}.json`
+
+/** One entry of a usage ledger file, as the plugin writes it. */
+export type LedgerEntryText = { plan: string; row: string | null; first: string; last: string; tokens: { in: number; cached: number; cache_write: number; out: number }; cost_usd: number; requests: number }
+
+/** The text of session `session`'s usage ledger file holding `entries`, as the plugin writes it. */
+export const ledgerFile = (session: string, surface: string, entries: LedgerEntryText[]): string =>
+  JSON.stringify({
+    version: 1,
+    session,
+    surface,
+    updated: '2026-10-18T12:00:00+09:00',
+    measured_usd: null,
+    entries,
+    unowned: { tokens: { in: 0, cached: 0, cache_write: 0, out: 0 }, cost_usd: 0, requests: 0 },
+  })
+
 export const VIEW_TEXT = ['Plans of this session', '', 'Alpha plan  1/5 Done', '  next: §2 wire the CLI'].join('\n')
 
 export const DONE_BLOCK = ['PLAN-DONE alpha · §2 wire the CLI · 3 left', '  §3 docs · Todo · opus', '  §4 tests · Todo · unrouted'].join('\n')
@@ -147,6 +166,8 @@ export type World = {
   tracker: Omit<Run, 'stdout'>
   /** what the Bash tool answers (stdout, and the text the model reads) */
   bash: string
+  /** A reason every tool call ends in an error (an Edit that found nothing to replace), or null. */
+  toolError: string | null
   /** what the plan files hold, by path; a path not here cannot be read */
   files: Record<string, string>
   /** every path read, in order */
@@ -193,6 +214,28 @@ export type World = {
   panesDenial: string | null
   /** what `$.agent.list()` answers: the session's agents */
   agents: AgentInfo[]
+  /** The usage ledgers in the world's disk, by path: what a write put there, or a test set before the session starts. */
+  ledgers: Record<string, string>
+  /** The modification time `$.fs.list` gives each ledger, by path (0 for one a test set); a write bumps it, and so does `touch`. */
+  ledgerTimes: Record<string, number>
+  /** Gives the ledger at `path` a new modification time, as a rewrite does. */
+  touch: (path: string) => void
+  /** every write of a usage ledger, in order */
+  ledgerWrites: { path: string; text: string }[]
+  /** every read of a ledger file, by path, in order */
+  ledgerReads: string[]
+  /** Awaited by every ledger write: a test holds it to show a slow disk does not hold a request. */
+  ledgerGate: () => Promise<void>
+  /** A reason a ledger write fails, or null. */
+  ledgerFailure: string | null
+  /** The session id `$.session.id()` answers. */
+  sessionId: string
+  /** The project root `$.session.root()` answers. */
+  root: string
+  /** The host's `cost.usd` that `$.session.usage()` answers; undefined for a host with no cost ledger. */
+  hostUsd: number | undefined
+  /** What the next model request's response reports as its usage (`turn.step`); null for a response without usage. */
+  responseUsage: TurnUsage | null
   /** the id the next `agent.spawn` answers */
   spawnedId: string
   clock: MockClock
@@ -209,7 +252,7 @@ export const SURVEY: RenderElement = { type: 'Text', children: ['SURVEY'] }
  * The log stages that only measure (what the timer saw, which key was pressed, what was typed in the search field, a focus move that
  * did not take: the test kit has no `ui.focus`, so every one is logged here; the state text the band drew).
  */
-export const DIAGNOSTIC_STAGES = ['timer', 'press', 'input', 'focus', 'state']
+export const DIAGNOSTIC_STAGES = ['timer', 'press', 'input', 'focus', 'state', 'usage-interval', 'usage-shape', 'usage-owner']
 
 const FINISHED_RUN = { isStdoutTruncated: false, isStderrTruncated: false }
 
@@ -233,6 +276,7 @@ export function world(
     queries: {},
     tracker: { exitCode: 0, stderr: '', doesThrow: false },
     bash: '',
+    toolError: null,
     files: FILES,
     reads: [],
     below: { type: 'Box', children: [] },
@@ -256,6 +300,19 @@ export function world(
     surfacesDenial: null,
     panesDenial: null,
     agents: [],
+    ledgers: {},
+    ledgerTimes: {},
+    touch: path => {
+      w.ledgerTimes[path] = (w.ledgerTimes[path] ?? 0) + 1
+    },
+    ledgerWrites: [],
+    ledgerReads: [],
+    ledgerGate: async () => undefined,
+    ledgerFailure: null,
+    sessionId: SESSION_ID,
+    root: ROOT,
+    hostUsd: undefined,
+    responseUsage: null,
     spawnedId: 'agent-1',
     clock: mock.clock(on, { now: 0 }),
     bandDraws: 0,
@@ -267,8 +324,15 @@ export function world(
   }
 
   on('session.start', ($, e) => ({ cwd: e.cwd }))
-  on('session.id', () => ({ value: SESSION_ID }))
-  on('session.root', () => ({ value: ROOT }))
+  on('session.id', () => ({ value: w.sessionId }))
+  on('session.root', () => ({ value: w.root }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [], ...(w.hostUsd === undefined ? {} : { cost: { usd: w.hostUsd } }) } }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
+  // The model's reply to a request: no text, no tool call, the usage the test set. The loop above the plugins sees it as `next(e)`'s result.
+  on('turn.step', async function* ($, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: w.responseUsage }
+  })
   on('command.register', ($, e) => {
     w.registered.push({ name: e.name, argumentHint: e.argumentHint, description: e.description })
 
@@ -313,11 +377,28 @@ export function world(
   on('fs.read', ($, e) => {
     w.reads.push(e.path)
 
+    const held = w.ledgers[e.path]
+
+    if (held !== undefined) {
+      w.ledgerReads.push(e.path)
+
+      return { value: held }
+    }
+
     const text = w.files[e.path]
 
     return text === undefined ? { deny: `ENOENT: no such file ${e.path}` } : { value: text }
   })
-  on('fs.exists', ($, e) => ({ value: w.files[e.path] !== undefined }))
+  on('fs.exists', ($, e) => ({ value: w.files[e.path] !== undefined || w.ledgers[e.path] !== undefined }))
+  // The ledger directory: its files as the disk lists them (name, size, modification time); another directory is not there.
+  on('fs.list', ($, e) => {
+    const dir = `${e.path.replace(/\/+$/, '')}/`
+    const names = Object.keys(w.ledgers).filter(path => path.startsWith(dir) && !path.slice(dir.length).includes('/'))
+
+    return names.length === 0
+      ? { deny: `ENOENT: no such directory ${e.path}` }
+      : { value: names.map(path => ({ name: path.slice(dir.length), kind: 'file' as const, size: (w.ledgers[path] ?? '').length, mtimeMs: w.ledgerTimes[path] ?? 0, isLink: false })) }
+  })
   on('ui.render', () => {
     w.bandDraws += 1
 
@@ -370,7 +451,24 @@ export function world(
 
     return { value: undefined }
   })
-  on('tool.call', () => ({ result: { stdout: w.bash, stderr: '', interrupted: false }, text: w.bash }) as never)
+  on('tool.call', () => (w.toolError === null ? ({ result: { stdout: w.bash, stderr: '', interrupted: false }, text: w.bash } as never) : ({ isError: true, result: w.toolError, text: w.toolError } as never)))
+  on('fs.write', async ($, e) => {
+    if (e.path.includes('/mods-logs/plan-tracker-usage/')) {
+      w.ledgerWrites.push({ path: e.path, text: e.text })
+      await w.ledgerGate()
+
+      if (w.ledgerFailure !== null) {
+        return { deny: w.ledgerFailure }
+      }
+
+      w.ledgers[e.path] = e.text
+      w.touch(e.path)
+
+      return { value: undefined }
+    }
+
+    return { value: undefined }
+  })
   mock.env(on, { HOME })
 
   return w

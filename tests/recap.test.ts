@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 
 import { parseBoard, parseProgress, recapLabel } from '../hooks/board'
 import type { PlanEntry } from '../types'
-import { PANE_ID, SESSION, kids, paneProps, textOf, world } from './fixtures'
+import { PANE_ID, ROOT, SESSION, kids, ledgerFile, ledgerPath, paneProps, textOf, world } from './fixtures'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -16,7 +16,6 @@ const PLAN: PlanEntry = {
   plan_file: '/plans/csv.md',
   started: '2026-10-11T20:08:00+09:00',
   finished: '2026-10-11T21:04:00+09:00',
-  usage_totals: { working_ms: 0, tokens_in: 1_000, tokens_cached: 0, tokens_out: 0, cost: 0.5, measured: 2, total: 2 },
   rows: [
     { task: 'build it', status: 'Done', updated: null },
     { task: 'review the copy', status: 'Needs Verification', updated: null },
@@ -27,6 +26,13 @@ const mountPane = ($: Engine, surface: (typeof SURFACES)[number], columns = 60) 
   $.ui.mount({ plugin: 'plan-tracker', surface, component: 'Pane', requestId: PANE_ID, props: paneProps(columns), viewport: { columns: columns + 60, rows: 50, isFullscreen: true } })
 
 const boardOf = (plan: PlanEntry) => ({ selected: plan.anchor, message: null, plans: [plan] })
+
+/** One session's ledger: 1 000 tokens and $0.50 on the plan's first row, so the plan has a details line to put the recap under. */
+const LEDGERS = {
+  [ledgerPath('s1')]: ledgerFile('s1', 'terminal', [
+    { plan: `${ROOT}#csv`, row: 'build it', first: '2026-10-11T20:10:00+09:00', last: '2026-10-11T20:50:00+09:00', tokens: { in: 1_000, cached: 0, cache_write: 0, out: 0 }, cost_usd: 0.5, requests: 3 },
+  ]),
+}
 
 describe('the recap: reading it', () => {
   const json = (plan: Record<string, unknown>) => parseBoard(JSON.stringify({ plans: [{ anchor: 'a', rows: [], ...plan }] }))
@@ -91,8 +97,9 @@ describe('the recap: its label', () => {
 describe('the recap: on the board', () => {
   for (const surface of SURFACES) {
     test(`${surface}: under the plan details line, a dim label and the text wrapped to the pane`, async ($, on) => {
-      world(on, { fixture: boardOf({ ...PLAN, recap: RECAP, recap_updated: '2026-10-12T14:30:00+09:00' }) })
+      const w = world(on, { fixture: boardOf({ ...PLAN, recap: RECAP, recap_updated: '2026-10-12T14:30:00+09:00' }), ledgers: LEDGERS })
       await $.session.start(SESSION)
+      await w.clock.settle()
       const pane = await mountPane($, surface, 40)
 
       expect(kids(await pane.find({ key: 'strip' })).map(node => String(node.props?.key))).toEqual(['menu', 'plan-stats', 'recap', 'divider'])
@@ -117,8 +124,9 @@ describe('the recap: on the board', () => {
     })
 
     test(`${surface}: no recap draws nothing`, async ($, on) => {
-      world(on, { fixture: boardOf(PLAN) })
+      const w = world(on, { fixture: boardOf(PLAN), ledgers: LEDGERS })
       await $.session.start(SESSION)
+      await w.clock.settle()
       const pane = await mountPane($, surface)
 
       expect(await pane.find({ key: 'recap' })).toBeUndefined()

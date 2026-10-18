@@ -1,6 +1,6 @@
 {
   "name": "plan-tracker",
-  "version": "0.7.5",
+  "version": "0.8.0",
   "description": "A live board of your approved plan: which steps are done, running, blocked or waiting on you.",
   "types": "./types/index.d.ts",
   "author": {
@@ -22,16 +22,10 @@
       "description": "A command that prints the board as JSON, used instead of the file. Placeholders: {session} is the session id, {query} is * when the person asks for the plan list and a plan's anchor once they open one; [ ... ] around words keeps them only when every placeholder inside is non-empty, e.g. mytool --view {session} --json [--query={query}]. No shell runs it. Leave it empty unless you have your own tracker.",
       "default": ""
     },
-    "usage_command": {
-      "type": "string",
-      "title": "Usage command (optional)",
-      "description": "A command that records a task's time and cost when its page opens; the board command then returns them. Placeholders: {session} {anchor} {index} {task}. Empty: cost and time are hidden. Leave it empty unless you have your own tracker.",
-      "default": ""
-    },
     "your_name": {
       "type": "string",
       "title": "Your name (optional)",
-      "description": "A row whose executor or checker equals this name is shown as 'you', and the page of a row it executes has no time, tokens or cost. The word you always counts too.",
+      "description": "A row whose executor or checker equals this name is shown as 'you', and the page of a row it executes has no tokens or cost. The word you always counts too.",
       "default": ""
     }
   }

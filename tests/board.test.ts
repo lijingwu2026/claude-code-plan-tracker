@@ -40,7 +40,6 @@ import {
   commandMarkOf,
   commandArgv,
   parseProgress,
-  usageArgv,
   whoLineOf,
   worstStatus,
   wrap,
@@ -774,10 +773,6 @@ describe('the board command', () => {
     expect(commandMarkOf(['/usr/bin/env', 'CLAUDE_PROJECT_DIR=/v', 'python3', '/s/board.py', '--view', 's'])).toBe('board.py')
     expect(commandMarkOf(['mytool', '--view', 's'])).toBe('')
     expect(commandMarkOf([])).toBe('')
-  })
-
-  test('usageArgv: the placeholders {anchor} {index} {task} {session}', () => {
-    expect(usageArgv('a', 2, 'my task', 's1')).toEqual(['python3', SCRIPT, 'a', '--usage', '--task', 'my task'])
   })
 })
 

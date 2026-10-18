@@ -639,7 +639,7 @@ describe('a board command that does not list plans, and a plain PROGRESS.md', ()
     await pane.unmount()
   })
 
-  test('a plain PROGRESS.md has one plan: /plan-tracker opens its board, with no list and no command run', { options: { board_command: '', usage_command: '', your_name: '' } }, async ($, on) => {
+  test('a plain PROGRESS.md has one plan: /plan-tracker opens its board, with no list and no command run', { options: { board_command: '', your_name: '' } }, async ($, on) => {
     const w = world(on, ['terminal'], { files: { [`${ROOT}/PROGRESS.md`]: PROGRESS_REAL } })
     await $.session.start(SESSION)
     await $.command.run(plans('some words'))

@@ -35,34 +35,38 @@ export type PlanRow = {
    * stops, and the task page says `stalled since 14:02` (`stalled since Oct 11 14:02`). A `PROGRESS.md` never has it.
    */
   stalled_since?: string
-  /** What the row's work cost, as the usage command wrote it; absent until computed. */
-  usage?: PlanUsage
+  /** What the API requests counted to this row cost, summed by the plugin from every session's usage ledger (`hooks/usage.ts`); absent for a row no ledger entry names. */
+  usage?: RowUsage
+  /** The same, one entry per session that worked on the row; absent with `usage`. */
+  sessions_usage?: SessionUsage[]
 }
 
-/** Time, effort, tokens and cost of one row's work. `effort` holds shares that sum to 1; `cost_usd` is null when a model has no price. */
-export type PlanUsage = {
-  working_ms: number
-  main_ms: number
-  subagent_ms: number
-  effort: Record<string, number>
-  models: string[]
-  tokens: { input: number; cache_read: number; cache_write: number; output: number }
-  cost_usd: number | null
-  computed_at: string
-}
+/** The four token counts of the usage ledger: uncached input, cache reads, cache writes, output. */
+export type UsageTokens = { in: number; cached: number; cache_write: number; out: number }
 
-/** What the tracker adds up over a plan's rows for the line under its name; `measured` of `total` tasks (not Canceled, not the person's own, by `your_name` or `you`) have usage. */
-export type PlanTotals = {
-  working_ms: number
-  /** Input + cache read + cache write. */
+/** What the API requests counted to a row or to a plan cost, as the plugin sums them over every session's ledger. */
+export type RowUsage = {
   tokens_in: number
   tokens_cached: number
+  tokens_cache_write: number
   tokens_out: number
-  /** Null when some measured task has no price. */
-  cost: number | null
-  measured: number
-  total: number
+  cost_usd: number
+  requests: number
 }
+
+/** One session's share of a row: when it first and last worked on it (ISO), where it ran (`surface`) and what it used. */
+export type SessionUsage = {
+  session: string
+  /** `terminal`, `desktop`, `vscode`, `mobile`, or `unknown`. */
+  surface: string
+  first: string
+  last: string
+  tokens: UsageTokens
+  cost_usd: number
+}
+
+/** What the plugin adds up over a plan: its rows' usage and the plan's own share (work no single task owns), already inside the total. */
+export type PlanTotals = RowUsage & { plan_own?: RowUsage }
 
 export type PlanEntry = {
   anchor: string
@@ -86,7 +90,7 @@ export type PlanEntry = {
    * `Idle since 19:40` (`Idle since Oct 11 19:40`); without it, plain `Idle`.
    */
   idle_since?: string
-  /** Absent when the tracker is older than the plan line. */
+  /** Set by the plugin from the usage ledgers, never read from a board command's answer. */
   usage_totals?: PlanTotals
   /** Claude's 2–3 sentence summary of the plan (what it is for, where it is now, what is next or needed from the person), drawn under the plan line. Absent when none. */
   recap?: string
@@ -132,7 +136,27 @@ export type PlanBoard = {
   message: string | null
   plans: PlanEntry[]
   matches?: PlanMatch[]
+  /** The ids of sessions whose usage ledger could not be read, set by the plugin; absent when every one was read. */
+  ledger_errors?: string[]
 }
+
+/** The plan (its ledger key) and the row (its exact text) a usage request is counted to; `row: null` is the plan's own share. */
+export type UsageOwner = { plan: string; row: string | null }
+
+/** A row a subagent claimed: its exact text, and its plan's key when one is named. */
+export type UsageClaim = { task: string; anchor?: string }
+
+/**
+ * One API request as the usage ledger holds it before it is booked: whose, which loop (`agentId`, absent for the main thread), its counts,
+ * its table price (null: no price) and when (ms). `wanted` is a claimed row the tracker did not have yet when it was recorded.
+ */
+export type UsageRequest = { owner: UsageOwner | null; agentId?: string; wanted?: UsageClaim; tokens: UsageTokens; usd: number | null; at: number }
+
+/**
+ * The usage ledger's state across a reload (`PluginState['plan-tracker'].usageCarry`): the session, what is known of each subagent (its
+ * claimed rows and its parent), the requests not yet in the file, and the board files this session has changed.
+ */
+export type UsageCarry = { session: string; agents: Record<string, { claims: UsageClaim[]; parent?: string }>; unwritten: UsageRequest[]; edited: string[] }
 
 /** The tracker's answer: a board, or one line saying why there is none. */
 export type Live = { board: PlanBoard } | { error: string }
@@ -173,6 +197,11 @@ declare module 'claude-code' {
       working: { turn: boolean; agents: string[] }
       /** When `working` last went from something to nothing (ISO, this machine's clock and offset); null until it has. */
       stoppedAt: string | null
+      /**
+       * What the usage ledger keeps across a reload of the module: the session it is for, whose work each subagent's requests are, the
+       * requests recorded since the last write of the file (those in the file are read back from it) and the board files this session has changed.
+       */
+      usageCarry: UsageCarry
     }
   }
 }

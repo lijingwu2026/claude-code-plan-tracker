@@ -392,7 +392,7 @@ describe('the band follows its session\'s turns and background agents', () => {
 
 describe('a plain PROGRESS.md', () => {
   const FILE = `${ROOT}/PROGRESS.md`
-  const FILE_MODE = { options: { board_command: '', usage_command: '', your_name: '' } }
+  const FILE_MODE = { options: { board_command: '', your_name: '' } }
   const TABLE = '# Progress\n\n| task | status | executor | check |\n|---|---|---|---|\n| built | Done | main session · Opus | script |\n| look at it | Needs Verification | main session · Opus | you |\n'
 
   test('its one plan has no `in_session` flag and counts as this session\'s', () => {

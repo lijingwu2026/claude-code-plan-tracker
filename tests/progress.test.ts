@@ -12,7 +12,7 @@ const REAL = PROGRESS_REAL
 const FILE = `${ROOT}/PROGRESS.md`
 
 /** The suite's settings with no board command: the board is read from the file. */
-const FILE_MODE = { options: { board_command: '', usage_command: '', your_name: '' } }
+const FILE_MODE = { options: { board_command: '', your_name: '' } }
 
 const mountBand = ($: Engine, surface: 'terminal' | 'desktop' = 'terminal') =>
   $.ui.mount({ plugin: 'plan-tracker', surface, component: 'AbovePrompt', requestId: 'band', props: bandProps(120), viewport: { columns: 125, rows: 40, isFullscreen: true } })

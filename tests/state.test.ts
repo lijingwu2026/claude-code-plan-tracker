@@ -82,14 +82,14 @@ describe('"Not started yet" under the header', () => {
 })
 
 describe('the plan stats have no state', () => {
-  const totals = { working_ms: 0, tokens_in: 1_000, tokens_cached: 0, tokens_out: 0, cost: 0.5, measured: 1, total: 1 }
+  const totals = { tokens_in: 1_000, tokens_cached: 0, tokens_cache_write: 0, tokens_out: 0, cost_usd: 0.5, requests: 3 }
   const started = '2026-10-11T20:08:00+09:00'
   const now = Date.parse('2026-10-11T21:00:00+09:00')
 
   test('a never-started plan reads "Not started yet" and has no stats; a started one has stats with no state word and no time figure', () => {
     expect(notStartedText(plan('a', 'A', ['Todo']))).toBe('Not started yet')
     expect(planStatsOf(plan('a', 'A', ['Todo']), 100)).toEqual([])
-    expect(planStatsOf(plan('a', 'A', ['Todo'], { started, updated: '2026-10-11T20:40:00+09:00', usage_totals: totals }), 100).map(stat => [stat.value, stat.label])).toEqual([['1k', 'tokens'], ['~$0.50', 'est. cost']])
+    expect(planStatsOf(plan('a', 'A', ['Todo'], { started, updated: '2026-10-11T20:40:00+09:00', usage_totals: totals }), 100).map(stat => [stat.value, stat.label])).toEqual([['1k', 'tokens'], ['$0.50', 'cost']])
     expect(planStatsOf(plan('a', 'A', ['Todo'], { started, updated: '2026-10-11T20:40:00+09:00' }), 100)).toEqual([])
   })
 })

@@ -46,14 +46,13 @@ plan-orchestrator's `board_fields` setting lists the columns of each row, defaul
 
 ## Settings
 
-Claude Code asks for these when you enable the plugin. Leave `board_command` and `usage_command` empty unless you have your own tracker.
+Claude Code asks for these when you enable the plugin. Leave `board_command` empty unless you have your own tracker.
 
 | Setting | Default | What it does |
 |---|---|---|
 | `board_location` | `PROGRESS.md` | The board file, relative to the project root, or an absolute path. It means what it means in plan-orchestrator, except that plan-orchestrator's `command:<read> ;; <write>` form is not read here: set `board_command` instead. |
 | `board_command` | empty | A command that prints the board as JSON, used instead of the file. It runs in the project root with `CLAUDE_PROJECT_DIR` set to it, and no shell runs it. `{session}` is the session id and `{query}` is `*` when the person asks for the plan list, and a plan's `anchor` once they open one; `[ ... ]` keeps its words only when every placeholder inside is non-empty: `mytool --view {session} --json [--query={query}]`. |
-| `usage_command` | empty | A command that records a task's time and cost when its page opens; the board command then returns them. Placeholders: `{session}`, `{anchor}` (the plan), `{index}` (the task's row) and `{task}`. |
-| `your_name` | empty | A task whose executor or checker is this name is shown as `you`, and the page of a task you run yourself has no time, tokens or cost. The word `you` always counts. |
+| `your_name` | empty | A task whose executor or checker is this name is shown as `you`, and the page of a task you run yourself has no tokens or cost. The word `you` always counts. |
 
 With `board_command` set, the file is not polled. The board is read at session start, on each prompt, at each turn's start and end, when a background agent starts or stops, after a Bash call that runs the command, and every 10 s while the pane is open.
 
@@ -70,22 +69,21 @@ Typed in [types/index.d.ts](../types/index.d.ts). It carries what the file does,
 | plan `anchor`, `rows[]` | Required. |
 | plan `name`, `plan_file`, `started` | The name, the file `Plan file ›` opens, and when the first task started. |
 | plan `finished`, `updated`, `idle_since` | ISO times behind the state word (see [Plan states](../README.md#board)). |
-| plan `in_session` | `true` for a plan this session works on, `false` for one added because the person picked or searched it. Only a plan with `in_session: true` reads `In progress` while this session runs a turn or a background agent; without the key, the state comes from the tasks alone. |
-| plan `usage_totals` | `tokens` and `est. cost` under the plan name. They are drawn once a task has left Todo or the plan has `started`; before that the plan reads `Not started yet`. |
+| plan `in_session` | `true` for a plan this session works on, `false` for one added because the person picked or searched it. Only a plan with `in_session: true` reads `In progress` while this session runs a turn or a background agent; without the key, the state comes from the tasks alone. It also decides which session's work counts: only a session whose command marks the plan `in_session: true` has its tokens and cost counted for it. |
+| plan `usage_totals`, task `usage` | Not read. plan-tracker counts tokens and cost itself (see [README, Limits](../README.md#limits)) and sums them over every session. The plan's figures sit under its name, drawn once a task has left Todo or the plan has `started`; before that the plan reads `Not started yet`. |
 | plan `recap`, `recap_updated` | The recap and when it was written: `Recap · updated 12 min ago`. |
 | task `task`, `status` | Required. `status` is one of the seven statuses above, spelled as there. |
 | task `note`, `goal`, `progress` | As the `evidence`, `goal` and `progress` columns. |
 | task `route` (or `who`) | `<split> × <executor> · <tier> — <why>`. A row has no `check` key: the checker is the `check by <who>:` in `route`. |
 | task `updated` | Orders each lane. |
-| task `started`, `finished` | When the task first went In Progress, and when it was Done or Canceled. A page shows `usage` only for a started task, and the usage command runs only for a started task with no `finished`. |
+| task `started`, `finished` | When the task first went In Progress, and when it was Done or Canceled. |
 | task `stalled_since` | Marks a running task that no session is working on: the stalled card, page and plan state. |
-| task `usage` | The time, tokens and est. cost on its page. |
 
 A time is shown on the clock it was written in, so an offset counts; a time ending in `Z`, or with no offset, reads on this machine's clock. It reads `19:40` today and `Oct 11 19:40` on another day.
 
 With `board_command` set, the Done pop-up, chime and rainbow come from the command, not the file. A Bash result that holds a block starting `PLAN-DONE <anchor> · <task> · <n> left`, up to the next blank line, puts that block in the conversation and shows a pop-up `✅ <task> · <n> left`; the chime plays in the terminal; `0 left` turns the band's bar to a rainbow until your next prompt, or until a later block for the same plan has tasks left.
 
-A plain `PROGRESS.md` has no usage and no start time, so it draws no figures once a task is under way, and its task pages have none. It never shows a stalled task.
+A plain `PROGRESS.md` has no start time, so its plan line draws figures once a task has left Todo, and its task pages draw the figures the ledgers hold for them. It never shows a stalled task.
 
 ## Messages
 
@@ -100,8 +98,9 @@ A plain `PROGRESS.md` has no usage and no start time, so it draws no figures onc
 | Board | `plan-tracker: the table in PROGRESS.md has no rows with a task` | Header only, or empty `task` cells. |
 | Board | `plan-tracker: board_location is a "command:" board; set board_command to a command that prints the board as JSON` | `board_location` starts with `command:`. |
 | Board | `plan-tracker: the board command exited <code>: <last stderr line>` | Your board command failed. |
+| Board | `Usage of 1 session could not be read` (`2 sessions`, and so on) | Under the plan's figures: that many sessions' usage files would not parse on a second read 200 ms later. The file is read again only when its size or time changes. |
 | Toast | `Board waits: <reason>` | `/plan-tracker` could not place the board pane; the reason says why. |
 
 ## What it writes
 
-Nothing in your project. It appends one JSON line to `~/.claude/mods-logs/plan-tracker.jsonl` for key presses, each change in the search field (its length, not its text), each change of the state word the band draws (the plan's anchor and the word), `/plan-tracker` runs, Done notices, errors and a few one-off lines, and never rotates the file.
+Nothing in your project. It writes one usage file per session, `~/.claude/mods-logs/plan-tracker-usage/<session id>.json`, after each turn and at the session's end, and sums every file in that folder for the figures. It appends one JSON line to `~/.claude/mods-logs/plan-tracker.jsonl` for key presses, each change in the search field (its length, not its text), each change of the state word the band draws (the plan's anchor and the word), `/plan-tracker` runs, Done notices, errors and a few one-off lines, and never rotates the file.

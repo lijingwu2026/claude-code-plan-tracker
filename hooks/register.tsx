@@ -16,9 +16,15 @@
  * board cannot be drawn a toast says why. A PLAN-DONE block in a Bash result becomes a toast, a chime
  * and a notice in the conversation, and one with `0 left` makes the band's bar a rainbow until the person's next prompt. With no
  * `board_command`, a row of the board file that goes Done does the same, with no block: the file is the only source.
+ *
+ * The usage ledger: every model request of this session (`turn.step`, the main thread's and each subagent's) is counted to the plan row it
+ * worked on, or to the plan, or to nobody (`hooks/ledger.ts` says whose); the requests of one interval between two `session.measure`
+ * readings are scaled to the host's own cost; the whole ledger is written to `~/.claude/mods-logs/plan-tracker-usage/<session id>.json`
+ * after each main turn and at the session's end, never inside a request's chain. Every session's file is summed (`hooks/usage.ts`) into
+ * the figures the board draws, so a plain PROGRESS.md has them too.
  */
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, Timer, TurnUsage } from 'claude-code'
 
 import type { Live, PlanBoard, PlanEntry, PlanStatus } from '../types'
 import {
@@ -53,7 +59,6 @@ import {
   truncate,
   settings,
   applyOptions,
-  usageArgv,
   boardArgv,
   commandMarkOf,
   withWork,
@@ -61,14 +66,33 @@ import {
 import type { LaneKey, Work } from './board'
 import type { FileView } from './draw'
 import { drawBand, drawPane, drawPicker, holdsSomething, isProportionalSurface, listedMatchOf, listedOf } from './draw'
+import {
+  SCALE_INCLUDES_SUBAGENTS,
+  bookInto,
+  briefRow,
+  emptyLedger,
+  hasEntries,
+  keyPaths,
+  ledgerDir,
+  ledgerNames,
+  ledgerText,
+  mainOwner,
+  parseLedger,
+  requestUsd,
+  resolveAgent,
+  rowOwner,
+  scaleInterval,
+  settle,
+  tokensOf,
+} from './ledger'
+import type { AgentClaims, Claim, LedgerFile, Owner, Request } from './ledger'
+import { planKey, readLedgers, withUsage } from './usage'
 
 const COMMAND = 'plan-tracker'
 const PANE_ID = 'plan-tracker'
 const PANE_TITLE = 'Plans'
 const REFRESH_MS = 10_000
 const SCRIPT_TIMEOUT_MS = 30_000
-/** `--usage` reads session transcripts, which reach 50 MB. */
-const USAGE_TIMEOUT_MS = 120_000
 const DONE_SOUND = 'sounds/done.wav'
 const DONE_GAIN = 0.6
 const TOAST_COLUMNS = 70
@@ -109,6 +133,8 @@ const bandMenu = atom({ plugin: 'plan-tracker', key: 'bandMenu' } as const, fals
 const working = atom({ plugin: 'plan-tracker', key: 'working' } as const, { turn: false, agents: [] })
 /** When `working` last went from something to nothing; null until it has. */
 const stoppedAt = atom({ plugin: 'plan-tracker', key: 'stoppedAt' } as const, null)
+/** What the usage ledger keeps across a reload of the module (see `persistCarry`): the session, what is known of each subagent, the requests not yet in the file, the board files the session changed. */
+const carried = atom({ plugin: 'plan-tracker', key: 'usageCarry' } as const, { session: '', agents: {}, unwritten: [], edited: [] })
 
 /** The session's project root: where the board file and a relative path in a note are looked up. */
 async function projectRoot($: EngineInterface): Promise<string> {
@@ -168,6 +194,30 @@ async function fetchBoard($: EngineInterface, text: string): Promise<Live> {
 /** The answer last written to `live`, as text; undefined until one is. */
 let shownJson: string | undefined
 
+/**
+ * The board command's (or the board file's) answer for `text` with the usage the ledgers hold (`withUsage`), the ledgers read while the
+ * board is. The plans the answer names are kept for the usage ledger's owners as soon as the board is in, without waiting for a ledger
+ * that is being read again. A board command's own `usage` keys are not read: the plugin counts by itself, so there is one source.
+ */
+async function fetchWithUsage($: EngineInterface, text: string): Promise<Live> {
+  const reading = readLedgers($).catch(async (error: unknown) => {
+    await log($, 'ledger', `the usage ledgers were not read: ${messageOf(error)}`)
+
+    return undefined
+  })
+  const answer = await fetchBoard($, text)
+
+  if (!('board' in answer)) {
+    return answer
+  }
+
+  trackerPlans = answer.board.plans
+
+  const ledgers = await reading
+
+  return ledgers === undefined ? answer : { board: withUsage(answer.board, ledgers, planKey) }
+}
+
 /** The run of the script under way, and the one rerun waiting behind it. */
 let inFlight: Promise<void> | undefined
 let queued: Promise<void> | undefined
@@ -175,7 +225,7 @@ let queued: Promise<void> | undefined
 /** Runs the script once for the current query and stores its answer (an answer to `*` also as the list); the state write redraws the band and the pane. */
 async function refreshOnce($: EngineInterface) {
   const asked = await read($, query)
-  const answer = await fetchBoard($, asked)
+  const answer = await fetchWithUsage($, asked)
   const text = JSON.stringify(answer)
 
   if (asked === ALL_PLANS && 'board' in answer) {
@@ -275,43 +325,6 @@ function refreshBoard($: EngineInterface): Promise<void> {
 
 /** `refreshBoard` for a place that must not fail because the script did. */
 const refreshQuietly = ($: EngineInterface) => refreshBoard($).catch(() => undefined)
-
-/** The rows whose usage run is under way, as `<anchor>:<index>`: a page opened twice meanwhile starts one run. */
-const usageRuns = new Set<string>()
-
-/**
- * A task page opened for a row that started and has not finished: the tracker works out its usage (reading transcripts,
- * which is slow, so never in the 10 s refresh) and the board is read again to show it. A failure leaves the page as it is.
- */
-async function loadUsage($: EngineInterface, plan: PlanEntry, index: number) {
-  const row = plan.rows[index]
-  const key = `${plan.anchor}:${index}`
-
-  if (settings.usageCommand === '' || row === undefined || row.started === undefined || row.finished !== undefined || usageRuns.has(key)) {
-    return
-  }
-
-  usageRuns.add(key)
-
-  try {
-    const { exitCode, stderr } = await $.process.run(
-      usageArgv(plan.anchor, index, row.task, await $.session.id()),
-      await commandInit($, USAGE_TIMEOUT_MS),
-    )
-
-    if (exitCode !== 0) {
-      await log($, 'usage', `the usage command exited ${exitCode}: ${stderr.trim().split('\n').at(-1)?.slice(0, 200) ?? ''}`)
-
-      return
-    }
-
-    await refreshQuietly($)
-  } catch (error) {
-    await log($, 'usage', messageOf(error))
-  } finally {
-    usageRuns.delete(key)
-  }
-}
 
 const lastDrawn = new Map<string, { key: string; tree: unknown }>()
 
@@ -478,6 +491,481 @@ async function attempt($: EngineInterface, stage: string, work: () => unknown): 
 
     return false
   }
+}
+
+// ---------------------------------------------------------------- the usage ledger
+
+/** The plans the board last answered (`refreshOnce`), as they came: whose work a request is, is read from them. */
+let trackerPlans: readonly PlanEntry[] = []
+
+/** The board files this session, or one of its agents, has changed with a file tool: with a plain PROGRESS.md, such a session works the plan the file holds. */
+const edited = new Set<string>()
+
+/**
+ * The plans the owners read, each keyed as the ledgers key it (`planKey`: a plain PROGRESS.md's plan is `progress` in every project, so its
+ * key is the file) and marked this session's by what the board says (`in_session` of a board command) or, for a plain PROGRESS.md, by the
+ * session having changed the file. The band's In progress state keeps reading the plans as the board gave them.
+ */
+function ownerPlans(): PlanEntry[] {
+  return trackerPlans.map(plan => ({ ...plan, anchor: planKey(plan), in_session: settings.boardCommand === '' ? edited.has(plan.plan_file) : plan.in_session === true }))
+}
+
+/** The requests recorded since the last interval closed. `turn.step` pushes here without an `await`; a `session.measure` that moves the cost books them. */
+let pending: Request[] = []
+
+/**
+ * What is known of each subagent, by agent id: the rows it claimed (its brief's, each verified In Progress write of its own) and its
+ * parent. Whose its requests are is worked out from this and the tracker's latest answer each time (`resolveAgent`), never fixed at the spawn.
+ */
+const agents = new Map<string, AgentClaims>()
+
+/** The ledger as booked (closed intervals only); null until `ensureLedger` has read the file or started a new one. */
+let ledger: LedgerFile | null = null
+
+let loading: Promise<void> | undefined
+
+/** The host's `cost.usd` at the end of the last interval, or at load; null when not known. */
+let lastUsd: number | null = null
+
+/** Whether the next interval is the first since this board loaded: its requests are not scaled. */
+let isFirstInterval = true
+
+/** Whether the host keeps a cost ledger; once a reading shows it does not, nothing waits for an interval to close. */
+let hostHasCost = true
+
+/** Whether the ledger or the open interval changed since the file was written. */
+let isDirty = false
+
+/** The surface the session last drew on, which the file records. */
+let surfaceSeen = 'unknown'
+
+/** Whether this session's `usage-shape` line has been logged. */
+let isShapeLogged = false
+
+/** Whether the session's ledger file exists (read at load, or written since). A session with no entry of its own makes none: a headless run would leave one file per run. */
+let hasFile = false
+
+/** The file `ledger` is written to, chosen with it at load (`ensureLedger`); null before, or when no free name could be found. The two are always used together. */
+let ledgerFile: string | null = null
+
+/** How many of `pending` the file already holds (at table price), and the count of intervals closed: a write only counts requests of the interval it saw. */
+let writtenUpTo = 0
+let intervalNo = 0
+
+/** A write of the file that has not ended in this long is given up (logged), so the next write is not held behind it. */
+const WRITE_TIMEOUT_MS = 10_000
+
+/**
+ * Reads the session's ledger file, or starts a new ledger when there is none: a board that reloads mid-session adds to what it wrote
+ * before. A file that cannot be read as this session's ledger is left as it is (it may hold the session's earlier usage): the ledger is
+ * written to the next name of `ledgerNames`. Once per session; never throws.
+ */
+function ensureLedger($: EngineInterface): Promise<void> {
+  loading ??= (async () => {
+    let held: LedgerFile | undefined
+    let file: string | null = null
+    let session = ''
+
+    try {
+      session = await $.session.id()
+
+      const home = await $.env.get('HOME')
+      const dir = home === undefined || home === '' ? undefined : ledgerDir(home)
+
+      for (const name of dir === undefined || session === '' ? [] : ledgerNames(session)) {
+        const path = `${dir}/${name}`
+
+        if (!(await $.fs.exists(path))) {
+          file = path
+
+          break
+        }
+
+        try {
+          held = parseLedger(await $.fs.read(path), session)
+        } catch (error) {
+          await log($, 'ledger', `${path} not read: ${messageOf(error)}`)
+
+          continue
+        }
+
+        if (held !== undefined) {
+          file = path
+
+          break
+        }
+
+        await log($, 'ledger', `${path} not read: it is not a ledger of this session; it is left as it is and the ledger goes to another file`)
+      }
+
+      if (file === null && session !== '') {
+        await log($, 'ledger', 'no file name is free for this session\'s ledger: its usage is not written')
+      }
+    } catch (error) {
+      await log($, 'ledger', `ledger file not read: ${messageOf(error)}`)
+    }
+
+    if (session === '') {
+      loading = undefined
+
+      return
+    }
+
+    ledger = held ?? emptyLedger(session, surfaceSeen)
+    ledgerFile = file
+    hasFile = held !== undefined
+  })()
+
+  return loading
+}
+
+/** Loads the ledger, takes back what a reload left in the state, and reads the host's cost at this moment, which the first interval's change is counted from. */
+async function startLedger($: EngineInterface) {
+  await ensureLedger($)
+  await restoreCarry($)
+
+  const cost = (await $.session.usage()).cost?.usd
+
+  lastUsd ??= cost ?? null
+  hostHasCost = cost !== undefined
+}
+
+/** Forgets the session: the next one (after a `/clear` the same process goes on under a new id) starts a ledger of its own, with none of this one's plans. */
+function resetLedger($: EngineInterface) {
+  ledger = null
+  ledgerFile = null
+  loading = undefined
+  pending = []
+  writtenUpTo = 0
+  intervalNo += 1
+  trackerPlans = []
+  agents.clear()
+  edited.clear()
+  lastUsd = null
+  isFirstInterval = true
+  isDirty = false
+  isShapeLogged = false
+  hasFile = false
+  persistCarry($)
+}
+
+const isOwner = (value: unknown): value is Owner | null =>
+  value === null || (typeof value === 'object' && typeof (value as Owner).plan === 'string' && ((value as Owner).row === null || typeof (value as Owner).row === 'string'))
+
+const isCount = (value: unknown): boolean => typeof value === 'number' && Number.isFinite(value)
+
+/** A request read back from the state: the shape `recordRequest` writes, else it is dropped. */
+const isRequest = (value: unknown): value is Request => {
+  const one = value as Request | null
+  const tokens = one?.tokens
+
+  return (
+    typeof one === 'object' && one !== null && isOwner(one.owner) && (one.agentId === undefined || typeof one.agentId === 'string') && (one.wanted === undefined || isClaim(one.wanted)) &&
+    (one.usd === null || isCount(one.usd)) && isCount(one.at) && typeof tokens === 'object' && tokens !== null &&
+    [tokens.in, tokens.cached, tokens.cache_write, tokens.out].every(isCount)
+  )
+}
+
+/** The write of the carry in flight, and whether another was asked meanwhile. */
+let carrying: Promise<void> | undefined
+let isCarryAgain = false
+
+/**
+ * Keeps what is known of each subagent, the requests the file does not hold yet and the board files this session has changed in
+ * `usageCarry` (`$.state`), which a reload of the module outlives, so a worker still running keeps its row, its recent requests are not
+ * lost and the session still works its plan. Not awaited; one write at a time; a failure is ignored.
+ */
+function persistCarry($: EngineInterface) {
+  if (carrying !== undefined) {
+    isCarryAgain = true
+
+    return
+  }
+
+  carrying = (async () => {
+    try {
+      do {
+        isCarryAgain = false
+
+        const session = await $.session.id()
+
+        await update($, carried, () => JSON.parse(JSON.stringify({ session, agents: Object.fromEntries(agents), unwritten: pending.slice(writtenUpTo), edited: [...edited] })))
+      } while (isCarryAgain)
+    } catch {
+      // the carry is a convenience for a reload; the file is the record
+    } finally {
+      carrying = undefined
+    }
+  })()
+}
+
+const isClaim = (value: unknown): value is Claim => typeof value === 'object' && value !== null && typeof (value as Claim).task === 'string' && ((value as Claim).anchor === undefined || typeof (value as Claim).anchor === 'string')
+
+/** Takes back, after a reload, what the carry holds for this session: what is known of each subagent, the unwritten requests and the board files it changed. */
+async function restoreCarry($: EngineInterface) {
+  const held = await read($, carried)
+
+  if (held.session === '' || held.session !== (await $.session.id())) {
+    return
+  }
+
+  for (const [id, known] of Object.entries(held.agents)) {
+    const claims = Array.isArray(known?.claims) ? known.claims.filter(isClaim) : []
+
+    if (!agents.has(id)) {
+      agents.set(id, { claims, ...(typeof known?.parent === 'string' ? { parent: known.parent } : {}) })
+    }
+  }
+
+  if (pending.length === 0 && writtenUpTo === 0) {
+    pending = held.unwritten.filter(isRequest)
+    isDirty = isDirty || pending.length > 0
+  }
+
+  for (const path of held.edited) {
+    if (typeof path === 'string') {
+      edited.add(path)
+    }
+  }
+}
+
+/**
+ * Once per session, logs one `usage-shape` line with the key names of the first usage object `turn.step` reports, nested keys as dotted
+ * paths: it shows whether the runtime carries the 1-hour/5-minute split of cache writes. Not awaited; no value is logged.
+ */
+function noteUsageShape($: EngineInterface, usage: unknown) {
+  if (isShapeLogged || usage === null || usage === undefined) {
+    return
+  }
+
+  isShapeLogged = true
+  void log($, 'usage-shape', null, { kind: 'usage-shape', keys: keyPaths(usage) })
+}
+
+/** Whether `usage` holds the four counts and a model: a response that does not is not a request to count. */
+const isCounted = (usage: TurnUsage): boolean =>
+  typeof usage.model === 'string' &&
+  usage.model !== '<synthetic>' &&
+  [usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens].every(count => typeof count === 'number' && Number.isFinite(count))
+
+/** Counts one response. No `await`, nothing that can reach the disk: it runs in the request's chain, after the response is whole. */
+function recordRequest($: EngineInterface, agentId: string | undefined, usage: TurnUsage | null) {
+  if (usage === null || !isCounted(usage)) {
+    return
+  }
+
+  const plans = ownerPlans()
+  const { owner, wanted } = agentId === undefined ? { owner: mainOwner(plans), wanted: undefined } : resolveAgent(agents, plans, agentId)
+
+  pending.push({ owner, agentId, ...(wanted === undefined ? {} : { wanted }), tokens: tokensOf(usage), usd: requestUsd(usage.model, usage, agentId === undefined), at: Date.now() })
+  isDirty = true
+  persistCarry($)
+}
+
+/** Looks up again, in the board's latest answer, the rows that the open interval's subagent requests claimed when the answer did not have them yet. */
+function settleOwners() {
+  pending = settle(pending, ownerPlans())
+}
+
+/**
+ * A spawned subagent: its brief's first line, `Tracker row: "<exact row text>"`, is its claim on a row, and `parentAgentId` says which
+ * subagent spawned it. Nothing is decided here: whose its requests are comes from these and the board's latest answer when they are
+ * recorded and booked (`resolveAgent`), because the row may be one made seconds before, which the board's last answer lacks. One
+ * `usage-owner` line says what was known and what it resolved to, so a live miss can be read from the log.
+ */
+function noteSpawn($: EngineInterface, agentId: string, prompt: string, parentAgentId: string | undefined) {
+  const task = briefRow(prompt)
+
+  const plans = ownerPlans()
+
+  agents.set(agentId, { claims: task === undefined ? [] : [{ task }], ...(parentAgentId === undefined ? {} : { parent: parentAgentId }) })
+  persistCarry($)
+  void log($, 'usage-owner', null, {
+    kind: 'usage-owner',
+    agent_id: agentId,
+    brief_row: task ?? null,
+    brief_matched: task !== undefined && rowOwner(plans, task) !== null,
+    parent: parentAgentId ?? null,
+    owner: resolveAgent(agents, plans, agentId).owner,
+    tracker_plans: plans.filter(one => one.in_session === true).length,
+  })
+}
+
+/** A file tool changed `path`: when it is the board file, the session works the plan the file holds, and the file is read again. */
+async function noteBoardChange($: EngineInterface, path: unknown) {
+  if (typeof path !== 'string' || path !== boardFile(await projectRoot($))) {
+    return
+  }
+
+  if (!edited.has(path)) {
+    edited.add(path)
+    persistCarry($)
+  }
+
+  refreshInBackground($)
+}
+
+/**
+ * The end of an interval: `session.measure` says the host's cost moved. The requests since the last interval are scaled to the host's
+ * change (`scaleInterval`) and booked into the ledger. Every measure, closing one or not, leaves one `usage-interval` line in the log:
+ * whether the host had a cost, the host's change, the table's sums for the main thread and for subagents, the counts, the factor.
+ */
+async function closeInterval($: EngineInterface, e: { cost?: { usd: number }; changed: readonly string[] }) {
+  await ensureLedger($)
+  settleOwners()
+
+  const usd = e.cost?.usd
+  const isClosing = usd !== undefined && e.changed.includes('cost')
+  const delta = usd === undefined || lastUsd === null ? null : usd - lastUsd
+  const interval = scaleInterval(pending, delta, { includesSubagents: SCALE_INCLUDES_SUBAGENTS, isFirst: isFirstInterval })
+  const probe = {
+    kind: 'usage-interval',
+    cost_present: usd !== undefined,
+    changed: e.changed,
+    is_first: isFirstInterval,
+    host_delta_usd: delta,
+    table_sum_main_usd: interval.tableMain,
+    table_sum_sub_usd: interval.tableSub,
+    requests_main: interval.requestsMain,
+    requests_sub: interval.requestsSub,
+    factor: interval.factor,
+    is_scaled: isClosing && interval.isScaled,
+  }
+
+  hostHasCost = usd !== undefined
+
+  if (isClosing && ledger !== null) {
+    ledger = { ...bookInto(ledger, interval.booked), measured_usd: usd }
+    pending = []
+    writtenUpTo = 0
+    intervalNo += 1
+    lastUsd = usd
+    isFirstInterval = false
+    isDirty = true
+    persistCarry($)
+    requestWrite($)
+  }
+
+  // A measure that moved only the rate limits (a cost on the host, unchanged) has nothing to say about the cost.
+  if (isClosing || usd === undefined) {
+    void log($, 'usage-interval', null, probe)
+  }
+}
+
+/** Writes the ledger file whole. False when nothing needed writing or the write failed (logged; the next write tries again). */
+async function writeLedger($: EngineInterface): Promise<boolean> {
+  if (!isDirty) {
+    return false
+  }
+
+  await ensureLedger($)
+
+  if (ledger === null || ledgerFile === null) {
+    return false
+  }
+
+  settleOwners()
+
+  // A host with no cost ledger never closes an interval: its requests are booked at the table price as they come.
+  if (!hostHasCost && pending.length > 0) {
+    ledger = bookInto(ledger, scaleInterval(pending, null, { includesSubagents: SCALE_INCLUDES_SUBAGENTS, isFirst: true }).booked)
+    pending = []
+    writtenUpTo = 0
+    intervalNo += 1
+    persistCarry($)
+  }
+
+  // No file for a session with no entry of its own (a headless run, a summarizer): it would only hold what nobody owns, and the tracker reads every file.
+  if (!hasFile && !hasEntries(ledger, pending)) {
+    return false
+  }
+
+  const surface = (await $.session.surfaces().catch(() => []))[0] ?? surfaceSeen
+
+  // From here to the write nothing is awaited: the ledger and the file it belongs to are taken together, so a session that ended meanwhile
+  // (a /clear) can never have its ledger written under the other session's name.
+  const file = ledgerFile
+  const held = ledger
+
+  if (held === null || file === null) {
+    return false
+  }
+
+  surfaceSeen = surface
+  ledger = { ...held, surface }
+  isDirty = false
+  settleOwners()
+
+  const seen = { upTo: pending.length, interval: intervalNo }
+  const text = ledgerText(ledger, pending, localIso(Date.now()))
+
+  try {
+    await writeBounded($, file, text)
+
+    if (ledgerFile === file) {
+      hasFile = true
+
+      // The file now holds the requests of the interval it was written from; what came after is still unwritten.
+      if (seen.interval === intervalNo) {
+        writtenUpTo = Math.max(writtenUpTo, seen.upTo)
+        persistCarry($)
+      }
+    }
+
+    return true
+  } catch (error) {
+    if (ledgerFile === file) {
+      isDirty = true
+    }
+
+    await log($, 'ledger', `${file} not written: ${messageOf(error)}`)
+
+    return false
+  }
+}
+
+/** `$.fs.write`, given up (rejected) when it has not ended in `WRITE_TIMEOUT_MS`: a write that hangs must not hold the writer for good. */
+function writeBounded($: EngineInterface, path: string, text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = $.clock.after(WRITE_TIMEOUT_MS, () => reject(new Error(`the write did not end in ${WRITE_TIMEOUT_MS / 1000} s`)))
+
+    $.fs.write(path, text).then(resolve, reject).finally(() => timer.cancel())
+  })
+}
+
+/** The write in flight, and whether another was asked meanwhile. */
+let writing: Promise<void> | undefined
+let isWriteAgain = false
+
+/**
+ * Asks for the ledger to be written, without waiting for it: one write runs at a time, a request that comes meanwhile makes it write
+ * once more. When something was written the tracker is read again, once, so the board draws the new figures.
+ */
+function requestWrite($: EngineInterface) {
+  if (writing !== undefined) {
+    isWriteAgain = true
+
+    return
+  }
+
+  writing = (async () => {
+    let wrote = false
+
+    try {
+      do {
+        isWriteAgain = false
+        wrote = (await writeLedger($)) || wrote
+      } while (isWriteAgain)
+    } catch (error) {
+      await log($, 'ledger', messageOf(error))
+    } finally {
+      writing = undefined
+    }
+
+    if (wrote) {
+      refreshInBackground($)
+    }
+  })()
 }
 
 /** Shows one PLAN-DONE block as a toast and a notice in the conversation; whatever fails is logged, never thrown. */
@@ -670,10 +1158,9 @@ let paneRows: number | undefined
 /** The surfaces last logged by `animates`, as text. */
 let loggedSurfaces = ''
 
-/** Opens row `index` of `plan` on its page: the plan list shuts, the row's usage is read in the background, and the pane is focused at its top. */
+/** Opens row `index` of `plan` on its page: the plan list shuts and the pane is focused at its top. */
 async function openRow($: EngineInterface, plan: PlanEntry, index: number) {
   await Promise.all([update($, menu, () => false), update($, card, () => ({ anchor: plan.anchor, index }))])
-  void loadUsage($, plan, index)
   await syncAnimation($)
   await refocus($, true)
 }
@@ -915,6 +1402,8 @@ export const register: Register = (on, options) => {
     await changeWork($, () => ({ turn: false, agents: [] })).catch(() => undefined)
     refreshInBackground($)
     startWatch($)
+    // The usage ledger of this session: its file read (a reload goes on from it) and the host's cost taken as the baseline.
+    void startLedger($).catch(() => undefined)
 
     // A reload keeps the pane but drops the module's timers: start them again. A session with no screen (`claude -p`) has
     // no panes to ask, and that must not stop the mod loading.
@@ -985,11 +1474,24 @@ export const register: Register = (on, options) => {
     await pruneAgents($)
     refreshInBackground($)
 
+    // The main thread's turn is over: its requests go to the ledger file, which the board is then read again for. Not awaited.
+    if (e.agentId === undefined) {
+      requestWrite($)
+    }
+
     return next(e)
   }).catch(($, e, next) => next(e))
 
   on('agent.spawn', async ($, e, next) => {
     const result = await next(e)
+
+    if (result.agentId !== undefined && result.deny === undefined) {
+      try {
+        noteSpawn($, result.agentId, e.prompt, e.parentAgentId)
+      } catch {
+        // an owner the plugin could not work out is the main thread's at the agent's first request
+      }
+    }
 
     // A Workflow's agents are not listed by `$.agent.list()` and are not counted; a foreground agent runs inside the main turn.
     if (e.background && e.workflow === undefined && result.deny === undefined && result.agentId !== undefined) {
@@ -1006,6 +1508,54 @@ export const register: Register = (on, options) => {
     await changeWork($, work => ({ ...work, agents: work.agents.filter(id => id !== e.agent_id) }))
     await pruneAgents($)
     refreshInBackground($)
+    // A subagent's end writes the ledger, so a background worker's requests show before the next main turn. Not awaited.
+    requestWrite($)
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // The usage ledger. A model request of the main thread or of a subagent is counted once its response is whole: the hook records after
+  // `next(e)` with no `await` and no disk, and its own failure is kept to itself, so the request is answered as the engine gave it.
+  on('turn.step', async function* ($, e, next) {
+    const response = yield* next(e)
+
+    try {
+      recordRequest($, e.agentId, response.usage)
+    } catch {
+      // one request not counted
+    }
+
+    try {
+      noteUsageShape($, response.usage)
+    } catch {
+      // no shape line
+    }
+
+    return response
+  }).catch(async function* ($, e, next) {
+    return yield* next(e)
+  })
+
+  // The host's cost moved: close the interval (scale its requests to the host's change, book them, write the file).
+  on('session.measure', async ($, e, next) => {
+    try {
+      await closeInterval($, e)
+    } catch (error) {
+      await log($, 'ledger', messageOf(error))
+    }
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // The session ends (or a /clear gives the process a new id): its ledger is written before the end step, and the next session starts anew.
+  on('session.end', async ($, e, next) => {
+    try {
+      await writeLedger($)
+    } catch (error) {
+      await log($, 'ledger', messageOf(error))
+    }
+
+    resetLedger($)
 
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -1180,6 +1730,7 @@ export const register: Register = (on, options) => {
       columns: e.props.bodyColumns,
       bodyRows: e.props.scroll.bodyRows,
       message: board.message,
+      ledgerErrors: board.ledger_errors ?? [],
       detail: isFile ? null : detail,
       file: isFile ? await loadFile($, plan) : null,
       home: await $.env.get('HOME'),
@@ -1205,6 +1756,23 @@ export const register: Register = (on, options) => {
       onFile: () => void pressByKey($, 'plan-file', e.surface),
     }))
   })
+
+  // A file tool that changes the board file makes this session (or one of its agents) work the plan the file holds: the usage ledger counts
+  // its work for that plan. Only a plain PROGRESS.md needs it; a board command says `in_session` itself. The board file is read again at once,
+  // so the next request already sees the row the change made In Progress.
+  on('tool.call', { tool: /^(Edit|Write|MultiEdit)$/ }, async ($, e, next) => {
+    const result = await next(e)
+
+    if (settings.boardCommand === '' && result.deny === undefined && result.isError !== true) {
+      try {
+        await noteBoardChange($, (e as { file_path?: unknown }).file_path)
+      } catch {
+        // the mark is a convenience for the ledger; the change is already made
+      }
+    }
+
+    return result
+  }).catch(($, e, next) => next(e))
 
   // The script prints a PLAN-DONE block when a write makes a row Done; the Bash result is never changed. Each block is a toast
   // and a notice, once a chime, and one with `0 left` a rainbow; a Bash call that ran the script reads the tracker again.

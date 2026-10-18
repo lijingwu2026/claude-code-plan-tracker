@@ -122,7 +122,7 @@ Change a status in the file and the board follows.
 
 <img src="docs/board-in-progress.png" alt="Board while the plan is in progress" width="100%">
 
-<sub>The board opens in a pane on the right; the band stays above the prompt. These board screens read the board from a command that lists two plans, so they show tokens, est. cost, the plan's times and stalled tasks; a plain `PROGRESS.md`, as in the video, draws the same board without those figures.</sub>
+<sub>The board opens in a pane on the right; the band stays above the prompt. These board screens read the board from a command that lists two plans, so they show the plan's times and stalled tasks; a plain `PROGRESS.md`, as in the video, draws the same board without those. Tokens and cost are counted by plan-tracker itself, so either source shows them.</sub>
 
 - **Claude adds a task** → a card for it appears.
 - **A task is blocked** → its card sits red at the top of In Progress; open its page and the latest note says why.
@@ -142,7 +142,7 @@ Change a status in the file and the board follows.
 <tr><td><img src="docs/parts/head-planfile.png" width="372" alt="Header, Plan file boxed"></td><td><b><code>Plan file ›</code></b></td><td>The plan behind the board.</td><td>Opens the plan file page.</td></tr>
 <tr><td><img src="docs/parts/head-close.png" width="372" alt="Header, the close mark boxed"></td><td><b><code>✕</code></b></td><td>Closes the pane.</td><td>Closes the board; the band stays.</td></tr>
 <tr><td><img src="docs/parts/board-menu.png" width="480" alt="The plan menu open under the header"></td><td><b>Plan menu</b></td><td>This project's plans with state and count; the one shown is highlighted and marked <code>▶</code>.</td><td>A plan: shows its board.</td></tr>
-<tr><td><img src="docs/parts/board-figures.png" width="437" alt="Tokens and est. cost boxed"></td><td><b>Figures</b></td><td>Tokens and est. cost of the whole plan, from the board command. A plain <code>PROGRESS.md</code> has none.</td><td>&mdash;</td></tr>
+<tr><td><img src="docs/parts/board-figures.png" width="437" alt="Tokens and est. cost boxed"></td><td><b>Figures</b></td><td>Tokens and cost of the whole plan, counted by plan-tracker from each API request in every session that had it loaded, a plain <code>PROGRESS.md</code> included. <code>incl. $0.80 on the plan, not one task</code> under it names the part that no single task owns.</td><td>&mdash;</td></tr>
 <tr><td><img src="docs/parts/board-recap.png" width="480" alt="The recap boxed"></td><td><b>Recap</b></td><td>Claude's two or three sentences: what the plan is for, where it is, what is next or needed from you. <code>updated 12 min ago</code> when the board command gives its time.</td><td>&mdash;</td></tr>
 <tr><td><img src="docs/parts/board-lanes.png" width="480" alt="The four lane titles boxed"></td><td><b>Lanes</b></td><td>Todo, In Progress, Verify and Done, each with its count; In Progress adds <code>· 1 blocked</code>. Each lane lists its latest-updated task first; Blocked comes first in In Progress.</td><td>&mdash;</td></tr>
 <tr><td><img src="docs/parts/card-whole.png" width="242" alt="A task card boxed"></td><td><b>Card</b></td><td>One task. The border takes the task's colour (blue here: In Progress). A <code>progress</code> value draws a bar on the card, when the card is wide enough.</td><td>Opens its task page.</td></tr>
@@ -219,7 +219,8 @@ Change a status in the file and the board follows.
 <tr><td><i>Not in these shots</i></td><td><b>Progress</b></td><td>The <code>progress</code> bar.</td><td>&mdash;</td></tr>
 <tr><td><img src="docs/parts/task-note.png" width="321" alt="Task page, Latest note row"></td><td><b>Latest note</b></td><td>The newest note on the task. A file path in it is a link; a terminal without OSC 8 hyperlink support prints the address after the link.</td><td>A path opens the file.</td></tr>
 <tr><td><img src="docs/parts/task-blocked-because.png" width="468" alt="Task page, Blocked because row"></td><td><b>Blocked because</b></td><td>Takes the Latest note's place on a blocked task.</td><td>&mdash;</td></tr>
-<tr><td><i>Not in these shots</i></td><td><b>Time, tokens, est. cost</b></td><td>Above the table, when the board command supplies them for that task. None for a task you run yourself.</td><td>&mdash;</td></tr>
+<tr><td><i>Not in these shots</i></td><td><b>Tokens, cost</b></td><td>Above the table: what the subagents that worked on this task used. None for a task you run yourself.</td><td>&mdash;</td></tr>
+<tr><td><i>Not in these shots</i></td><td><b>Sessions</b></td><td>One line per session that worked on the task: when, where (<code>terminal</code>, <code>Desktop</code>, <code>VS Code extension</code>), and that session's tokens and cost. None for a task you run yourself.</td><td>&mdash;</td></tr>
 </tbody>
 </table>
 
@@ -237,6 +238,14 @@ Use plan-tracker alongside Claude Code's own views; each shows something differe
 ## Limits
 
 - Read-only for your board: it never writes `PROGRESS.md`.
+- Only sessions with plan-tracker loaded are counted.
+- Main-session work counts for the plan, not a task; a task shows figures only for a subagent whose brief names its row.
+- With a plain `PROGRESS.md`, a session's work counts for the plan only after that session has edited the file with Claude's file tools; a session that changes it another way (a shell command, an editor) counts for nothing; a session that edited it once and then works on something else still counts for the plan while a row is In Progress.
+- With `board_command`, counting needs the command's `in_session` and each row's exact task text.
+- Claude Code makes some requests the plugin never sees (prompt suggestions); their cost is spread over that interval's requests, or goes to unowned outside 0.8–1.25.
+- The runtime does not say which cache a write went to: main-session writes are priced at the 1-hour rate, subagent writes at the 5-minute rate.
+- One ledger file per session is kept and never deleted.
+- Moving or renaming `PROGRESS.md` starts a new count.
 - Polls the file about every 1.5 s; it does not use file-system events.
 - Shows the first table in the file with `task` and `status` columns, as one plan.
 - Every open session on the same project shows the pop-up and plays the chime when a task goes Done.

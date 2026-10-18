@@ -39,10 +39,13 @@ import {
   STATE_STYLE,
   fileHref,
   planStatsOf,
+  planOwnText,
+  ledgerErrorText,
   notStartedText,
   recapLabel,
   planStateOf,
   progressOf,
+  sessionLineOf,
   statusWords,
   usageStatsOf,
   fitStats,
@@ -737,6 +740,8 @@ type PaneArgs = {
   /** `e.props.bodyColumns` */
   columns: number
   message: string | null
+  /** The ids of the sessions whose usage ledger could not be read (the board's `ledger_errors`); a line under the plan details says how many. */
+  ledgerErrors?: readonly string[]
   /** The index in `plan.rows` of the card whose page replaces the board; null shows the board. */
   detail: number | null
   /** The plan file view replaces the board (and the page): its text, or why it cannot be read. */
@@ -1118,6 +1123,20 @@ export function drawPane(given: Kit, args: PaneArgs): RenderElement {
               </Text>
             </Box>
           )}
+          {stats.length > 0 && planOwnText(plan.usage_totals) !== '' ? (
+            <Box key="plan-own">
+              <Text dimColor wrap="truncate">
+                {planOwnText(plan.usage_totals)}
+              </Text>
+            </Box>
+          ) : null}
+          {ledgerErrorText(args.ledgerErrors) === '' ? null : (
+            <Box key="ledger-errors">
+              <Text dimColor wrap="truncate">
+                {ledgerErrorText(args.ledgerErrors)}
+              </Text>
+            </Box>
+          )}
           {plan.recap === undefined ? null : (
             <Box key="recap" flexDirection="column" marginTop={1}>
               <Text dimColor wrap="truncate">
@@ -1173,11 +1192,12 @@ const chipParts = (words: string): Part[] =>
   words.split(' · ').flatMap((word, at): Part[] => [...(at === 0 ? [] : [{ text: ' · ' }]), CHIPS[word] === undefined ? { text: word } : { text: word, chip: CHIPS[word] }])
 
 /**
- * One task's page: the task behind a square in its status color; a row of stats (working time, tokens, est. cost, and the effort when the
- * work ran at one: bold values over dim labels), left out for a row with no usage and for her own rows; then a bordered table of labelled
+ * One task's page: the task behind a square in its status color; a row of stats (tokens and cost: bold values over dim labels), left out
+ * for a row no request was counted to and for her own rows; then a bordered table of labelled
  * rows, each left out when the tracker records nothing for it: Goal, Status (in words and its color), Done by (the tier a chip
- * and the executor, or the you chip), Checked by (once the row is Done), Progress (a bar), "Latest note" (the reason, on a
- * Blocked row; its date, then one bulleted point per line, its file paths links).
+ * and the executor, or the you chip), Checked by (once the row is Done), Progress (a bar), Sessions (one line per session that worked on
+ * the row: when, where, tokens, cost), "Latest note" (the reason, on a Blocked row; its date, then one bulleted point per line, its file
+ * paths links).
  * The frame is box characters on the terminal: a label cell and a value cell, a rule between rows;
  * values wrap inside their cell. On the desktop each row is a round-bordered Box, a label Box of fixed width and a value Box that
  * wraps its text.
@@ -1194,9 +1214,10 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, isQu
   const checker = checkerOf(row)
   const noteLines = noteLinesOf(row.note ?? '', valueWidth)
   const bar = progressOf(row)
-  // Nothing is shown before the row started, nor for a row written before the tracker kept usage: never a guessed window.
+  // What the usage ledgers counted to this row: nothing for a row no request was counted to, never a guess.
   // Her own tasks show no usage: the numbers are Claude's session, which does not measure her work.
-  const usage = usageStatsOf(row.started === undefined || isYou(executorOf(row)) ? undefined : row.usage)
+  const isHers = isYou(executorOf(row))
+  const usage = usageStatsOf(isHers ? undefined : row.usage)
   const plain = (text: string): Part[][] => wrap(text, valueWidth).map(line => [{ text: line }])
   // The chips stay when the cell holds the line whole; a narrower cell wraps the plain words instead.
   const chipped = (words: string): Part[][] => (widthOf(chipParts(words)) <= valueWidth ? [chipParts(words)] : plain(words))
@@ -1220,6 +1241,8 @@ function drawDetail(kit: Kit, { row, columns, home, onBack, isProportional, isQu
     ...(who === undefined ? [] : [{ key: 'who', label: 'Done by', lines: whoLines }]),
     ...(row.status === 'Done' && checker !== undefined ? [{ key: 'checker', label: 'Checked by', lines: chipped(checker) }] : []),
     ...(barParts === undefined ? [] : [{ key: 'progress', label: 'Progress', lines: [barParts] }]),
+    // One line per session that worked on the row, in the order they first did.
+    ...(isHers || row.sessions_usage === undefined ? [] : [{ key: 'sessions', label: 'Sessions', lines: row.sessions_usage.flatMap(one => plain(sessionLineOf(one))) }]),
     ...(noteLines.length === 0
       ? []
       : [
