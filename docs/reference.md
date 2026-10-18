@@ -1,6 +1,6 @@
 # plan-tracker reference
 
-What the [README](../README.md) leaves out: how the board is laid out, what each state looks like, and everything you can set or send.
+What the [README](../README.md) leaves out: how the board is laid out, and everything you can set or send.
 
 ## Lanes
 
@@ -15,50 +15,13 @@ The board has four lanes: Todo, In Progress, Verify and Done. Side by side they 
 
 Each lane lists its latest-updated task first. Without times (a plain `PROGRESS.md`), Todo, In Progress and Verify keep file order and Done lists the later row first.
 
-## Plan states
+## States and the task page
 
-Shown in the header, the band and the plan list. The plan's only time is in the state word; a time from another day carries its day (`Done at Oct 11 21:40`).
+Plan states: [README, Board, States](../README.md#board).
 
-| Looks like | State | When | Time shown |
-|---|---|---|---|
-| <img src="states/plan-in-progress.png" alt="In progress plan header" height="16"> | In progress | A task is In Progress or Verifying and is not marked stalled; or Claude is working on the plan now: this session runs a turn or a background agent, and the plan is this session's (the one plan of a `PROGRESS.md`; with a board command, a plan sent with `in_session: true`). Agents a Workflow starts are not counted | none |
-| <img src="states/plan-stalled.png" alt="Stalled plan header" height="16"> | Stalled | Every In Progress or Verifying task is stalled and this session is not working on the plan: your board command marks a task with `stalled_since`, meaning no session is working on it. A plain `PROGRESS.md` has no session data and never shows this | `Stalled since 19:23`, the newest `stalled_since` |
-| <img src="states/plan-waiting.png" alt="Waiting for you plan header" height="16"> | Waiting for you | Nothing is In Progress or Verifying, and a Needs Verification task has you as its checker or its executor. Drawn in the colour of the `◆ needs you` marker | `Waiting for you since 19:40`, the later of `idle_since` and when this session last stopped working; plain without either |
-| <img src="states/plan-idle.png" alt="Idle plan header" height="16"> | Idle | No task is In Progress or Verifying and none waits on you, including a plan nothing has started | `Idle since 19:40`, the later of `idle_since` and when this session last stopped working; plain `Idle` without either |
-| <img src="states/plan-done.png" alt="Done plan header" height="16"> | Done | Every task is Done or Canceled (one at least Done), or your board command sends `finished` | `Done at 21:40`, from `finished`, else `updated`; plain `Done` with neither |
+Card states: [README, Board, States](../README.md#board).
 
-`Plan file ›` in the header and the band opens the plan file as a page, drawn as Markdown. For a plain `PROGRESS.md` that is the file itself.
-
-## Card states
-
-The tag names who does the task or takes it next, so a Done card has none. A task whose route names neither a model nor you has none either.
-
-| Looks like | Card | How it looks |
-|---|---|---|
-| <img src="states/card-running.png" alt="Running task card" height="64"> | Running | In Progress or Verifying: the mascot moves; the tag is the model doing it (`Opus`, `Sonnet`, `Haiku`) or `you`; on a Verifying card it is the checker |
-| <img src="states/card-stalled.png" alt="Stalled task card" height="64"> | Stalled | Running but marked `stalled_since`: the mascot stands still and a grey tag, `stalled 19:23` (`stalled Oct 11` from another day), replaces the model tag; a card too narrow for the time shows the bare `stalled` |
-| <img src="states/card-waiting-for-you.png" alt="Waiting for you task card" height="64"> | Waiting for you | Needs Verification and you are its checker or its executor: `◆ needs you ·` before the name, tag `you` |
-| <img src="states/card-waiting-for-check.png" alt="Waiting for a check task card" height="64"> | Waiting for a check | Needs Verification with another checker: no marker; the tag is the checker's model, none for a script |
-| <img src="states/card-blocked.png" alt="Blocked task card" height="64"> | Blocked | Red, `⚑ Blocked ·` before the name, the mascot frozen; the tag is who runs it |
-| <img src="states/card-todo.png" alt="Todo task card" height="64"> | Todo | No mascot; the tag is who will do it: a model, or `you` |
-| <img src="states/card-done.png" alt="Done task card" height="64"> | Done | No tag; its page says who did it |
-
-A card shows the whole task name, wrapped. A `progress` value draws a bar on the card, when the card is wide enough.
-
-## Task page
-
-Press a card to open its page; `‹ Back` returns. Each row is left out when there is nothing to show.
-
-| Row | Shows |
-|---|---|
-| Goal | The `goal` cell |
-| Status | `To do`, `In progress`, `Waiting for your check`, `Waiting for a check`, `Being checked`, `⚑ Blocked` or `Done`; a stalled task adds `· stalled since 14:02` |
-| Done by | The executor, with its model as a tag; `you` for your own tasks |
-| Checked by | The checker, once the task is Done |
-| Progress | The `progress` bar |
-| Latest note | The `evidence` cell; `Blocked because` on a blocked task. A file path in it is a link; a terminal without OSC 8 hyperlink support prints the address after the link |
-
-Above the table, working time, tokens and est. cost appear when your board command supplies them. A task you run yourself shows none.
+Task page: [README, Task page](../README.md#task-page).
 
 ## Board file
 
@@ -106,7 +69,7 @@ Typed in [types/index.d.ts](../types/index.d.ts). It carries what the file does,
 | `matches[]` | The plan list for the query `*`, latest updated first, each `{anchor, name, state, done, total}` and `updated` (ISO, shown beside the count) when it has one. `state` is `In progress`, `Idle`, `Done` or `Canceled`; `waiting: true` on an `Idle` entry draws it as `Waiting for you` (an entry whose `state` is any other word is dropped). `/plan-tracker` lists them under a search field, each pressable; a press opens that plan, and the next queries are its `anchor`, whose answer must hold the plan in `plans[]`. Without `matches[]`, two or more `plans[]` are listed instead; one plan opens its board. |
 | plan `anchor`, `rows[]` | Required. |
 | plan `name`, `plan_file`, `started` | The name, the file `Plan file ›` opens, and when the first task started. |
-| plan `finished`, `updated`, `idle_since` | ISO times behind the state word (see Plan states). |
+| plan `finished`, `updated`, `idle_since` | ISO times behind the state word (see [Plan states](../README.md#board)). |
 | plan `in_session` | `true` for a plan this session works on, `false` for one added because the person picked or searched it. Only a plan with `in_session: true` reads `In progress` while this session runs a turn or a background agent; without the key, the state comes from the tasks alone. |
 | plan `usage_totals` | `tokens` and `est. cost` under the plan name. They are drawn once a task has left Todo or the plan has `started`; before that the plan reads `Not started yet`. |
 | plan `recap`, `recap_updated` | The recap and when it was written: `Recap · updated 12 min ago`. |
