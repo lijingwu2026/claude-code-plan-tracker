@@ -6,9 +6,9 @@
   <a href="#get-started">Get started</a> |
   <a href="#where-it-runs">Where it runs</a> |
   <a href="#how-it-works">How it works</a> |
+  <a href="#try-it">Try it</a> |
   <a href="#what-you-get">What you get</a> |
   <a href="#compared">Compared</a> |
-  <a href="#try-it">Try it</a> |
   <a href="#limits">Limits</a> |
   <a href="#reference">Reference</a>
 </h3>
@@ -48,6 +48,22 @@ Install plan-tracker and [plan-orchestrator](https://github.com/lijingwu2026/cla
 The route skill in plan-orchestrator writes your plan's tasks to `PROGRESS.md` and updates them as they run. plan-tracker reads that file and never writes it.
 
 <img src="docs/how-it-works.svg" alt="Sequence: 1 you approve a plan; 2 the route skill writes one row per task, each with its goal; 3 plan-tracker reads that file; 4 it draws the band and the board; 5 rows change as tasks run and new work gets its own row; 6 a task waits on your check; 7 its card says needs you and its page shows the goal and latest note; 8 you check it and reply; 9 the route skill marks it Done; 10 a pop-up and chime, the bar fills; 11 when Claude hands the plan back, the route skill writes the Recap; 12 in the next session the band and board draw from the same file: state, done/total and recap." width="100%">
+
+## Try it
+
+Save this as `PROGRESS.md` in your project root. The band appears within a few seconds, the board shows a card in Done, In Progress and Verify, and task 3 says `◆ needs you`.
+
+```markdown
+# Add CSV export
+
+| task | status | executor | check | evidence |
+|---|---|---|---|---|
+| 1. Write the serializer | Done | subagent · Sonnet | script | 12 tests pass |
+| 2. Add the export command | In Progress | main session · Opus | script | |
+| 3. Review the file name wording | Needs Verification | main session · Opus | you | draft ready |
+```
+
+Change a status in the file and the board follows.
 
 ## What you get
 
@@ -217,22 +233,6 @@ Use plan-tracker alongside Claude Code's own views; each shows something differe
 |---|---|---|
 | Agent map (Desktop, VS Code) | This session's subagents, each with its status, time and tokens | The plan's tasks across sessions: who has each one and what waits on you |
 | Background tasks (`/tasks`) | Shells and subagents running in this session, cleared when Claude Code exits | Which tasks are running, blocked or done, kept in a file after the session ends |
-
-## Try it
-
-Save this as `PROGRESS.md` in your project root. The band appears within a few seconds, the board shows a card in Done, In Progress and Verify, and task 3 says `◆ needs you`.
-
-```markdown
-# Add CSV export
-
-| task | status | executor | check | evidence |
-|---|---|---|---|---|
-| 1. Write the serializer | Done | subagent · Sonnet | script | 12 tests pass |
-| 2. Add the export command | In Progress | main session · Opus | script | |
-| 3. Review the file name wording | Needs Verification | main session · Opus | you | draft ready |
-```
-
-Change a status in the file and the board follows.
 
 ## Limits
 
