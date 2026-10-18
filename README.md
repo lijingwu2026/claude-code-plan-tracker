@@ -5,8 +5,8 @@
 <h3 align="center">
   <a href="#get-started">Get started</a> |
   <a href="#where-it-runs">Where it runs</a> |
-  <a href="#what-you-get">What you get</a> |
   <a href="#how-it-works">How it works</a> |
+  <a href="#what-you-get">What you get</a> |
   <a href="#compared">Compared</a> |
   <a href="#try-it">Try it</a> |
   <a href="#limits">Limits</a> |
@@ -43,22 +43,11 @@ Install plan-tracker and [plan-orchestrator](https://github.com/lijingwu2026/cla
 | Claude Desktop app (macOS) | Tested | Desktop 2.31226.1, which runs Claude Code 2.1.295 | [Desktop](docs/platform-desktop.png) |
 | VS Code extension | Tested in Cursor | Claude Code extension 2.1.300; VS Code itself is not tested | [Cursor](docs/platform-vscode.png) |
 
-<details>
-<summary>Screenshots: terminal, Claude Desktop, Cursor</summary>
+## How it works
 
-<img src="docs/platform-terminal.png" alt="Claude Code in a terminal window: the band for the demo plan Add CSV export, 3 of 8, above the prompt, and the board open on the right with its four lanes." width="100%">
+The route skill in plan-orchestrator writes your plan's tasks to `PROGRESS.md` and updates them as they run. plan-tracker reads that file and never writes it.
 
-<sub>Terminal: the band above the prompt, and the board opened from it.</sub>
-
-<img src="docs/platform-desktop.png" alt="The Claude Desktop app: a Code session on the demo folder with the plan-tracker band above the prompt and the board open." width="100%">
-
-<sub>Claude Desktop: the same band and board in a Code session.</sub>
-
-<img src="docs/platform-vscode.png" alt="Cursor with the Claude Code panel: the plan-tracker band drawn as links above the prompt, and the board open." width="100%">
-
-<sub>VS Code extension, in Cursor: the band's name and progress are links; each card opens with Open ›.</sub>
-
-</details>
+<img src="docs/how-it-works.svg" alt="Sequence: 1 you approve a plan; 2 the route skill writes one row per task, each with its goal; 3 plan-tracker reads that file; 4 it draws the band and the board; 5 rows change as tasks run and new work gets its own row; 6 a task waits on your check; 7 its card says needs you and its page shows the goal and latest note; 8 you check it and reply; 9 the route skill marks it Done; 10 a pop-up and chime, the bar fills; 11 when Claude hands the plan back, the route skill writes the Recap; 12 in the next session the band and board draw from the same file: state, done/total and recap." width="100%">
 
 ## What you get
 
@@ -205,43 +194,20 @@ Install plan-tracker and [plan-orchestrator](https://github.com/lijingwu2026/cla
 <table>
 <thead><tr><th width="480">Looks like</th><th>Part</th><th>Shows</th><th>Press</th></tr></thead>
 <tbody>
-<tr><td><img src="docs/parts/task-back.png" width="480" alt="Task page, Back boxed"></td><td><b><code>‹ Back</code></b></td><td>&mdash;</td><td>Returns to the board.</td></tr>
-<tr><td><img src="docs/parts/task-title.png" width="480" alt="Task page, the title boxed"></td><td><b>Title</b></td><td>The task's whole name; the square takes the status colour.</td><td>&mdash;</td></tr>
-<tr><td><img src="docs/parts/task-goal.png" width="480" alt="Task page, Goal row boxed"></td><td><b>Goal</b></td><td>One sentence on what the task is for.</td><td>&mdash;</td></tr>
-<tr><td><img src="docs/parts/task-status.png" width="480" alt="Task page, Status row boxed"></td><td><b>Status</b></td><td><code>To do</code>, <code>In progress</code>, <code>Waiting for your check</code>, <code>Waiting for a check</code>, <code>Being checked</code>, <code>⚑ Blocked</code> or <code>Done</code>, in its colour; a stalled task adds <code>· stalled since …</code>.</td><td>&mdash;</td></tr>
-<tr><td><img src="docs/parts/task-doneby.png" width="480" alt="Task page, Done by row boxed"></td><td><b>Done by</b></td><td>Who runs it, with the model as a tag; <code>you</code> for your own tasks.</td><td>&mdash;</td></tr>
-<tr><td><img src="docs/parts/task-checkedby.png" width="480" alt="Task page, Checked by row boxed"></td><td><b>Checked by</b></td><td>Who checked it, once the task is Done.</td><td>&mdash;</td></tr>
+<tr><td><img src="docs/parts/task-back.png" width="100" alt="Task page, Back"></td><td><b><code>‹ Back</code></b></td><td>&mdash;</td><td>Returns to the board.</td></tr>
+<tr><td><img src="docs/parts/task-title.png" width="275" alt="Task page, the title"></td><td><b>Title</b></td><td>The task's whole name; the square takes the status colour.</td><td>&mdash;</td></tr>
+<tr><td><img src="docs/parts/task-goal.png" width="480" alt="Task page, Goal row"></td><td><b>Goal</b></td><td>One sentence on what the task is for.</td><td>&mdash;</td></tr>
+<tr><td><img src="docs/parts/task-status.png" width="238" alt="Task page, Status row"></td><td><b>Status</b></td><td><code>To do</code>, <code>In progress</code>, <code>Waiting for your check</code>, <code>Waiting for a check</code>, <code>Being checked</code>, <code>⚑ Blocked</code> or <code>Done</code>, in its colour; a stalled task, with no session working on it, adds <code>· stalled since …</code>.</td><td>&mdash;</td></tr>
+<tr><td><img src="docs/parts/task-doneby.png" width="358" alt="Task page, Done by row"></td><td><b>Done by</b></td><td>Who runs it, with the model as a tag; <code>you</code> for your own tasks.</td><td>&mdash;</td></tr>
+<tr><td><img src="docs/parts/task-checkedby.png" width="257" alt="Task page, Checked by row"></td><td><b>Checked by</b></td><td>Who checked it, once the task is Done.</td><td>&mdash;</td></tr>
 <tr><td><i>Not in these shots</i></td><td><b>Progress</b></td><td>The <code>progress</code> bar.</td><td>&mdash;</td></tr>
-<tr><td><img src="docs/parts/task-note.png" width="480" alt="Task page, Latest note row boxed"></td><td><b>Latest note</b></td><td>The newest note on the task. A file path in it is a link; a terminal without OSC 8 hyperlink support prints the address after the link.</td><td>A path opens the file.</td></tr>
-<tr><td><img src="docs/parts/task-blocked-because.png" width="480" alt="Task page, Blocked because row boxed"></td><td><b>Blocked because</b></td><td>Takes the Latest note's place on a blocked task.</td><td>&mdash;</td></tr>
+<tr><td><img src="docs/parts/task-note.png" width="321" alt="Task page, Latest note row"></td><td><b>Latest note</b></td><td>The newest note on the task. A file path in it is a link; a terminal without OSC 8 hyperlink support prints the address after the link.</td><td>A path opens the file.</td></tr>
+<tr><td><img src="docs/parts/task-blocked-because.png" width="468" alt="Task page, Blocked because row"></td><td><b>Blocked because</b></td><td>Takes the Latest note's place on a blocked task.</td><td>&mdash;</td></tr>
 <tr><td><i>Not in these shots</i></td><td><b>Time, tokens, est. cost</b></td><td>Above the table, when the board command supplies them for that task. None for a task you run yourself.</td><td>&mdash;</td></tr>
 </tbody>
 </table>
 
 </details>
-
-<details>
-<summary>States</summary>
-
-<table>
-<thead><tr><th width="480">Looks like</th><th>Status</th><th>When</th></tr></thead>
-<tbody>
-<tr><td><img src="docs/states/task-todo.png" width="480" alt="Task page table, To do"></td><td><b>To do</b></td><td>Not started: grey square, no note yet.</td></tr>
-<tr><td><img src="docs/states/task-in-progress.png" width="480" alt="Task page table, In progress"></td><td><b>In progress</b></td><td>Running: blue, with the latest note.</td></tr>
-<tr><td><img src="docs/states/task-stalled.png" width="480" alt="Task page table, stalled"></td><td><b>Stalled</b></td><td>In progress with no session on it: <code>· stalled since 19:23</code>.</td></tr>
-<tr><td><img src="docs/states/task-waiting-for-you.png" width="480" alt="Task page table, Waiting for your check"></td><td><b>Waiting for your check</b></td><td>Done by Claude, checked by you: yellow.</td></tr>
-<tr><td><img src="docs/states/task-blocked.png" width="480" alt="Task page table, Blocked"></td><td><b>Blocked</b></td><td>Pink <code>⚑ Blocked</code> and a <code>Blocked because</code> row.</td></tr>
-<tr><td><img src="docs/states/task-done.png" width="480" alt="Task page table, Done"></td><td><b>Done</b></td><td>Green, with <code>Checked by</code>.</td></tr>
-</tbody>
-</table>
-
-</details>
-
-## How it works
-
-The route skill in plan-orchestrator writes your plan's tasks to `PROGRESS.md` and updates them as they run. plan-tracker reads that file and never writes it.
-
-<img src="docs/how-it-works.svg" alt="Sequence: 1 you approve a plan; 2 the route skill writes one row per task, each with its goal; 3 plan-tracker reads that file; 4 it draws the band and the board; 5 rows change as tasks run and new work gets its own row; 6 a task waits on your check; 7 its card says needs you and its page shows the goal and latest note; 8 you check it and reply; 9 the route skill marks it Done; 10 a pop-up and chime, the bar fills; 11 when Claude hands the plan back, the route skill writes the Recap; 12 in the next session the band and board draw from the same file: state, done/total and recap." width="100%">
 
 ## Compared
 
